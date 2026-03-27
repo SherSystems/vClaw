@@ -151,11 +151,6 @@ describe("Vault + Config integration", () => {
         provider: "vmware",
         field: "password",
       },
-      "telegram.botToken": {
-        value: "123456789:ABCdefGHIjklMNOpqrsTUVwxyz0123456789a",
-        provider: "telegram",
-        field: "botToken",
-      },
       "ai.apiKey": {
         value: "sk-ant-api03-realkey123456789012345678901234567890",
         provider: "ai",
@@ -168,14 +163,11 @@ describe("Vault + Config integration", () => {
     // Verify all secrets were stored
     expect(vault.has("proxmox.tokenSecret")).toBe(true);
     expect(vault.has("vmware.password")).toBe(true);
-    expect(vault.has("telegram.botToken")).toBe(true);
     expect(vault.has("ai.apiKey")).toBe(true);
 
     // Verify secrets decrypt correctly
     expect(vault.retrieve("proxmox.tokenSecret")).toBe("aabbccdd-1122-3344-5566-778899aabbcc");
     expect(vault.retrieve("vmware.password")).toBe("VMware123!");
-    expect(vault.retrieve("telegram.botToken")).toBe("123456789:ABCdefGHIjklMNOpqrsTUVwxyz0123456789a");
-
     // Verify export returns all plaintext
     const exported = vault.exportPlaintext();
     expect(exported["proxmox.tokenSecret"]).toBe("aabbccdd-1122-3344-5566-778899aabbcc");
@@ -183,7 +175,7 @@ describe("Vault + Config integration", () => {
 
     // Verify listing shows metadata
     const list = vault.list();
-    expect(list).toHaveLength(4);
+    expect(list).toHaveLength(3);
     expect(list.find((e) => e.id === "vmware.password")?.provider).toBe("vmware");
   });
 

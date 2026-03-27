@@ -7,7 +7,6 @@ describe("Config", () => {
       const config = ConfigSchema.parse({
         proxmox: {},
         vmware: {},
-        telegram: {},
         ai: {},
         dashboard: {},
         autopilot: {},
@@ -41,7 +40,6 @@ describe("Config", () => {
           allowSelfSignedCerts: "true",
         },
         vmware: {},
-        telegram: {},
         ai: {},
         dashboard: {},
         autopilot: {},
@@ -63,7 +61,6 @@ describe("Config", () => {
           password: "VMware123!",
           insecure: "true",
         },
-        telegram: {},
         ai: {},
         dashboard: {},
         autopilot: {},
@@ -79,7 +76,6 @@ describe("Config", () => {
       const config = ConfigSchema.parse({
         proxmox: {},
         vmware: { insecure: "false" },
-        telegram: {},
         ai: {},
         dashboard: {},
         autopilot: {},
@@ -88,41 +84,10 @@ describe("Config", () => {
       expect(config.vmware.insecure).toBe(false);
     });
 
-    it("parses Telegram config", () => {
-      const config = ConfigSchema.parse({
-        proxmox: {},
-        vmware: {},
-        telegram: {
-          botToken: "123456:ABC-DEF",
-          allowedUsers: "111,222,333",
-        },
-        ai: {},
-        dashboard: {},
-        autopilot: {},
-      });
-
-      expect(config.telegram.botToken).toBe("123456:ABC-DEF");
-      expect(config.telegram.allowedUsers).toEqual([111, 222, 333]);
-    });
-
-    it("handles empty allowedUsers", () => {
-      const config = ConfigSchema.parse({
-        proxmox: {},
-        vmware: {},
-        telegram: { allowedUsers: "" },
-        ai: {},
-        dashboard: {},
-        autopilot: {},
-      });
-
-      expect(config.telegram.allowedUsers).toEqual([]);
-    });
-
     it("parses AI config", () => {
       const config = ConfigSchema.parse({
         proxmox: {},
         vmware: {},
-        telegram: {},
         ai: {
           provider: "openai",
           apiKey: "sk-test-key",
@@ -141,7 +106,6 @@ describe("Config", () => {
       const config = ConfigSchema.parse({
         proxmox: {},
         vmware: {},
-        telegram: {},
         ai: {},
         dashboard: {},
         autopilot: {
@@ -158,7 +122,6 @@ describe("Config", () => {
       const config = ConfigSchema.parse({
         proxmox: { port: "9006" },
         vmware: {},
-        telegram: {},
         ai: {},
         dashboard: { port: "8080" },
         autopilot: {},
@@ -180,7 +143,6 @@ describe("Config", () => {
           user: "admin@vsphere.local",
           password: "pass",
         },
-        telegram: {},
         ai: {},
         dashboard: {},
         autopilot: {},

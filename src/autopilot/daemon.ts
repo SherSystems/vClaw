@@ -445,7 +445,7 @@ export class AutopilotDaemon {
 
     console.log(`[autopilot] Alert [${severity}] ${source}: ${message}`);
 
-    // Forward to EventBus for Telegram/Dashboard consumption
+    // Forward to EventBus for Dashboard consumption
     this.eventBus.emit({
       type: "alert_fired",
       timestamp: alert.timestamp,

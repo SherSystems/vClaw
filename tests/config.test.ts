@@ -27,8 +27,6 @@ describe("getConfig", () => {
     expect(config.proxmox.allowSelfSignedCerts).toBe(true);
     expect(config.ai.provider).toBe("anthropic");
     expect(config.ai.model).toBe("claude-sonnet-4-20250514");
-    expect(config.telegram.botToken).toBe("");
-    expect(config.telegram.allowedUsers).toEqual([]);
     expect(config.dashboard.port).toBe(3000);
     expect(config.autopilot.enabled).toBe(false);
     expect(config.autopilot.pollIntervalMs).toBe(30000);
@@ -47,13 +45,6 @@ describe("getConfig", () => {
     const config = getConfig();
     expect(config.proxmox.port).toBe(9999);
     expect(typeof config.proxmox.port).toBe("number");
-  });
-
-  it("parses TELEGRAM_ALLOWED_USERS comma-separated string into number array", async () => {
-    vi.stubEnv("TELEGRAM_ALLOWED_USERS", "111,222,333");
-    const { getConfig } = await import("../src/config.js");
-    const config = getConfig();
-    expect(config.telegram.allowedUsers).toEqual([111, 222, 333]);
   });
 
   it('parses PROXMOX_ALLOW_SELF_SIGNED "true"/"false" to boolean', async () => {

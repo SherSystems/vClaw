@@ -15,7 +15,6 @@ import { SystemAdapter } from "./providers/system/adapter.js";
 import { AgentCore } from "./agent/core.js";
 import { EventBus } from "./agent/events.js";
 import { vClawCLI } from "./frontends/cli.js";
-import { vClawBot } from "./frontends/telegram.js";
 import { DashboardServer } from "./frontends/dashboard/server.js";
 import { vClawMCP } from "./frontends/mcp.js";
 import { AutopilotDaemon } from "./autopilot/daemon.js";
@@ -112,25 +111,6 @@ async function main() {
       break;
     }
 
-    case "telegram": {
-      if (!config.telegram.botToken) {
-        console.error("Error: TELEGRAM_BOT_TOKEN is required for telegram mode");
-        process.exit(1);
-      }
-      const bot = new vClawBot(
-        {
-          botToken: config.telegram.botToken,
-          allowedUsers: config.telegram.allowedUsers,
-        },
-        agentCore,
-        registry,
-        eventBus,
-        governance,
-      );
-      await bot.start();
-      break;
-    }
-
     case "dashboard": {
       const dashboard = new DashboardServer(
         config.dashboard.port,
@@ -202,22 +182,6 @@ async function main() {
       );
       await dashboard.start();
 
-      // Telegram (if configured)
-      let fullBot: vClawBot | undefined;
-      if (config.telegram.botToken) {
-        fullBot = new vClawBot(
-          {
-            botToken: config.telegram.botToken,
-            allowedUsers: config.telegram.allowedUsers,
-          },
-          agentCore,
-          registry,
-          eventBus,
-          governance,
-        );
-        await fullBot.start();
-      }
-
       // Autopilot (if enabled)
       if (config.autopilot.enabled) {
         const autopilot = new AutopilotDaemon(
@@ -262,11 +226,6 @@ async function main() {
       // Expose on dashboard for API routes
       (dashboard as unknown as { chaosEngine: ChaosEngine }).chaosEngine = chaosEngine;
 
-      // Wire chaos engine to Telegram bot
-      if (fullBot) {
-        fullBot.chaosEngine = chaosEngine;
-      }
-
       console.log("  Chaos engineering engine ready");
 
       console.log("\nAll services running. Press Ctrl+C to stop.\n");
@@ -274,9 +233,9 @@ async function main() {
     }
 
     case "dev": {
-      // Dashboard + Telegram + CLI — all sharing the same event bus
+      // Dashboard + CLI — all sharing the same event bus
       // Type goals in the CLI and watch them stream live on the dashboard
-      console.log("Starting vClaw in dev mode (Dashboard + Telegram + CLI)...\n");
+      console.log("Starting vClaw in dev mode (Dashboard + CLI)...\n");
 
       const dashboard = new DashboardServer(
         config.dashboard.port,
@@ -286,21 +245,6 @@ async function main() {
         governance.audit
       );
       await dashboard.start();
-
-      let devBot: vClawBot | undefined;
-      if (config.telegram.botToken) {
-        devBot = new vClawBot(
-          {
-            botToken: config.telegram.botToken,
-            allowedUsers: config.telegram.allowedUsers,
-          },
-          agentCore,
-          registry,
-          eventBus,
-          governance,
-        );
-        await devBot.start();
-      }
 
       // Self-healing orchestrator
       const devHealer = new HealingOrchestrator({
@@ -328,11 +272,6 @@ async function main() {
       // Expose on dashboard for API routes
       (dashboard as unknown as { chaosEngine: ChaosEngine }).chaosEngine = devChaosEngine;
 
-      // Wire chaos engine to Telegram bot
-      if (devBot) {
-        devBot.chaosEngine = devChaosEngine;
-      }
-
       const cli = new vClawCLI(agentCore, registry, eventBus, governance);
       await cli.start();
       break;
@@ -353,11 +292,10 @@ Usage:
   vclaw cli                     Interactive CLI (REPL)
   vclaw cli "goal"              One-shot: plan and execute a goal
   vclaw "goal"                  One-shot: plan and execute a goal
-  vclaw telegram                Start Telegram bot
   vclaw dashboard               Start web dashboard
   vclaw mcp                     Start MCP server (for Claude Code)
   vclaw autopilot               Start autopilot daemon + dashboard
-  vclaw dev                     CLI + Dashboard + Telegram (best for testing)
+  vclaw dev                     CLI + Dashboard (best for testing)
   vclaw full                    Start all services (no CLI)
 
 Environment (Proxmox):
@@ -376,8 +314,6 @@ Environment (General):
   AI_PROVIDER                   LLM provider: anthropic | openai
   AI_API_KEY                    LLM API key
   AI_MODEL                      LLM model name
-  TELEGRAM_BOT_TOKEN            Telegram bot token
-  TELEGRAM_ALLOWED_USERS        Comma-separated Telegram user IDs
   DASHBOARD_PORT                Dashboard port (default: 3000)
   AUTOPILOT_ENABLED             Enable autopilot (default: false)
   AUTOPILOT_POLL_INTERVAL_MS    Poll interval in ms (default: 30000)

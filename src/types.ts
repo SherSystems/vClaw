@@ -171,7 +171,7 @@ export interface ApprovalResponse {
   request_id: string;
   approved: boolean;
   approved_by?: string;
-  method: "cli" | "telegram" | "dashboard" | "auto";
+  method: "cli" | "dashboard" | "auto";
   timestamp: string;
 }
 

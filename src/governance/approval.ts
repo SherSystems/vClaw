@@ -63,7 +63,7 @@ export class ApprovalGate {
   }
 
   /**
-   * Set a plan-level approval handler (e.g., Telegram shows full plan).
+   * Set a plan-level approval handler (e.g., Dashboard shows full plan).
    * When a plan is approved at plan-level, individual steps skip approval.
    */
   setPlanApprovalHandler(handler: PlanApprovalHandler): void {

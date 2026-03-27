@@ -27,14 +27,6 @@ const VMwareConfigSchema = z.object({
     .transform((v) => v === "true"),
 });
 
-const TelegramConfigSchema = z.object({
-  botToken: z.string().default(""),
-  allowedUsers: z
-    .string()
-    .default("")
-    .transform((v) => (v ? v.split(",").map((s) => Number(s.trim())) : [])),
-});
-
 const AIConfigSchema = z.object({
   provider: z.enum(["anthropic", "openai"]).default("anthropic"),
   apiKey: z.string().default(""),
@@ -56,7 +48,6 @@ const AutopilotConfigSchema = z.object({
 export const ConfigSchema = z.object({
   proxmox: ProxmoxConfigSchema,
   vmware: VMwareConfigSchema,
-  telegram: TelegramConfigSchema,
   ai: AIConfigSchema,
   dashboard: DashboardConfigSchema,
   autopilot: AutopilotConfigSchema,
@@ -82,10 +73,6 @@ export function getConfig(): Config {
       user: process.env.VMWARE_USER,
       password: process.env.VMWARE_PASSWORD,
       insecure: process.env.VMWARE_INSECURE,
-    },
-    telegram: {
-      botToken: process.env.TELEGRAM_BOT_TOKEN,
-      allowedUsers: process.env.TELEGRAM_ALLOWED_USERS,
     },
     ai: {
       provider: process.env.AI_PROVIDER,
@@ -142,7 +129,7 @@ export function getOrCreateVault(): CredentialVault | null {
 
 /**
  * Migrate config secrets into the vault.
- * Stores Proxmox token secret, VMware password, Telegram bot token, and AI API key.
+ * Stores Proxmox token secret, VMware password, and AI API key.
  */
 export function migrateToVault(config: Config, vault: CredentialVault): void {
   vault.importFromConfig({
@@ -155,11 +142,6 @@ export function migrateToVault(config: Config, vault: CredentialVault): void {
       value: config.vmware.password,
       provider: "vmware",
       field: "password",
-    },
-    "telegram.botToken": {
-      value: config.telegram.botToken,
-      provider: "telegram",
-      field: "botToken",
     },
     "ai.apiKey": {
       value: config.ai.apiKey,

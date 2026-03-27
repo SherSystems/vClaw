@@ -37,8 +37,8 @@
   <line x1="460" y1="105" x2="490" y2="105" stroke="white" stroke-width="3" stroke-linecap="round"/>
   <line x1="460" y1="114" x2="490" y2="114" stroke="white" stroke-width="3" stroke-linecap="round"/>
   <!-- Title -->
-  <text x="540" y="120" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="800" font-size="56" fill="#E2E8F0" letter-spacing="-1">infra</text>
-  <text x="702" y="120" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="800" font-size="56" fill="#0ACDAA" letter-spacing="-1">wrap</text>
+  <text x="540" y="120" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="800" font-size="56" fill="#E2E8F0" letter-spacing="-1">v</text>
+  <text x="572" y="120" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="800" font-size="56" fill="#0ACDAA" letter-spacing="-1">Claw</text>
   <!-- Tagline -->
   <text x="600" y="190" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" font-size="18" fill="#8896B3" text-anchor="middle" letter-spacing="3">AUTONOMOUS INFRASTRUCTURE AGENT</text>
   <!-- Feature badges -->

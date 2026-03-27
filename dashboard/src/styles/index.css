@@ -3500,7 +3500,7 @@ button, select, a, .tab, .incident-card, .incident-row, .audit-header, .audit-pl
     gap: 8px;
   }
 
-  /* Hide "Ask InfraWrap" text, show only icon */
+  /* Hide "Ask vClaw" text, show only icon */
   .cmd-k-trigger {
     padding: 6px 8px;
     font-size: 0;

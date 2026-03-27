@@ -7,7 +7,7 @@ describe("loadPolicy", () => {
   const tmpFiles: string[] = [];
 
   function writeTmpYaml(name: string, content: string): string {
-    const p = join("/tmp", `infrawrap-test-${name}-${Date.now()}.yaml`);
+    const p = join("/tmp", `vclaw-test-${name}-${Date.now()}.yaml`);
     writeFileSync(p, content, "utf-8");
     tmpFiles.push(p);
     return p;

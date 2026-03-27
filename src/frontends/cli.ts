@@ -595,7 +595,7 @@ export class vClawCLI {
     this.rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
-      prompt: cyan(bold("infrawrap> ")),
+      prompt: cyan(bold("vclaw> ")),
       terminal: true,
     });
 

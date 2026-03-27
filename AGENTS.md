@@ -4,7 +4,7 @@ This repository is designed to work well with coding agents such as Codex and Cl
 
 ## Project Overview
 
-InfraWrap is an autonomous infrastructure agent for Proxmox-focused operations. The backend is a TypeScript Node.js application that plans actions with an LLM, routes them through governance checks, executes tools, observes outcomes, and exposes multiple frontends.
+vClaw is an autonomous AI infrastructure agent with multi-provider support (Proxmox, VMware, and more). The backend is a TypeScript Node.js application that plans actions with an LLM, routes them through governance checks, executes tools via provider adapters, observes outcomes, and exposes multiple frontends.
 
 Primary runtime modes:
 
@@ -20,15 +20,19 @@ Primary runtime modes:
 - `src/index.ts`: main entrypoint and mode bootstrap
 - `src/agent/`: planner, executor, observer, LLM abstraction, memory
 - `src/governance/`: policy loading, action classification, approvals, audit, circuit breaker
-- `src/tools/`: tool registry plus adapters
-- `src/tools/proxmox/`: Proxmox adapter and REST client
-- `src/tools/system/`: SSH/local/system tools
+- `src/providers/`: provider abstraction layer
+- `src/providers/types.ts`: InfraAdapter interface and shared types
+- `src/providers/registry.ts`: tool registry and multi-provider routing
+- `src/providers/proxmox/`: Proxmox adapter and REST client
+- `src/providers/system/`: SSH/local/system tools
+- `src/tools/`: backwards-compatible re-exports (use `src/providers/` for new work)
 - `src/healing/`: incident management, playbooks, healing orchestrator
 - `src/monitoring/`: health metric collection and anomaly detection
 - `src/chaos/`: chaos simulation and execution
 - `src/frontends/`: CLI, Telegram, MCP, backend dashboard server
 - `dashboard/`: React + Vite dashboard frontend
 - `policies/default.yaml`: default governance policy
+- `tests/`: vitest test suite
 - `data/`: runtime persistence for audit and healing state
 
 ## Working Rules For Agents
@@ -36,8 +40,9 @@ Primary runtime modes:
 - Read the relevant module before editing it. This repo has shared concepts across agent, governance, healing, and dashboard code.
 - Prefer editing `src/` and `dashboard/src/`. Do not hand-edit `dist/`; it is build output.
 - Keep governance behavior explicit. Any new action path should preserve tiering, approval flow, audit logging, and circuit-breaker behavior.
-- Assume Proxmox access may be real. Avoid destructive defaults and do not weaken guardrails casually.
+- Assume provider access may be real. Avoid destructive defaults and do not weaken guardrails casually.
 - Preserve existing event emissions when changing execution or healing flows. The dashboard depends on them.
+- New providers must implement the `InfraAdapter` interface in `src/providers/types.ts`.
 - If adding a new backend capability, consider whether it affects:
   - tool definitions
   - governance classification
@@ -57,6 +62,7 @@ Backend:
 - `npm run dev:autopilot`
 - `npm run build`
 - `npm run lint`
+- `npm test` (vitest)
 
 Dashboard frontend:
 
@@ -68,6 +74,7 @@ Dashboard frontend:
 Important env vars live in `.env.example`:
 
 - Proxmox: `PROXMOX_HOST`, `PROXMOX_TOKEN_ID`, `PROXMOX_TOKEN_SECRET`
+- VMware: `VMWARE_HOST`, `VMWARE_USER`, `VMWARE_PASSWORD`, `VMWARE_INSECURE`
 - AI: `AI_PROVIDER`, `AI_API_KEY`, `AI_MODEL`
 - Telegram: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USERS`
 - Dashboard: `DASHBOARD_PORT`
@@ -87,11 +94,20 @@ The dashboard frontend (`dashboard/`) is a React 19 + Vite 6 app using Zustand f
 - Components: `Header`, `Topology`, `Resources`, `Nodes`, `Incidents`, `Governance`, `Chaos`, `EventStream`, `CommandPalette`.
 - The gauge SVG pattern uses a `div.gauge-svg > svg` wrapper structure. Do not render `<svg className="gauge-svg">` directly as the CSS expects the div wrapper.
 
+## Provider Architecture
+
+vClaw uses a provider abstraction pattern:
+
+- `InfraAdapter` interface: `connect()`, `disconnect()`, `getTools()`, `execute()`, `getClusterState()`
+- `ToolRegistry`: routes tool execution to the correct adapter based on tool→adapter mapping
+- Each provider registers its tools with tiers (read, safe_write, risky_write, destructive, never)
+- `getMultiClusterState()` aggregates state from all connected providers
+
 ## Repo-Specific Notes
 
 - The backend dashboard server serves `dashboard/dist` if it exists; otherwise it falls back to an inline HTML template.
 - The default policy accepts `approve_fix` in YAML and normalizes it to `approve_risky` in `src/governance/policy.ts`.
-- There is no real automated test suite yet. The main safety check is `npm run lint` and, for dashboard work, `cd dashboard && npm run build`.
+- Test suite: `npm test` runs vitest across `tests/`.
 - `ToolRegistry.getClusterState()` returns the first connected adapter's cluster state, so changes that depend on cluster snapshots should be made carefully.
 - The system adapter exposes powerful commands like `local_exec`, `ssh_exec`, and `run_script`; keep these governed and avoid bypassing the normal execution path.
 

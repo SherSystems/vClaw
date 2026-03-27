@@ -37,12 +37,12 @@ export function Header() {
             <line x1="26" y1="36" x2="46" y2="36" stroke="white" strokeWidth="3.5" strokeLinecap="round" />
             <line x1="26" y1="43" x2="46" y2="43" stroke="white" strokeWidth="3.5" strokeLinecap="round" />
           </svg>
-          infra<span className="brand-accent">wrap</span>
+          v<span className="brand-accent">Claw</span>
         </div>
 
         <div className="header-right">
           <button className="cmd-k-trigger">
-            Ask InfraWrap
+            Ask vClaw
             <span className="cmd-palette-kbd">⌘K</span>
           </button>
 

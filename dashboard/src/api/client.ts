@@ -1,4 +1,4 @@
-// API client for InfraWrap dashboard
+// API client for vClaw dashboard
 
 const BASE = "";
 

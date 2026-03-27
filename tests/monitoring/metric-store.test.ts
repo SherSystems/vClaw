@@ -3,7 +3,7 @@ import { unlinkSync } from "node:fs";
 import { PersistentMetricStore, type MetricPoint } from "../../src/monitoring/metric-store.js";
 
 function tmpDbPath(): string {
-  return `/tmp/infrawrap-test-metrics-${Date.now()}-${Math.random().toString(36).slice(2)}.db`;
+  return `/tmp/vclaw-test-metrics-${Date.now()}-${Math.random().toString(36).slice(2)}.db`;
 }
 
 describe("PersistentMetricStore", () => {

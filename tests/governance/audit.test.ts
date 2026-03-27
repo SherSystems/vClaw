@@ -6,7 +6,7 @@ import type { AuditEntry } from "../../src/types.js";
 // ── Helpers ─────────────────────────────────────────────────
 
 function makeDbPath(): string {
-  return `/tmp/infrawrap-test-audit-${Date.now()}-${Math.random().toString(36).slice(2)}.db`;
+  return `/tmp/vclaw-test-audit-${Date.now()}-${Math.random().toString(36).slice(2)}.db`;
 }
 
 let counter = 0;

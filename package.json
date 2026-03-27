@@ -5,7 +5,7 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "infrawrap": "dist/index.js"
+    "vclaw": "dist/index.js"
   },
   "scripts": {
     "build": "tsc",

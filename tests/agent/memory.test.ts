@@ -10,7 +10,7 @@ let memory: AgentMemory;
 let dbPath: string;
 
 function freshMemory(): AgentMemory {
-  dbPath = `/tmp/infrawrap-test-memory-${Date.now()}-${Math.random().toString(36).slice(2)}.db`;
+  dbPath = `/tmp/vclaw-test-memory-${Date.now()}-${Math.random().toString(36).slice(2)}.db`;
   memory = new AgentMemory(dbPath);
   return memory;
 }

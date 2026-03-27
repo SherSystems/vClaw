@@ -80,7 +80,7 @@ const mockTools: ToolDefinition[] = [
 // ── Helpers ─────────────────────────────────────────────────
 
 function makeDbPath(): string {
-  return `/tmp/infrawrap-test-engine-${Date.now()}-${Math.random().toString(36).slice(2)}.db`;
+  return `/tmp/vclaw-test-engine-${Date.now()}-${Math.random().toString(36).slice(2)}.db`;
 }
 
 function makeAuditEntry(overrides: Partial<AuditEntry> = {}): AuditEntry {

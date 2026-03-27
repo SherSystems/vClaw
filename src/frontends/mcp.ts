@@ -164,7 +164,7 @@ export class vClawMCP {
     this.governance = governance;
 
     this.server = new McpServer({
-      name: "infrawrap",
+      name: "vclaw",
       version: "0.1.0",
     });
 
@@ -771,17 +771,17 @@ export class vClawMCP {
   // ── Resources ───────────────────────────────────────────────
 
   private registerResources(): void {
-    // -- infrawrap://cluster/status --
+    // -- vclaw://cluster/status --
     this.server.resource(
       "cluster-status",
-      "infrawrap://cluster/status",
+      "vclaw://cluster/status",
       async () => {
         try {
           const state = await this.toolRegistry.getClusterState();
           if (!state) {
             return {
               contents: [{
-                uri: "infrawrap://cluster/status",
+                uri: "vclaw://cluster/status",
                 mimeType: "text/plain",
                 text: "No cluster adapter connected. Cannot retrieve cluster status.",
               }],
@@ -790,7 +790,7 @@ export class vClawMCP {
           const text = formatClusterState(state as unknown as Record<string, unknown>);
           return {
             contents: [{
-              uri: "infrawrap://cluster/status",
+              uri: "vclaw://cluster/status",
               mimeType: "text/markdown",
               text,
             }],
@@ -799,7 +799,7 @@ export class vClawMCP {
           const msg = err instanceof Error ? err.message : String(err);
           return {
             contents: [{
-              uri: "infrawrap://cluster/status",
+              uri: "vclaw://cluster/status",
               mimeType: "text/plain",
               text: `Error retrieving cluster status: ${msg}`,
             }],
@@ -808,10 +808,10 @@ export class vClawMCP {
       },
     );
 
-    // -- infrawrap://agent/audit --
+    // -- vclaw://agent/audit --
     this.server.resource(
       "agent-audit",
-      "infrawrap://agent/audit",
+      "vclaw://agent/audit",
       async () => {
         try {
           const stats = this.governance.getAuditStats() as {
@@ -847,7 +847,7 @@ export class vClawMCP {
 
           return {
             contents: [{
-              uri: "infrawrap://agent/audit",
+              uri: "vclaw://agent/audit",
               mimeType: "text/markdown",
               text: lines.join("\n"),
             }],
@@ -856,7 +856,7 @@ export class vClawMCP {
           const msg = err instanceof Error ? err.message : String(err);
           return {
             contents: [{
-              uri: "infrawrap://agent/audit",
+              uri: "vclaw://agent/audit",
               mimeType: "text/plain",
               text: `Error retrieving audit data: ${msg}`,
             }],

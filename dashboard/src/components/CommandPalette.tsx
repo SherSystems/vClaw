@@ -142,7 +142,7 @@ export default function CommandPalette() {
           <input
             ref={inputRef}
             className="cmd-palette-input"
-            placeholder="Ask InfraWrap anything..."
+            placeholder="Ask vClaw anything..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -172,7 +172,7 @@ export default function CommandPalette() {
         {/* Loading indicator */}
         <div className={`cmd-palette-loading${loading ? " visible" : ""}`}>
           <span className="cmd-palette-spinner" />
-          InfraWrap is thinking...
+          vClaw is thinking...
         </div>
 
         {/* Response */}
@@ -196,7 +196,7 @@ export default function CommandPalette() {
           <span className="cmd-palette-footer-keys">
             <kbd>↵</kbd> Run &nbsp; <kbd>ESC</kbd> Close
           </span>
-          <span>InfraWrap Agent</span>
+          <span>vClaw Agent</span>
         </div>
       </div>
     </div>

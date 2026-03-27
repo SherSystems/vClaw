@@ -1,5 +1,5 @@
 // ============================================================
-// InfraWrap — Chaos Scenarios · Unit Tests
+// vClaw — Chaos Scenarios · Unit Tests
 // ============================================================
 
 import { describe, it, expect } from "vitest";

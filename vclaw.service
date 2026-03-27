@@ -1,13 +1,13 @@
 [Unit]
-Description=InfraWrap — Autonomous Infrastructure Agent
+Description=vClaw — Autonomous AI Infrastructure Agent
 After=network.target
 
 [Service]
 Type=simple
 User=YOUR_USER
-WorkingDirectory=/path/to/infrawrap
+WorkingDirectory=/path/to/vclaw
 Environment=PATH=/path/to/node/bin:/usr/bin:/bin
-EnvironmentFile=/path/to/infrawrap/.env
+EnvironmentFile=/path/to/vclaw/.env
 ExecStart=/path/to/node/bin/npx tsx src/index.ts full
 Restart=on-failure
 RestartSec=5

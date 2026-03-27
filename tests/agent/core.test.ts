@@ -161,7 +161,7 @@ describe("AgentCore", () => {
   let governance: ReturnType<typeof makeMockGovernance>;
 
   beforeEach(() => {
-    dbPath = `/tmp/infrawrap-test-core-${Date.now()}.db`;
+    dbPath = `/tmp/vclaw-test-core-${Date.now()}.db`;
     eventBus = new EventBus();
     toolRegistry = makeMockToolRegistry();
     governance = makeMockGovernance();

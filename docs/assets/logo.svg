@@ -11,6 +11,6 @@
   <line x1="26" y1="36" x2="46" y2="36" stroke="white" stroke-width="3.5" stroke-linecap="round"/>
   <line x1="26" y1="43" x2="46" y2="43" stroke="white" stroke-width="3.5" stroke-linecap="round"/>
   <!-- Wordmark -->
-  <text x="88" y="48" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="800" font-size="42" fill="#0B1120" letter-spacing="-1.5">infra</text>
-  <text x="189" y="48" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="800" font-size="42" fill="#0ACDAA" letter-spacing="-1.5">wrap</text>
+  <text x="88" y="48" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="800" font-size="42" fill="#0B1120" letter-spacing="-1.5">v</text>
+  <text x="112" y="48" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="800" font-size="42" fill="#0ACDAA" letter-spacing="-1.5">Claw</text>
 </svg>

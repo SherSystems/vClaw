@@ -38,7 +38,7 @@ const BUILT_IN_PATTERNS: RedactionPattern[] = [
     replacement: "[REDACTED:anthropic_key]",
   },
   {
-    pattern: /sk-[A-Za-z0-9]{20,}/g,
+    pattern: /sk-[A-Za-z0-9_-]{20,}/g,
     label: "openai_api_key",
     replacement: "[REDACTED:api_key]",
   },
@@ -55,9 +55,17 @@ const BUILT_IN_PATTERNS: RedactionPattern[] = [
     replacement: "[REDACTED:uuid]",
   },
 
+  // Telegram bot tokens (format: 123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11)
+  // Must be before password_field so `token:` prefix doesn't match first
+  {
+    pattern: /\d{6,}:[A-Za-z0-9_-]{35,}/g,
+    label: "telegram_token",
+    replacement: "[REDACTED:telegram_token]",
+  },
+
   // Passwords in common formats
   {
-    pattern: /(?:password|passwd|pwd|secret|token|apikey|api_key)\s*[=:]\s*["']?[^\s"',}{)]+/gi,
+    pattern: /(?:password|passwd|pwd|secret|token|apikey|api_key)\s*[=:]\s*["']?[^\s"',}{)\[]+/gi,
     label: "password_field",
     replacement: "[REDACTED:credential]",
   },
@@ -95,13 +103,6 @@ const BUILT_IN_PATTERNS: RedactionPattern[] = [
     pattern: /vmware-api-session-id:\s*[^\s"']+/gi,
     label: "vmware_session",
     replacement: "vmware-api-session-id: [REDACTED]",
-  },
-
-  // Telegram bot tokens (format: 123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11)
-  {
-    pattern: /\d{6,}:[A-Za-z0-9_-]{35,}/g,
-    label: "telegram_token",
-    replacement: "[REDACTED:telegram_token]",
   },
 ];
 

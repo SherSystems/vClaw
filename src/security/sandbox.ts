@@ -250,11 +250,8 @@ export class SandboxManager {
           if (!settled) {
             settled = true;
             clearTimeout(timer);
-            // Contain the crash — don't propagate, wrap as failed result
-            resolve({
-              success: false,
-              error: `Tool crashed: ${err instanceof Error ? err.message : String(err)}`,
-            });
+            // Propagate as rejection so the outer execute() catch classifies it as crashed
+            reject(new Error(`Tool crashed: ${err instanceof Error ? err.message : String(err)}`));
           }
         });
     });

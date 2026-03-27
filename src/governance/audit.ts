@@ -7,6 +7,10 @@ import { fileURLToPath } from "node:url";
 import { mkdirSync } from "node:fs";
 import Database from "better-sqlite3";
 import type { AuditEntry } from "../types.js";
+import { PrivacyRouter } from "../security/privacy.js";
+
+// Module-level privacy router for redacting sensitive data before logging
+const privacyRouter = new PrivacyRouter();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -54,6 +58,15 @@ export class AuditLog {
    * Log an audit entry to the database.
    */
   log(entry: AuditEntry): void {
+    // Redact sensitive data from params and state before persisting
+    const redactedParams = privacyRouter.redactObject(entry.params);
+    const redactedStateBefore = entry.state_before
+      ? privacyRouter.redactObject(entry.state_before)
+      : undefined;
+    const redactedStateAfter = entry.state_after
+      ? privacyRouter.redactObject(entry.state_after)
+      : undefined;
+
     const stmt = this.db.prepare(`
       INSERT INTO audit_log (
         id, timestamp, action, tier, approval, reasoning,
@@ -73,14 +86,14 @@ export class AuditLog {
       tier: entry.tier,
       approval: entry.approval ? JSON.stringify(entry.approval) : null,
       reasoning: entry.reasoning,
-      params: JSON.stringify(entry.params),
+      params: JSON.stringify(redactedParams),
       result: entry.result,
       error: entry.error ?? null,
-      state_before: entry.state_before
-        ? JSON.stringify(entry.state_before)
+      state_before: redactedStateBefore
+        ? JSON.stringify(redactedStateBefore)
         : null,
-      state_after: entry.state_after
-        ? JSON.stringify(entry.state_after)
+      state_after: redactedStateAfter
+        ? JSON.stringify(redactedStateAfter)
         : null,
       plan_id: entry.plan_id ?? null,
       step_id: entry.step_id ?? null,

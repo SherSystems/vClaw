@@ -14,6 +14,7 @@ import type {
 } from "../types.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import type { EventBus } from "./events.js";
+import type { SandboxManager } from "../security/sandbox.js";
 
 export interface GovernanceEngineRef {
   evaluate(
@@ -39,15 +40,21 @@ export class Executor {
   private toolRegistry: ToolRegistry;
   private governance: GovernanceEngineRef;
   private eventBus: EventBus;
+  private sandbox?: SandboxManager;
 
   constructor(
     toolRegistry: ToolRegistry,
     governance: GovernanceEngineRef,
     eventBus: EventBus,
+    sandbox?: SandboxManager,
   ) {
     this.toolRegistry = toolRegistry;
     this.governance = governance;
     this.eventBus = eventBus;
+    if (sandbox) {
+      this.sandbox = sandbox;
+      this.sandbox.setExecutor((tool, params) => this.toolRegistry.execute(tool, params));
+    }
   }
 
   /**
@@ -139,10 +146,12 @@ export class Executor {
       // State capture is best-effort; continue execution
     }
 
-    // Execute the tool
+    // Execute the tool (via sandbox if available, otherwise direct)
     let toolResult: { success: boolean; data?: unknown; error?: string };
     try {
-      toolResult = await this.toolRegistry.execute(step.action, step.params);
+      toolResult = this.sandbox
+        ? await this.sandbox.execute(step.action, step.params)
+        : await this.toolRegistry.execute(step.action, step.params);
     } catch (err) {
       const result = this.buildFailedResult(
         startTime,

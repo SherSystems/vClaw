@@ -2,6 +2,7 @@ import { z } from "zod";
 import dotenv from "dotenv";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
+import { CredentialVault } from "./security/vault.js";
 
 dotenv.config();
 
@@ -115,4 +116,55 @@ export function getPoliciesDir(): string {
 export function getDataDir(): string {
   const dir = join(getProjectRoot(), "data");
   return dir;
+}
+
+// ── Vault Integration (opt-in via VCLAW_VAULT_KEY) ──────────
+
+let _vault: CredentialVault | null = null;
+
+/**
+ * Get or create the credential vault. Returns null if VCLAW_VAULT_KEY is not set.
+ * The vault is stored at <dataDir>/vault.json.
+ */
+export function getOrCreateVault(): CredentialVault | null {
+  const vaultKey = process.env.VCLAW_VAULT_KEY;
+  if (!vaultKey) return null;
+
+  if (_vault) return _vault;
+
+  _vault = new CredentialVault({
+    path: join(getDataDir(), "vault.json"),
+    masterKey: vaultKey,
+  });
+
+  return _vault;
+}
+
+/**
+ * Migrate config secrets into the vault.
+ * Stores Proxmox token secret, VMware password, Telegram bot token, and AI API key.
+ */
+export function migrateToVault(config: Config, vault: CredentialVault): void {
+  vault.importFromConfig({
+    "proxmox.tokenSecret": {
+      value: config.proxmox.tokenSecret,
+      provider: "proxmox",
+      field: "tokenSecret",
+    },
+    "vmware.password": {
+      value: config.vmware.password,
+      provider: "vmware",
+      field: "password",
+    },
+    "telegram.botToken": {
+      value: config.telegram.botToken,
+      provider: "telegram",
+      field: "botToken",
+    },
+    "ai.apiKey": {
+      value: config.ai.apiKey,
+      provider: "ai",
+      field: "apiKey",
+    },
+  });
 }

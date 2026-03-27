@@ -5,6 +5,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
+import type { PrivacyRouter } from "../security/privacy.js";
 
 export interface AIConfig {
   provider: "anthropic" | "openai";
@@ -18,6 +19,8 @@ export interface CallLLMOptions {
   config: AIConfig;
   temperature?: number;
   maxTokens?: number;
+  /** Optional privacy router to sanitize prompts before sending to the API */
+  privacyRouter?: PrivacyRouter;
 }
 
 /**
@@ -27,12 +30,22 @@ export interface CallLLMOptions {
  */
 export async function callLLM(options: CallLLMOptions): Promise<string> {
   const {
-    system,
-    user,
+    system: rawSystem,
+    user: rawUser,
     config,
     temperature = 0,
     maxTokens = 4096,
+    privacyRouter,
   } = options;
+
+  // Sanitize prompts if a privacy router is provided
+  let system = rawSystem;
+  let user = rawUser;
+  if (privacyRouter) {
+    const sanitized = privacyRouter.sanitizeForLLM(rawSystem, rawUser);
+    system = sanitized.system;
+    user = sanitized.user;
+  }
 
   let raw: string;
 

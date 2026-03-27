@@ -20,6 +20,7 @@ import { Observer, type ObservationResult } from "./observer.js";
 import { Investigator, type InvestigationContext } from "./investigator.js";
 import { AgentMemory } from "./memory.js";
 import { EventBus } from "./events.js";
+import { MultiProviderOrchestrator, type PlanResult } from "./orchestrator.js";
 
 export interface StepOutput {
   step_id: string;
@@ -65,6 +66,7 @@ export class AgentCore {
   readonly observer: Observer;
   readonly investigator: Investigator;
   readonly memory: AgentMemory;
+  readonly orchestrator: MultiProviderOrchestrator;
 
   constructor(options: AgentCoreOptions) {
     this.toolRegistry = options.toolRegistry;
@@ -81,6 +83,16 @@ export class AgentCore {
     this.observer = new Observer();
     this.investigator = new Investigator();
     this.memory = new AgentMemory(options.memoryDbPath);
+    this.orchestrator = new MultiProviderOrchestrator({
+      registry: this.toolRegistry,
+      planner: this.planner,
+      executor: this.executor,
+      observer: this.observer,
+      eventBus: this.eventBus,
+      config: this.config,
+      governance: this.governance,
+      memory: this.memory,
+    });
   }
 
   /**
@@ -94,16 +106,18 @@ export class AgentCore {
     let stepsCompleted = 0;
     let stepsFailed = 0;
 
-    // 1. Get cluster state
+    // 1. Get cluster state (single + multi-cluster)
     const clusterState = await this.toolRegistry.getClusterState();
+    const multiClusterState = await this.toolRegistry.getMultiClusterState();
 
     // 2. Recall relevant memories
     const memories = this.memory.recall(undefined, undefined, 20);
 
-    // 3. Create initial plan
+    // 3. Create initial plan (enriched with multi-cluster state)
     const planningContext: PlanningContext = {
       tools: this.toolRegistry.getAllTools(),
       clusterState,
+      multiClusterState,
       memory: memories,
       config: this.config,
     };
@@ -252,9 +266,12 @@ export class AgentCore {
           try {
             const updatedClusterState =
               await this.toolRegistry.getClusterState();
+            const updatedMultiClusterState =
+              await this.toolRegistry.getMultiClusterState();
             const replanContext: PlanningContext = {
               tools: this.toolRegistry.getAllTools(),
               clusterState: updatedClusterState,
+              multiClusterState: updatedMultiClusterState,
               memory: memories,
               previousPlan: activePlan,
               config: this.config,

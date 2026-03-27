@@ -4,6 +4,70 @@
 // ============================================================
 
 /**
+ * Format a MultiClusterState into a human-readable summary for the LLM.
+ * Shows each connected provider with node/host count, VM counts, CPU/memory
+ * averages, and storage usage.
+ */
+export function formatMultiClusterState(state: import("../types.js").MultiClusterState): string {
+  if (!state.providers || state.providers.length === 0) {
+    return "No providers connected.";
+  }
+
+  const sections: string[] = ["## Connected Providers"];
+
+  for (const provider of state.providers) {
+    const s = provider.state;
+    const label = provider.type === "proxmox" ? "Proxmox" : provider.type === "vmware" ? "VMware" : provider.type;
+    sections.push(`### ${provider.name} (${label})`);
+
+    // Nodes / Hosts
+    const nodeLabel = provider.type === "vmware" ? "Hosts" : "Nodes";
+    const onlineNodes = s.nodes.filter((n) => n.status === "online");
+    const nodeDetails = s.nodes.map((n) => `${n.name}: ${n.status}`).join(", ");
+    sections.push(`- ${nodeLabel}: ${s.nodes.length}${nodeDetails ? ` (${nodeDetails})` : ""}`);
+
+    // VMs
+    const runningVms = s.vms.filter((v) => v.status === "running");
+    const stoppedVms = s.vms.filter((v) => v.status === "stopped");
+    const suspendedVms = s.vms.filter((v) => v.status === "paused");
+    const vmParts = [`${runningVms.length} running`];
+    if (stoppedVms.length > 0) vmParts.push(`${stoppedVms.length} stopped`);
+    if (suspendedVms.length > 0) vmParts.push(`${suspendedVms.length} suspended`);
+    sections.push(`- VMs: ${vmParts.join(", ")}`);
+
+    // CPU / Memory averages (from nodes)
+    if (s.nodes.length > 0) {
+      const avgCpu = Math.round(s.nodes.reduce((sum, n) => sum + n.cpu_usage_pct, 0) / s.nodes.length);
+      const totalRamMb = s.nodes.reduce((sum, n) => sum + n.ram_total_mb, 0);
+      const usedRamMb = s.nodes.reduce((sum, n) => sum + n.ram_used_mb, 0);
+      const avgMemPct = totalRamMb > 0 ? Math.round((usedRamMb / totalRamMb) * 100) : 0;
+      sections.push(`- CPU: ${avgCpu}% avg | Memory: ${avgMemPct}% avg`);
+    }
+
+    // Storage
+    if (s.storage.length > 0) {
+      const totalStorageGb = s.storage.reduce((sum, st) => sum + st.total_gb, 0);
+      const usedStorageGb = s.storage.reduce((sum, st) => sum + st.used_gb, 0);
+      const totalTb = (totalStorageGb / 1024).toFixed(1);
+      const usedTb = (usedStorageGb / 1024).toFixed(1);
+      const storageLabel = provider.type === "vmware" ? "Datastores" : "Storage";
+      sections.push(`- ${storageLabel}: ${usedTb}TB / ${totalTb}TB used`);
+    }
+
+    // Containers (Proxmox only)
+    if (provider.type === "proxmox" && s.containers.length > 0) {
+      const runningCts = s.containers.filter((c) => c.status === "running");
+      const stoppedCts = s.containers.filter((c) => c.status === "stopped");
+      sections.push(`- Containers: ${runningCts.length} running, ${stoppedCts.length} stopped`);
+    }
+
+    sections.push(""); // blank line between providers
+  }
+
+  return sections.join("\n");
+}
+
+/**
  * Build the planner system prompt.
  * Instructs the LLM to convert a goal into a dependency-ordered plan.
  */
@@ -11,7 +75,13 @@ export function PLANNER_PROMPT(context: {
   toolDescriptions: string;
   clusterStateSummary: string;
   memoryContext: string;
+  multiClusterSummary?: string;
 }): string {
+  // If multi-cluster context is provided, include it alongside the single-cluster state
+  const multiClusterSection = context.multiClusterSummary
+    ? `\n## Multi-Provider Infrastructure State\n${context.multiClusterSummary}\n`
+    : "";
+
   return `You are the planning engine for vClaw, an autonomous infrastructure agent.
 Your job is to convert a high-level goal into a concrete, step-by-step execution plan.
 
@@ -20,7 +90,7 @@ ${context.toolDescriptions || "No tools registered."}
 
 ## Current Cluster State
 ${context.clusterStateSummary || "No cluster state available."}
-
+${multiClusterSection}
 ## Relevant Memory (past patterns and preferences)
 ${context.memoryContext || "No prior memory."}
 
@@ -48,6 +118,14 @@ You can ONLY use the tools listed above. Do NOT plan actions that require tools 
 4. Use ping to verify network reachability before SSH
 
 **IMPORTANT:** If a goal requires capabilities you don't have (e.g., "deploy to AWS", "configure DNS"), create a plan with only the steps you CAN do, and explain in your reasoning what manual steps the user would need to complete.
+
+## Multi-Provider Planning
+
+When multiple providers are connected, you can plan operations that span them:
+- **Cross-provider queries**: Use tools from each provider to gather information, then the orchestrator aggregates results.
+- **Workload placement**: When asked to create resources on "the best" or "whichever has more capacity" provider, check the Multi-Provider Infrastructure State above and pick the provider with the most available resources.
+- **Cross-provider operations**: Plans can include steps targeting different providers. Tool names are prefixed by provider (e.g., \`proxmox_list_vms\` vs \`vmware_list_vms\`).
+- **Provider isolation**: A failure in one provider's steps should not prevent execution of independent steps on other providers.
 
 ## Instructions
 

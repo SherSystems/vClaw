@@ -10,15 +10,17 @@ import type {
   PlanStep,
   ToolDefinition,
   ClusterState,
+  MultiClusterState,
   MemoryEntry,
   ResourceEstimate,
 } from "../types.js";
 import { callLLM, type AIConfig } from "./llm.js";
-import { PLANNER_PROMPT, REPLANNER_PROMPT } from "./prompts.js";
+import { PLANNER_PROMPT, REPLANNER_PROMPT, formatMultiClusterState } from "./prompts.js";
 
 export interface PlanningContext {
   tools: ToolDefinition[];
   clusterState: ClusterState | null;
+  multiClusterState?: MultiClusterState;
   memory: MemoryEntry[];
   previousPlan?: Plan;
   config: AIConfig;
@@ -46,11 +48,15 @@ export class Planner {
     const toolDescriptions = formatToolDescriptions(context.tools);
     const clusterSummary = formatClusterState(context.clusterState);
     const memorySummary = formatMemory(context.memory);
+    const multiClusterSummary = context.multiClusterState
+      ? formatMultiClusterState(context.multiClusterState)
+      : undefined;
 
     const systemPrompt = PLANNER_PROMPT({
       toolDescriptions,
       clusterStateSummary: clusterSummary,
       memoryContext: memorySummary,
+      multiClusterSummary,
     });
 
     const userMessage = `Goal: ${goal.description}\n\nMode: ${goal.mode}\n\nRaw input: ${goal.raw_input}`;

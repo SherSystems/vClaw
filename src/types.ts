@@ -285,7 +285,11 @@ export type AgentEventType =
   | "chaos_recovery_detected"
   | "chaos_completed"
   | "chaos_failed"
-  | "incident_rca";
+  | "incident_rca"
+  | "multi_provider_goal_started"
+  | "multi_provider_goal_completed"
+  | "multi_provider_query"
+  | "capacity_analysis";
 
 export interface AgentEvent {
   type: AgentEventType;

@@ -115,6 +115,11 @@ function makeMockToolRegistry() {
       storage: [],
       timestamp: new Date().toISOString(),
     }),
+    getMultiClusterState: vi.fn().mockResolvedValue({
+      providers: [],
+      timestamp: new Date().toISOString(),
+    }),
+    getTool: vi.fn().mockReturnValue(undefined),
   } as any;
 }
 

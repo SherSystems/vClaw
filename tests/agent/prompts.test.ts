@@ -4,7 +4,9 @@ import {
   REPLANNER_PROMPT,
   INVESTIGATOR_PROMPT,
   OBSERVER_PROMPT,
+  formatMultiClusterState,
 } from "../../src/agent/prompts.js";
+import type { MultiClusterState, ClusterState } from "../../src/types.js";
 
 describe("PLANNER_PROMPT", () => {
   it("returns a string containing planning engine, tool descriptions, cluster state, and memory context", () => {
@@ -107,5 +109,143 @@ describe("OBSERVER_PROMPT", () => {
     expect(result).toContain("3 VMs running");
     expect(result).toContain("4 VMs running");
     expect(result).toContain("Create a new VM with 4GB RAM");
+  });
+});
+
+// ── formatMultiClusterState ─────────────────────────────────
+
+function makeClusterState(adapter: string, overrides: Partial<ClusterState> = {}): ClusterState {
+  return {
+    adapter,
+    nodes: [],
+    vms: [],
+    containers: [],
+    storage: [],
+    timestamp: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
+describe("formatMultiClusterState", () => {
+  it("formats single provider correctly", () => {
+    const state: MultiClusterState = {
+      providers: [
+        {
+          name: "proxmox",
+          type: "proxmox",
+          state: makeClusterState("proxmox", {
+            nodes: [
+              { id: "n1", name: "pve1", status: "online", cpu_cores: 16, cpu_usage_pct: 45, ram_total_mb: 65536, ram_used_mb: 40632, disk_total_gb: 2000, disk_used_gb: 800, disk_usage_pct: 40, uptime_s: 86400 },
+            ],
+            vms: [
+              { id: 100, name: "vm-1", node: "pve1", status: "running", cpu_cores: 2, ram_mb: 2048, disk_gb: 20 },
+              { id: 101, name: "vm-2", node: "pve1", status: "stopped", cpu_cores: 1, ram_mb: 1024, disk_gb: 10 },
+            ],
+            storage: [
+              { id: "local", node: "pve1", type: "dir", total_gb: 2048, used_gb: 800, available_gb: 1248, content: ["images"] },
+            ],
+          }),
+        },
+      ],
+      timestamp: new Date().toISOString(),
+    };
+
+    const result = formatMultiClusterState(state);
+
+    expect(result).toContain("## Connected Providers");
+    expect(result).toContain("### proxmox (Proxmox)");
+    expect(result).toContain("pve1: online");
+    expect(result).toContain("1 running");
+    expect(result).toContain("1 stopped");
+    expect(result).toContain("CPU:");
+    expect(result).toContain("Memory:");
+    expect(result).toContain("Storage:");
+  });
+
+  it("formats multiple providers", () => {
+    const state: MultiClusterState = {
+      providers: [
+        {
+          name: "proxmox",
+          type: "proxmox",
+          state: makeClusterState("proxmox", {
+            nodes: [{ id: "n1", name: "pve1", status: "online", cpu_cores: 16, cpu_usage_pct: 40, ram_total_mb: 32768, ram_used_mb: 16384, disk_total_gb: 1000, disk_used_gb: 400, disk_usage_pct: 40, uptime_s: 86400 }],
+            vms: [{ id: 100, name: "vm-1", node: "pve1", status: "running", cpu_cores: 2, ram_mb: 2048, disk_gb: 20 }],
+          }),
+        },
+        {
+          name: "vmware",
+          type: "vmware",
+          state: makeClusterState("vmware", {
+            nodes: [{ id: "h1", name: "esxi1", status: "online", cpu_cores: 32, cpu_usage_pct: 60, ram_total_mb: 131072, ram_used_mb: 98304, disk_total_gb: 4000, disk_used_gb: 2400, disk_usage_pct: 60, uptime_s: 172800 }],
+            vms: [{ id: "vm-1", name: "win-server", node: "esxi1", status: "running", cpu_cores: 4, ram_mb: 8192, disk_gb: 100 }],
+          }),
+        },
+      ],
+      timestamp: new Date().toISOString(),
+    };
+
+    const result = formatMultiClusterState(state);
+
+    expect(result).toContain("### proxmox (Proxmox)");
+    expect(result).toContain("### vmware (VMware)");
+    expect(result).toContain("Nodes:");
+    expect(result).toContain("Hosts:");
+  });
+
+  it("handles empty state (no providers)", () => {
+    const state: MultiClusterState = {
+      providers: [],
+      timestamp: new Date().toISOString(),
+    };
+
+    const result = formatMultiClusterState(state);
+
+    expect(result).toBe("No providers connected.");
+  });
+
+  it("handles provider with no VMs or nodes", () => {
+    const state: MultiClusterState = {
+      providers: [
+        {
+          name: "empty-proxmox",
+          type: "proxmox",
+          state: makeClusterState("empty-proxmox"),
+        },
+      ],
+      timestamp: new Date().toISOString(),
+    };
+
+    const result = formatMultiClusterState(state);
+
+    expect(result).toContain("### empty-proxmox (Proxmox)");
+    expect(result).toContain("Nodes: 0");
+    expect(result).toContain("0 running");
+  });
+});
+
+describe("PLANNER_PROMPT with multiClusterSummary", () => {
+  it("includes multi-provider section when multiClusterSummary is provided", () => {
+    const result = PLANNER_PROMPT({
+      toolDescriptions: "tool: create_vm",
+      clusterStateSummary: "single cluster",
+      memoryContext: "memory",
+      multiClusterSummary: "## Connected Providers\n### proxmox (Proxmox)\n- Nodes: 2",
+    });
+
+    expect(result).toContain("## Multi-Provider Infrastructure State");
+    expect(result).toContain("## Connected Providers");
+    expect(result).toContain("### proxmox (Proxmox)");
+    expect(result).toContain("Multi-Provider Planning");
+  });
+
+  it("omits multi-provider section when multiClusterSummary is not provided", () => {
+    const result = PLANNER_PROMPT({
+      toolDescriptions: "tool: create_vm",
+      clusterStateSummary: "single cluster",
+      memoryContext: "memory",
+    });
+
+    expect(result).not.toContain("## Multi-Provider Infrastructure State");
   });
 });

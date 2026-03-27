@@ -10,6 +10,7 @@ import { loadPolicy } from "./governance/policy.js";
 import { GovernanceEngine } from "./governance/index.js";
 import { ToolRegistry } from "./providers/registry.js";
 import { ProxmoxAdapter } from "./providers/proxmox/adapter.js";
+import { VMwareAdapter } from "./providers/vmware/adapter.js";
 import { SystemAdapter } from "./providers/system/adapter.js";
 import { AgentCore } from "./agent/core.js";
 import { EventBus } from "./agent/events.js";
@@ -55,6 +56,17 @@ async function main() {
       allowSelfSignedCerts: config.proxmox.allowSelfSignedCerts,
     });
     registry.registerAdapter(proxmox);
+  }
+
+  // Register VMware adapter
+  if (config.vmware.host) {
+    const vmware = new VMwareAdapter({
+      host: config.vmware.host,
+      user: config.vmware.user,
+      password: config.vmware.password,
+      insecure: config.vmware.insecure,
+    });
+    registry.registerAdapter(vmware);
   }
 
   // Register system adapter

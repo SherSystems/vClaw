@@ -101,9 +101,9 @@ describe("AgentMemory", () => {
     mem.save({ type: "pattern", key: "newer", value: "b", confidence: 0.5 });
 
     const results = mem.recall("pattern");
-    // id1 was touched most recently, so it should come first
-    expect(results[0].key).toBe("older");
-    expect(results[1].key).toBe("newer");
+    // Most recently saved comes first (DESC by last_used_at)
+    expect(results[0].key).toBe("newer");
+    expect(results[1].key).toBe("older");
   });
 
   // ── UPSERT ─────────────────────────────────────────────────

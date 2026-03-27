@@ -1,0 +1,54 @@
+<svg viewBox="0 0 400 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- Define gradients -->
+  <defs>
+    <linearGradient id="lionGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FF9500;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#FF7200;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Lion Head (minimalist, geometric) -->
+  <g id="lion">
+    <!-- Mane -->
+    <circle cx="50" cy="50" r="35" fill="url(#lionGrad)" opacity="0.9"/>
+
+    <!-- Head -->
+    <circle cx="50" cy="60" r="22" fill="#000"/>
+
+    <!-- Eyes -->
+    <circle cx="42" cy="55" r="3" fill="#FFF"/>
+    <circle cx="58" cy="55" r="3" fill="#FFF"/>
+
+    <!-- Nose -->
+    <polygon points="50,65 48,70 52,70" fill="#FFF"/>
+
+    <!-- Mouth/jaw line -->
+    <path d="M 35 70 Q 50 75 65 70" stroke="#FFF" stroke-width="2" fill="none" stroke-linecap="round"/>
+
+    <!-- Ears -->
+    <polygon points="28,30 20,15 25,32" fill="#000"/>
+    <polygon points="72,30 80,15 75,32" fill="#000"/>
+
+    <!-- Mane detail lines (circuit-inspired) -->
+    <line x1="20" y1="40" x2="15" y2="35" stroke="#000" stroke-width="2" stroke-linecap="round"/>
+    <line x1="20" y1="55" x2="10" y2="55" stroke="#000" stroke-width="2" stroke-linecap="round"/>
+    <line x1="20" y1="70" x2="12" y2="75" stroke="#000" stroke-width="2" stroke-linecap="round"/>
+    <line x1="80" y1="40" x2="85" y2="35" stroke="#000" stroke-width="2" stroke-linecap="round"/>
+    <line x1="80" y1="55" x2="90" y2="55" stroke="#000" stroke-width="2" stroke-linecap="round"/>
+    <line x1="80" y1="70" x2="88" y2="75" stroke="#000" stroke-width="2" stroke-linecap="round"/>
+  </g>
+
+  <!-- Code cursor / claw accent -->
+  <g id="claw-cursor" transform="translate(85, 35)">
+    <path d="M 0 0 L 15 15 L 5 20 L 0 10 Z" fill="#FF9500" stroke="#000" stroke-width="1.5"/>
+    <!-- Code brackets accent -->
+    <path d="M 20 5 L 25 10 L 20 15" stroke="#FF9500" stroke-width="2" fill="none" stroke-linecap="round"/>
+  </g>
+
+  <!-- Text: "sher systems" -->
+  <text x="140" y="75" font-family="Arial, sans-serif" font-size="42" font-weight="bold" fill="#000">sher</text>
+  <text x="140" y="110" font-family="Arial, sans-serif" font-size="28" font-weight="300" fill="#666">systems</text>
+
+  <!-- Accent line under "sher" -->
+  <line x1="140" y1="85" x2="280" y2="85" stroke="#FF9500" stroke-width="3" stroke-linecap="round"/>
+</svg>

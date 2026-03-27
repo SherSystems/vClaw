@@ -91,12 +91,12 @@ describe("AgentMemory", () => {
     expect(results).toHaveLength(3);
   });
 
-  it("recall() ordered by last_used_at DESC", () => {
+  it("recall() ordered by last_used_at DESC", async () => {
     const mem = freshMemory();
-    const id1 = mem.save({ type: "pattern", key: "older", value: "a", confidence: 0.5 });
+    mem.save({ type: "pattern", key: "older", value: "a", confidence: 0.5 });
 
-    // Touch the first entry so its last_used_at is newer
-    mem.touch(id1);
+    // Small delay to ensure different timestamps
+    await new Promise((r) => setTimeout(r, 20));
 
     mem.save({ type: "pattern", key: "newer", value: "b", confidence: 0.5 });
 

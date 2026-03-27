@@ -1,0 +1,26 @@
+version: 1
+approval:
+  build_mode: approve_plan
+  watch_mode: approve_risky
+  investigate_mode: approve_fix
+guardrails:
+  max_vms_per_action: 5
+  max_ram_allocation_pct: 80
+  max_disk_allocation_pct: 90
+  require_snapshot_before_modify: true
+  cooldown_between_restarts_s: 60
+  max_restart_attempts: 3
+boundaries:
+  allowed_networks: []
+  allowed_storage: []
+  forbidden_vmids: []
+  forbidden_actions:
+    - delete_all
+    - modify_host_config
+    - disable_firewall
+    - format_storage
+audit:
+  log_all_actions: true
+  log_reasoning: true
+  log_rejected_plans: true
+  retention_days: 90

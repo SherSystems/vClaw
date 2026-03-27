@@ -1,0 +1,243 @@
+// Dashboard-specific types (mirrors backend types.ts for the frontend)
+
+export type AgentMode = "build" | "watch" | "investigate" | "heal";
+export type StepStatus = "pending" | "running" | "success" | "failed" | "skipped" | "rolled_back";
+export type ActionTier = "read" | "safe_write" | "risky_write" | "destructive" | "never";
+
+export interface NodeInfo {
+  id: string;
+  name: string;
+  status: string;
+  cpu_cores: number;
+  cpu_usage_pct: number;
+  cpu_pct?: number;
+  ram_total_mb: number;
+  ram_mb?: number;
+  ram_used_mb: number;
+  disk_total_gb: number;
+  disk_used_gb: number;
+  disk_usage_pct: number;
+  uptime_s: number;
+}
+
+export interface VMInfo {
+  id: string;
+  vmid?: string;
+  name: string;
+  node: string;
+  status: string;
+  cpu_cores: number;
+  ram_mb: number;
+  disk_gb: number;
+  ip_address?: string;
+  os?: string;
+  uptime_s?: number;
+}
+
+export interface ContainerInfo {
+  id: string;
+  name: string;
+  node: string;
+  status: string;
+  cpu_cores: number;
+  ram_mb: number;
+  disk_gb: number;
+  ip_address?: string;
+  os?: string;
+}
+
+export interface StorageInfo {
+  id: string;
+  node: string;
+  type: string;
+  total_gb: number;
+  used_gb: number;
+  available_gb: number;
+  content: string[];
+}
+
+export interface ClusterState {
+  nodes: NodeInfo[];
+  vms: VMInfo[];
+  containers: ContainerInfo[];
+  storage: StorageInfo[];
+  timestamp: string;
+}
+
+export interface PlanStep {
+  id: string;
+  action: string;
+  params: Record<string, unknown>;
+  description: string;
+  depends_on: string[];
+  status: StepStatus;
+  tier?: ActionTier;
+  estimated_duration_ms?: number;
+}
+
+export interface Plan {
+  id: string;
+  goal_id: string;
+  steps: PlanStep[];
+  created_at: string;
+  status: string;
+  reasoning?: string;
+  revision?: number;
+  previous_plan_id?: string;
+}
+
+export interface StepState {
+  status: StepStatus;
+  duration_ms?: number;
+  error?: string;
+  output?: unknown;
+}
+
+export interface AgentEvent {
+  type: string;
+  timestamp: string;
+  data: Record<string, unknown>;
+}
+
+export interface Incident {
+  id: string;
+  severity: "critical" | "warning";
+  description: string;
+  status: "open" | "healing" | "resolved" | "failed";
+  metric_name?: string;
+  trigger_value?: number;
+  detected_at: string;
+  resolved_at?: string;
+  duration_ms?: number;
+  resolution?: string;
+  playbook_id?: string;
+  playbook_name?: string;
+  actions_taken?: IncidentAction[];
+  pattern_id?: string;
+  rca?: RootCauseAnalysis;
+  vmid?: string;
+}
+
+export interface IncidentAction {
+  action: string;
+  timestamp: string;
+  success: boolean;
+  detail?: string;
+}
+
+export interface RootCauseAnalysis {
+  summary: string;
+  contributing_factors: string[];
+  recommendation: string;
+}
+
+export interface HealingBanner {
+  type: "paused" | "escalated";
+  message: string;
+  id: string;
+}
+
+export interface HealthSummary {
+  resources: {
+    cpu_usage_pct: number;
+    ram_usage_pct: number;
+    disk_usage_pct: number;
+    cpu_cores: number;
+    ram_total_mb: number;
+    ram_used_mb: number;
+    disk_total_gb: number;
+    disk_used_gb: number;
+  };
+  nodes: {
+    total: number;
+    online: number;
+  };
+  vms: {
+    total: number;
+    running: number;
+  };
+  timestamp: string;
+}
+
+export interface Prediction {
+  metric: string;
+  labels: Record<string, string>;
+  current: number;
+  slope_per_hour: number;
+  projected_1h: number;
+  projected_6h: number;
+  projected_24h: number;
+  hours_to_critical: number | null;
+  status: "healthy" | "warning" | "critical";
+}
+
+export interface RightsizingRec {
+  vmid: string;
+  name: string;
+  node: string;
+  cpu_allocated: number;
+  cpu_avg_pct: number;
+  cpu_peak_pct: number;
+  cpu_recommended: number;
+  ram_allocated_mb: number;
+  ram_avg_pct: number;
+  ram_peak_pct: number;
+  ram_recommended_mb: number;
+  savings_pct: number;
+}
+
+export interface ChaosScenario {
+  id: string;
+  name: string;
+  description: string;
+  severity: "low" | "medium" | "high" | "critical";
+  target_type: "vm" | "node" | "storage" | "network";
+  requires_approval: boolean;
+  reversible: boolean;
+}
+
+export interface ChaosSimulation {
+  scenario_id: string;
+  affected_vms: { vmid: string; name: string; impact: string }[];
+  predicted_recovery_time_s: number;
+  risk_score: number;
+  recommendation: string;
+}
+
+export interface ChaosRun {
+  id: string;
+  scenario: ChaosScenario;
+  status: "simulated" | "executing" | "recovering" | "verifying" | "completed" | "failed";
+  started_at: string;
+  completed_at?: string;
+  blast_radius?: ChaosSimulation;
+  actual_recovery_time_s?: number;
+  resilience_score?: number;
+  verdict?: "pass" | "partial" | "fail";
+  events?: AgentEvent[];
+}
+
+export interface AuditEntry {
+  id: string;
+  timestamp: string;
+  action: string;
+  tier: ActionTier;
+  result: "success" | "failed" | "blocked" | "rolled_back";
+  duration_ms?: number;
+  plan_id?: string;
+  step_id?: string;
+  reasoning?: string;
+  params?: Record<string, unknown>;
+  error?: string;
+  approval?: string;
+}
+
+export interface Toast {
+  id: string;
+  type: "error" | "warning" | "success" | "info";
+  title: string;
+  message: string;
+  timestamp: string;
+}
+
+export type TabId = "topology" | "plan" | "resources" | "nodes" | "incidents" | "governance" | "chaos";

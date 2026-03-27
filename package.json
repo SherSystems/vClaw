@@ -1,0 +1,65 @@
+{
+  "name": "vclaw",
+  "version": "0.1.0",
+  "description": "Open-source autonomous AI agent for infrastructure management. Multi-provider (Proxmox, VMware), 5-tier safety governance, self-healing, chaos engineering.",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "infrawrap": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "dev:cli": "tsx src/index.ts cli",
+    "dev:telegram": "tsx src/index.ts telegram",
+    "dev:dashboard": "tsx src/index.ts dashboard",
+    "dev:mcp": "tsx src/index.ts mcp",
+    "dev:autopilot": "tsx src/index.ts autopilot",
+    "start": "node dist/index.js",
+    "start:cli": "node dist/index.js cli",
+    "start:telegram": "node dist/index.js telegram",
+    "start:dashboard": "node dist/index.js dashboard",
+    "start:mcp": "node dist/index.js mcp",
+    "start:autopilot": "node dist/index.js autopilot",
+    "lint": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "keywords": [
+    "infrastructure",
+    "agent",
+    "ai",
+    "proxmox",
+    "vmware",
+    "vsphere",
+    "homelab",
+    "automation",
+    "governance",
+    "self-healing"
+  ],
+  "author": "Pranav Patel",
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "better-sqlite3": "^11.7.0",
+    "dotenv": "^16.4.7",
+    "grammy": "^1.35.0",
+    "js-yaml": "^4.1.0",
+    "openai": "^4.85.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.13.0",
+    "@vitest/coverage-v8": "^4.1.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

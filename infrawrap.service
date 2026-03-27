@@ -1,0 +1,16 @@
+[Unit]
+Description=InfraWrap — Autonomous Infrastructure Agent
+After=network.target
+
+[Service]
+Type=simple
+User=YOUR_USER
+WorkingDirectory=/path/to/infrawrap
+Environment=PATH=/path/to/node/bin:/usr/bin:/bin
+EnvironmentFile=/path/to/infrawrap/.env
+ExecStart=/path/to/node/bin/npx tsx src/index.ts full
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

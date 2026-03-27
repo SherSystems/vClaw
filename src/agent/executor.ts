@@ -1,0 +1,271 @@
+// ============================================================
+// vClaw — Executor
+// Runs plan steps through governance checks and tool execution
+// ============================================================
+
+import { randomUUID } from "node:crypto";
+import type {
+  PlanStep,
+  StepResult,
+  AgentMode,
+  ActionTier,
+  AuditEntry,
+  ToolDefinition,
+} from "../types.js";
+import type { ToolRegistry } from "../tools/registry.js";
+import type { EventBus } from "./events.js";
+
+export interface GovernanceEngineRef {
+  evaluate(
+    action: string,
+    params: Record<string, unknown>,
+    mode: AgentMode,
+    tools: ToolDefinition[],
+  ): Promise<{
+    allowed: boolean;
+    tier: ActionTier;
+    needs_approval: boolean;
+    reason: string;
+    approval?: { request_id: string; approved: boolean };
+  }>;
+  logAction(entry: AuditEntry): void;
+  circuitBreaker: {
+    track(success: boolean): void;
+    isTripped(): boolean;
+  };
+}
+
+export class Executor {
+  private toolRegistry: ToolRegistry;
+  private governance: GovernanceEngineRef;
+  private eventBus: EventBus;
+
+  constructor(
+    toolRegistry: ToolRegistry,
+    governance: GovernanceEngineRef,
+    eventBus: EventBus,
+  ) {
+    this.toolRegistry = toolRegistry;
+    this.governance = governance;
+    this.eventBus = eventBus;
+  }
+
+  /**
+   * Execute a single plan step with full governance checks,
+   * state capture, event emission, and audit logging.
+   */
+  async executeStep(step: PlanStep, mode: AgentMode, planId?: string): Promise<StepResult> {
+    const startTime = Date.now();
+    const timestamp = new Date().toISOString();
+
+    // Emit step_started
+    this.eventBus.emit({
+      type: "step_started",
+      timestamp,
+      data: { step_id: step.id, action: step.action, description: step.description },
+    });
+
+    // Check circuit breaker
+    if (this.governance.circuitBreaker.isTripped()) {
+      const result = this.buildFailedResult(
+        startTime,
+        "Circuit breaker is tripped — too many consecutive failures",
+      );
+      this.emitStepFailed(step, result);
+      this.logAudit(step, mode, "blocked", result, planId, "Circuit breaker tripped");
+      return result;
+    }
+
+    // Evaluate governance
+    let evaluation: Awaited<ReturnType<GovernanceEngineRef["evaluate"]>>;
+    try {
+      evaluation = await this.governance.evaluate(
+        step.action,
+        step.params,
+        mode,
+        this.toolRegistry.getAllTools(),
+      );
+    } catch (err) {
+      const result = this.buildFailedResult(
+        startTime,
+        `Governance evaluation failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      this.emitStepFailed(step, result);
+      return result;
+    }
+
+    // If not allowed, fail immediately
+    if (!evaluation.allowed) {
+      const result = this.buildFailedResult(
+        startTime,
+        `Blocked by governance: ${evaluation.reason}`,
+      );
+      this.emitStepFailed(step, result);
+      this.logAudit(step, mode, "blocked", result, planId, evaluation.reason);
+      return result;
+    }
+
+    // If needs approval, check if it was granted
+    if (evaluation.needs_approval) {
+      if (!evaluation.approval || !evaluation.approval.approved) {
+        const result = this.buildFailedResult(
+          startTime,
+          "Approval required but not granted",
+        );
+        this.eventBus.emit({
+          type: "approval_requested",
+          timestamp: new Date().toISOString(),
+          data: {
+            step_id: step.id,
+            action: step.action,
+            tier: evaluation.tier,
+            request_id: evaluation.approval?.request_id,
+          },
+        });
+        this.emitStepFailed(step, result);
+        this.logAudit(step, mode, "blocked", result, planId, "Approval not granted");
+        return result;
+      }
+    }
+
+    // Capture state before execution
+    let stateBefore: Record<string, unknown> | undefined;
+    try {
+      const clusterState = await this.toolRegistry.getClusterState();
+      if (clusterState) {
+        stateBefore = clusterState as unknown as Record<string, unknown>;
+      }
+    } catch {
+      // State capture is best-effort; continue execution
+    }
+
+    // Execute the tool
+    let toolResult: { success: boolean; data?: unknown; error?: string };
+    try {
+      toolResult = await this.toolRegistry.execute(step.action, step.params);
+    } catch (err) {
+      const result = this.buildFailedResult(
+        startTime,
+        `Tool execution threw: ${err instanceof Error ? err.message : String(err)}`,
+        stateBefore,
+      );
+      this.governance.circuitBreaker.track(false);
+      this.emitStepFailed(step, result);
+      this.logAudit(step, mode, "failed", result, planId);
+      return result;
+    }
+
+    // Capture state after execution
+    let stateAfter: Record<string, unknown> | undefined;
+    try {
+      const clusterState = await this.toolRegistry.getClusterState();
+      if (clusterState) {
+        stateAfter = clusterState as unknown as Record<string, unknown>;
+      }
+    } catch {
+      // State capture is best-effort
+    }
+
+    const durationMs = Date.now() - startTime;
+
+    if (toolResult.success) {
+      const result: StepResult = {
+        success: true,
+        data: toolResult.data,
+        duration_ms: durationMs,
+        state_before: stateBefore,
+        state_after: stateAfter,
+        timestamp: new Date().toISOString(),
+      };
+
+      this.governance.circuitBreaker.track(true);
+      this.emitStepCompleted(step, result);
+      this.logAudit(step, mode, "success", result, planId);
+      return result;
+    } else {
+      const result: StepResult = {
+        success: false,
+        error: toolResult.error || "Tool returned failure with no error message",
+        data: toolResult.data,
+        duration_ms: durationMs,
+        state_before: stateBefore,
+        state_after: stateAfter,
+        timestamp: new Date().toISOString(),
+      };
+
+      this.governance.circuitBreaker.track(false);
+      this.emitStepFailed(step, result);
+      this.logAudit(step, mode, "failed", result, planId);
+      return result;
+    }
+  }
+
+  // ── Private Helpers ─────────────────────────────────────────
+
+  private buildFailedResult(
+    startTime: number,
+    error: string,
+    stateBefore?: Record<string, unknown>,
+  ): StepResult {
+    return {
+      success: false,
+      error,
+      duration_ms: Date.now() - startTime,
+      state_before: stateBefore,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  private emitStepCompleted(step: PlanStep, result: StepResult): void {
+    this.eventBus.emit({
+      type: "step_completed",
+      timestamp: new Date().toISOString(),
+      data: {
+        step_id: step.id,
+        action: step.action,
+        duration_ms: result.duration_ms,
+        output: result.data,
+      },
+    });
+  }
+
+  private emitStepFailed(step: PlanStep, result: StepResult): void {
+    this.eventBus.emit({
+      type: "step_failed",
+      timestamp: new Date().toISOString(),
+      data: {
+        step_id: step.id,
+        action: step.action,
+        error: result.error,
+        duration_ms: result.duration_ms,
+      },
+    });
+  }
+
+  private logAudit(
+    step: PlanStep,
+    mode: AgentMode,
+    resultStatus: AuditEntry["result"],
+    result: StepResult,
+    planId?: string,
+    reason?: string,
+  ): void {
+    const entry: AuditEntry = {
+      id: randomUUID(),
+      timestamp: new Date().toISOString(),
+      action: step.action,
+      tier: step.tier,
+      reasoning: reason || step.description,
+      params: step.params,
+      result: resultStatus,
+      error: result.error,
+      state_before: result.state_before,
+      state_after: result.state_after,
+      step_id: step.id,
+      plan_id: planId,
+      duration_ms: result.duration_ms,
+    };
+
+    this.governance.logAction(entry);
+  }
+}

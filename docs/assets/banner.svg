@@ -1,13 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300">
   <defs>
     <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#070D1A"/>
-      <stop offset="50%" stop-color="#0B1120"/>
-      <stop offset="100%" stop-color="#0D1526"/>
+      <stop offset="0%" stop-color="#1A0D00"/>
+      <stop offset="50%" stop-color="#1A1000"/>
+      <stop offset="100%" stop-color="#1C1200"/>
+    </linearGradient>
+    <linearGradient id="lionGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF9500"/>
+      <stop offset="100%" stop-color="#FF7200"/>
     </linearGradient>
     <radialGradient id="glow" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#0ACDAA" stop-opacity="0.15"/>
-      <stop offset="100%" stop-color="#0ACDAA" stop-opacity="0"/>
+      <stop offset="0%" stop-color="#FF9500" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#FF9500" stop-opacity="0"/>
     </radialGradient>
   </defs>
   <!-- Background -->
@@ -15,7 +19,7 @@
   <!-- Glow -->
   <ellipse cx="600" cy="150" rx="400" ry="150" fill="url(#glow)"/>
   <!-- Grid dots -->
-  <g opacity="0.08" fill="#0ACDAA">
+  <g opacity="0.06" fill="#FF9500">
     <circle cx="100" cy="50" r="1.5"/><circle cx="150" cy="50" r="1.5"/><circle cx="200" cy="50" r="1.5"/><circle cx="250" cy="50" r="1.5"/><circle cx="300" cy="50" r="1.5"/>
     <circle cx="900" cy="50" r="1.5"/><circle cx="950" cy="50" r="1.5"/><circle cx="1000" cy="50" r="1.5"/><circle cx="1050" cy="50" r="1.5"/><circle cx="1100" cy="50" r="1.5"/>
     <circle cx="100" cy="250" r="1.5"/><circle cx="150" cy="250" r="1.5"/><circle cx="200" cy="250" r="1.5"/><circle cx="250" cy="250" r="1.5"/><circle cx="300" cy="250" r="1.5"/>
@@ -25,22 +29,40 @@
     <circle cx="100" cy="200" r="1"/><circle cx="150" cy="200" r="1"/><circle cx="200" cy="200" r="1"/><circle cx="250" cy="200" r="1"/><circle cx="300" cy="200" r="1"/>
     <circle cx="900" cy="200" r="1"/><circle cx="950" cy="200" r="1"/><circle cx="1000" cy="200" r="1"/><circle cx="1050" cy="200" r="1"/><circle cx="1100" cy="200" r="1"/>
   </g>
-  <!-- Icon badge -->
-  <rect x="430" y="60" width="90" height="90" rx="22" fill="#0ACDAA"/>
-  <line x1="449" y1="80" x2="458" y2="80" stroke="white" stroke-width="3.5" stroke-linecap="round"/>
-  <line x1="449" y1="80" x2="449" y2="130" stroke="white" stroke-width="3.5" stroke-linecap="round"/>
-  <line x1="449" y1="130" x2="458" y2="130" stroke="white" stroke-width="3.5" stroke-linecap="round"/>
-  <line x1="501" y1="80" x2="492" y2="80" stroke="white" stroke-width="3.5" stroke-linecap="round"/>
-  <line x1="501" y1="80" x2="501" y2="130" stroke="white" stroke-width="3.5" stroke-linecap="round"/>
-  <line x1="501" y1="130" x2="492" y2="130" stroke="white" stroke-width="3.5" stroke-linecap="round"/>
-  <line x1="460" y1="96" x2="490" y2="96" stroke="white" stroke-width="3" stroke-linecap="round"/>
-  <line x1="460" y1="105" x2="490" y2="105" stroke="white" stroke-width="3" stroke-linecap="round"/>
-  <line x1="460" y1="114" x2="490" y2="114" stroke="white" stroke-width="3" stroke-linecap="round"/>
+  <!-- Lion icon -->
+  <g transform="translate(420, 75) scale(0.95)">
+    <!-- Mane -->
+    <circle cx="50" cy="50" r="45" fill="url(#lionGrad)" opacity="0.9"/>
+    <!-- Head -->
+    <circle cx="50" cy="62" r="28" fill="#000"/>
+    <!-- Eyes -->
+    <circle cx="40" cy="56" r="4" fill="#FFF"/>
+    <circle cx="60" cy="56" r="4" fill="#FFF"/>
+    <circle cx="40" cy="56" r="1.8" fill="#FF9500"/>
+    <circle cx="60" cy="56" r="1.8" fill="#FF9500"/>
+    <!-- Nose -->
+    <polygon points="50,68 47,74 53,74" fill="#FFF"/>
+    <!-- Mouth -->
+    <path d="M 35 76 Q 50 82 65 76" stroke="#FFF" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+    <!-- Ears -->
+    <polygon points="28,30 18,12 26,34" fill="#000"/>
+    <polygon points="72,30 82,12 74,34" fill="#000"/>
+    <!-- Mane lines -->
+    <line x1="12" y1="38" x2="5" y2="32" stroke="#000" stroke-width="3" stroke-linecap="round"/>
+    <line x1="10" y1="55" x2="0" y2="55" stroke="#000" stroke-width="3" stroke-linecap="round"/>
+    <line x1="12" y1="72" x2="3" y2="80" stroke="#000" stroke-width="3" stroke-linecap="round"/>
+    <line x1="88" y1="38" x2="95" y2="32" stroke="#000" stroke-width="3" stroke-linecap="round"/>
+    <line x1="90" y1="55" x2="100" y2="55" stroke="#000" stroke-width="3" stroke-linecap="round"/>
+    <line x1="88" y1="72" x2="97" y2="80" stroke="#000" stroke-width="3" stroke-linecap="round"/>
+    <!-- Claw accent -->
+    <path d="M 78 22 L 95 40 L 83 48 L 78 35 Z" fill="#FF9500" stroke="#000" stroke-width="2" opacity="0.9"/>
+    <path d="M 100 28 L 108 36 L 100 44" stroke="#FF9500" stroke-width="3" fill="none" stroke-linecap="round"/>
+  </g>
   <!-- Title -->
   <text x="540" y="120" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="800" font-size="56" fill="#E2E8F0" letter-spacing="-1">v</text>
-  <text x="572" y="120" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="800" font-size="56" fill="#0ACDAA" letter-spacing="-1">Claw</text>
+  <text x="572" y="120" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="800" font-size="56" fill="#FF9500" letter-spacing="-1">Claw</text>
   <!-- Tagline -->
-  <text x="600" y="190" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" font-size="18" fill="#8896B3" text-anchor="middle" letter-spacing="3">AUTONOMOUS INFRASTRUCTURE AGENT</text>
+  <text x="600" y="190" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" font-size="18" fill="#A08060" text-anchor="middle" letter-spacing="3">AUTONOMOUS INFRASTRUCTURE AGENT</text>
   <!-- Feature badges -->
-  <text x="600" y="240" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="500" font-size="13" fill="#4A5A7A" text-anchor="middle" letter-spacing="1">AI-POWERED  ·  SELF-HEALING  ·  CHAOS ENGINEERING  ·  NATURAL LANGUAGE OPS</text>
+  <text x="600" y="240" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="500" font-size="13" fill="#6B5540" text-anchor="middle" letter-spacing="1">AI-POWERED  ·  SELF-HEALING  ·  CHAOS ENGINEERING  ·  NATURAL LANGUAGE OPS</text>
 </svg>

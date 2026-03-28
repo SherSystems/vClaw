@@ -1,10 +1,8 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/banner.svg">
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/banner.svg">
-    <img alt="vClaw" src="docs/assets/banner.svg" width="100%">
-  </picture>
+  <img src="docs/assets/vclaw-logo.png" alt="vClaw" width="120" />
 </p>
+
+<h1 align="center">vClaw</h1>
 
 <p align="center">
   <strong>Autonomous AI agent for infrastructure management.<br/>One command. Any hypervisor. Full safety guardrails.</strong>

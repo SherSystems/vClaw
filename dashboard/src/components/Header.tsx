@@ -25,19 +25,8 @@ export function Header() {
     <>
       <header className="header">
         <div className="logo">
-          <svg width="28" height="28" viewBox="0 0 72 72" fill="none">
-            <rect width="72" height="72" rx="18" fill="#0ACDAA" />
-            <line x1="17" y1="17" x2="26" y2="17" stroke="white" strokeWidth="4" strokeLinecap="round" />
-            <line x1="17" y1="17" x2="17" y2="55" stroke="white" strokeWidth="4" strokeLinecap="round" />
-            <line x1="17" y1="55" x2="26" y2="55" stroke="white" strokeWidth="4" strokeLinecap="round" />
-            <line x1="55" y1="17" x2="46" y2="17" stroke="white" strokeWidth="4" strokeLinecap="round" />
-            <line x1="55" y1="17" x2="55" y2="55" stroke="white" strokeWidth="4" strokeLinecap="round" />
-            <line x1="55" y1="55" x2="46" y2="55" stroke="white" strokeWidth="4" strokeLinecap="round" />
-            <line x1="26" y1="29" x2="46" y2="29" stroke="white" strokeWidth="3.5" strokeLinecap="round" />
-            <line x1="26" y1="36" x2="46" y2="36" stroke="white" strokeWidth="3.5" strokeLinecap="round" />
-            <line x1="26" y1="43" x2="46" y2="43" stroke="white" strokeWidth="3.5" strokeLinecap="round" />
-          </svg>
-          v<span className="brand-accent">Claw</span>
+          <img src="/vclaw-logo.png" alt="vClaw" width="30" height="30" />
+          <span style={{marginLeft: 2}}>v<span className="brand-accent">Claw</span></span>
         </div>
 
         <div className="header-right">

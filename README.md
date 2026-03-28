@@ -200,6 +200,9 @@ Built-in fault injection for testing infrastructure resilience:
 <p align="center">
   <img src="docs/screenshots/topology.png" alt="Topology View" width="80%" />
 </p>
+<p align="center">
+  <img src="docs/screenshots/resources.png" alt="Resources & Forecasting" width="80%" />
+</p>
 
 Web-based dashboard with:
 - Live topology map showing nodes, VMs, interconnects, and metrics

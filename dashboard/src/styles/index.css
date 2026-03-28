@@ -17,13 +17,13 @@
   --text-tertiary: #5A7491;
   --text-accent: #ffffff;
 
-  --teal: #0ACDAA;
-  --teal-deep: #07A589;
-  --teal-muted: rgba(10, 205, 170, 0.10);
-  --teal-border: rgba(10, 205, 170, 0.20);
+  --teal: #FF9500;
+  --teal-deep: #E08200;
+  --teal-muted: rgba(255, 149, 0, 0.10);
+  --teal-border: rgba(255, 149, 0, 0.20);
 
-  --green: #0ACDAA;
-  --green-muted: rgba(10, 205, 170, 0.10);
+  --green: #22c55e;
+  --green-muted: rgba(34, 197, 94, 0.10);
   --red: #ef4444;
   --red-muted: rgba(239, 68, 68, 0.10);
   --amber: #eab308;

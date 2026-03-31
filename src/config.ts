@@ -27,6 +27,13 @@ const VMwareConfigSchema = z.object({
     .transform((v) => v === "true"),
 });
 
+const SystemConfigSchema = z.object({
+  sshStrictHostKeyCheck: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((v) => v === "true"),
+});
+
 const AIConfigSchema = z.object({
   provider: z.enum(["anthropic", "openai"]).default("anthropic"),
   apiKey: z.string().default(""),
@@ -48,6 +55,7 @@ const AutopilotConfigSchema = z.object({
 export const ConfigSchema = z.object({
   proxmox: ProxmoxConfigSchema,
   vmware: VMwareConfigSchema,
+  system: SystemConfigSchema.default({ sshStrictHostKeyCheck: "true" }),
   ai: AIConfigSchema,
   dashboard: DashboardConfigSchema,
   autopilot: AutopilotConfigSchema,
@@ -73,6 +81,9 @@ export function getConfig(): Config {
       user: process.env.VMWARE_USER,
       password: process.env.VMWARE_PASSWORD,
       insecure: process.env.VMWARE_INSECURE,
+    },
+    system: {
+      sshStrictHostKeyCheck: process.env.SYSTEM_SSH_STRICT_HOST_KEY_CHECK,
     },
     ai: {
       provider: process.env.AI_PROVIDER,

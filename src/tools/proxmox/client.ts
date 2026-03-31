@@ -1,5 +1,7 @@
-// Re-export from new location for backwards compatibility
-export { ProxmoxClient } from "../../providers/proxmox/client.js";
+// Backwards-compatible alias for the provider-owned Proxmox client.
+import { ProxmoxClient as ProviderProxmoxClient } from "../../providers/proxmox/client.js";
+
+export const ProxmoxClient = ProviderProxmoxClient;
 export type {
   ProxmoxClientConfig,
   ProxmoxResponse,

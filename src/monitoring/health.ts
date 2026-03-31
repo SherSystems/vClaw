@@ -1,5 +1,6 @@
 import type { ToolRegistry } from "../tools/registry.js";
 import type { EventBus } from "../agent/events.js";
+import { AgentEventType } from "../types.js";
 import { metricStore } from "./metric-store.js";
 // ── Exported Types ──────────────────────────────────────────
 
@@ -432,7 +433,7 @@ export class HealthMonitor {
   private emitBatch(batch: HealthMetric[]): void {
     if (batch.length === 0) return;
     this.events.emit({
-      type: "metric_recorded",
+      type: AgentEventType.MetricRecorded,
       timestamp: new Date().toISOString(),
       data: {
         count: batch.length,
@@ -443,7 +444,7 @@ export class HealthMonitor {
 
   private emitHealthCheck(summary: ClusterHealthSummary): void {
     this.events.emit({
-      type: "health_check",
+      type: AgentEventType.HealthCheck,
       timestamp: summary.timestamp,
       data: summary as unknown as Record<string, unknown>,
     });

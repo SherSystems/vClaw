@@ -9,6 +9,10 @@ export type { Playbook } from "./playbooks.js";
 
 export { IncidentManager } from "./incidents.js";
 export type { Incident, TimelineEntry } from "./incidents.js";
+export { IncidentCoordinator } from "./incident-coordinator.js";
+export { RCAAnalyzer } from "./rca-analyzer.js";
+export { HealingEngine } from "./healing-engine.js";
+export type { TickSummary, HealingEngineStatus } from "./healing-engine.js";
 
 export { HealingOrchestrator } from "./orchestrator.js";
 export type {

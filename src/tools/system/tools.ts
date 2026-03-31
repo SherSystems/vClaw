@@ -1,2 +1,4 @@
-// Re-export from new location for backwards compatibility
-export { SystemAdapter } from "../../providers/system/adapter.js";
+// Backwards-compatible alias for the provider-owned System adapter.
+import { SystemAdapter as ProviderSystemAdapter } from "../../providers/system/adapter.js";
+
+export const SystemAdapter = ProviderSystemAdapter;

@@ -6,6 +6,7 @@
 // ============================================================
 
 import { randomUUID } from "node:crypto";
+import { AgentEventType } from "../types.js";
 import type {
   Alert,
   AlertSeverity,
@@ -151,24 +152,34 @@ export class AutopilotDaemon {
       return;
     }
 
-    // Run health checks
-    this.runHealthChecks(currentState, now);
+    try {
+      // Run health checks
+      this.runHealthChecks(currentState, now);
 
-    // Evaluate rules
-    const matches = evaluateRules(
-      this.rules,
-      currentState,
-      this.previousState,
-      now,
-    );
+      // Evaluate rules
+      const matches = evaluateRules(
+        this.rules,
+        currentState,
+        this.previousState,
+        now,
+      );
 
-    // Process rule matches
-    for (const match of matches) {
-      await this.handleRuleMatch(match, now);
+      // Process rule matches
+      for (const match of matches) {
+        await this.handleRuleMatch(match, now);
+      }
+
+      // Store state for next comparison
+      this.previousState = currentState;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[autopilot] Poll execution failed: ${msg}`);
+      this.fireAlert(
+        "warning",
+        "autopilot/poll",
+        `Poll execution failed: ${msg}`,
+      );
     }
-
-    // Store state for next comparison
-    this.previousState = currentState;
   }
 
   // ── Health Checks ─────────────────────────────────────────
@@ -221,7 +232,7 @@ export class AutopilotDaemon {
     const degradedCount = checks.filter((c) => c.status === "degraded").length;
 
     this.eventBus.emit({
-      type: "health_check",
+      type: AgentEventType.HealthCheck,
       timestamp,
       data: {
         total: checks.length,
@@ -447,7 +458,7 @@ export class AutopilotDaemon {
 
     // Forward to EventBus for Dashboard consumption
     this.eventBus.emit({
-      type: "alert_fired",
+      type: AgentEventType.AlertFired,
       timestamp: alert.timestamp,
       data: {
         alert_id: alert.id,

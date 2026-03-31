@@ -251,45 +251,46 @@ export interface Alert {
 
 // ── Events (for dashboard streaming) ─────────────────────────
 
-export type AgentEventType =
-  | "plan_created"
-  | "plan_approved"
-  | "step_started"
-  | "step_completed"
-  | "step_failed"
-  | "replan"
-  | "investigation_started"
-  | "investigation_complete"
-  | "approval_requested"
-  | "approval_received"
-  | "circuit_breaker_tripped"
-  | "alert_fired"
-  | "alert_resolved"
-  | "health_check"
-  | "incident_opened"
-  | "incident_action"
-  | "incident_resolved"
-  | "incident_failed"
-  | "metric_recorded"
-  | "healing_tick"
-  | "healing_started"
-  | "healing_completed"
-  | "healing_failed"
-  | "healing_escalated"
-  | "healing_paused"
-  | "playbook_matched"
-  | "playbook_executed"
-  | "playbook_cooldown"
-  | "chaos_simulated"
-  | "chaos_started"
-  | "chaos_recovery_detected"
-  | "chaos_completed"
-  | "chaos_failed"
-  | "incident_rca"
-  | "multi_provider_goal_started"
-  | "multi_provider_goal_completed"
-  | "multi_provider_query"
-  | "capacity_analysis";
+export enum AgentEventType {
+  PlanCreated = "plan_created",
+  PlanApproved = "plan_approved",
+  StepStarted = "step_started",
+  StepCompleted = "step_completed",
+  StepFailed = "step_failed",
+  Replan = "replan",
+  InvestigationStarted = "investigation_started",
+  InvestigationComplete = "investigation_complete",
+  ApprovalRequested = "approval_requested",
+  ApprovalReceived = "approval_received",
+  CircuitBreakerTripped = "circuit_breaker_tripped",
+  AlertFired = "alert_fired",
+  AlertResolved = "alert_resolved",
+  HealthCheck = "health_check",
+  IncidentOpened = "incident_opened",
+  IncidentAction = "incident_action",
+  IncidentResolved = "incident_resolved",
+  IncidentFailed = "incident_failed",
+  MetricRecorded = "metric_recorded",
+  HealingTick = "healing_tick",
+  HealingStarted = "healing_started",
+  HealingCompleted = "healing_completed",
+  HealingFailed = "healing_failed",
+  HealingEscalated = "healing_escalated",
+  HealingPaused = "healing_paused",
+  PlaybookMatched = "playbook_matched",
+  PlaybookExecuted = "playbook_executed",
+  PlaybookCooldown = "playbook_cooldown",
+  ChaosSimulated = "chaos_simulated",
+  ChaosStarted = "chaos_started",
+  ChaosRecoveryDetected = "chaos_recovery_detected",
+  ChaosCompleted = "chaos_completed",
+  ChaosFailed = "chaos_failed",
+  IncidentRca = "incident_rca",
+  MultiProviderGoalStarted = "multi_provider_goal_started",
+  MultiProviderGoalCompleted = "multi_provider_goal_completed",
+  MultiProviderQuery = "multi_provider_query",
+  CapacityAnalysis = "capacity_analysis",
+}
 
 export interface AgentEvent {
   type: AgentEventType;

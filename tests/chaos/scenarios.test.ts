@@ -13,9 +13,9 @@ import type { ChaosScenario } from "../../src/chaos/scenarios.js";
 // ── getAllScenarios ──────────────────────────────────────────
 
 describe("getAllScenarios", () => {
-  it("returns exactly 4 scenarios", () => {
+  it("returns exactly 7 scenarios", () => {
     const scenarios = getAllScenarios();
-    expect(scenarios).toHaveLength(4);
+    expect(scenarios).toHaveLength(7);
   });
 
   it("returns a copy, not the original array", () => {
@@ -60,6 +60,27 @@ describe("getScenario", () => {
     expect(s).toBeDefined();
     expect(s!.id).toBe("node_drain");
     expect(s!.name).toBe("Node Drain");
+  });
+
+  it('returns the cpu_stress scenario', () => {
+    const s = getScenario("cpu_stress");
+    expect(s).toBeDefined();
+    expect(s!.id).toBe("cpu_stress");
+    expect(s!.name).toBe("CPU Stress");
+  });
+
+  it('returns the memory_pressure scenario', () => {
+    const s = getScenario("memory_pressure");
+    expect(s).toBeDefined();
+    expect(s!.id).toBe("memory_pressure");
+    expect(s!.name).toBe("Memory Pressure");
+  });
+
+  it('returns the network_partition scenario', () => {
+    const s = getScenario("network_partition");
+    expect(s).toBeDefined();
+    expect(s!.id).toBe("network_partition");
+    expect(s!.name).toBe("Network Partition");
   });
 
   it("returns undefined for a nonexistent scenario", () => {
@@ -130,6 +151,18 @@ describe("approval requirements", () => {
   it("node_drain requires approval", () => {
     expect(getScenario("node_drain")!.requires_approval).toBe(true);
   });
+
+  it("cpu_stress does not require approval", () => {
+    expect(getScenario("cpu_stress")!.requires_approval).toBe(false);
+  });
+
+  it("memory_pressure requires approval", () => {
+    expect(getScenario("memory_pressure")!.requires_approval).toBe(true);
+  });
+
+  it("network_partition requires approval", () => {
+    expect(getScenario("network_partition")!.requires_approval).toBe(true);
+  });
 });
 
 // ── Severity levels ─────────────────────────────────────────
@@ -149,5 +182,17 @@ describe("severity levels", () => {
 
   it("node_drain has critical severity", () => {
     expect(getScenario("node_drain")!.severity).toBe("critical");
+  });
+
+  it("cpu_stress has medium severity", () => {
+    expect(getScenario("cpu_stress")!.severity).toBe("medium");
+  });
+
+  it("memory_pressure has high severity", () => {
+    expect(getScenario("memory_pressure")!.severity).toBe("high");
+  });
+
+  it("network_partition has high severity", () => {
+    expect(getScenario("network_partition")!.severity).toBe("high");
   });
 });

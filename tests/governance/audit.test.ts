@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { unlinkSync, existsSync } from "node:fs";
+import Database from "better-sqlite3";
 import { AuditLog } from "../../src/governance/audit.js";
 import type { AuditEntry } from "../../src/types.js";
 
@@ -225,6 +226,90 @@ describe("AuditLog", () => {
     expect(r.plan_id).toBe("plan-1");
     expect(r.step_id).toBe("step-1");
     expect(r.error).toBe("some error");
+  });
+
+  it("query() tolerates corrupted JSON fields and falls back gracefully", () => {
+    const entry = makeEntry({
+      id: "corrupt-1",
+      state_before: { status: "before" },
+      state_after: { status: "after" },
+    });
+    audit.log(entry);
+
+    const db = new Database(dbPath);
+    db.prepare(
+      "UPDATE audit_log SET state_before = @state_before, state_after = @state_after WHERE id = @id",
+    ).run({
+      id: "corrupt-1",
+      state_before: "{not-valid-json",
+      state_after: "{still-bad",
+    });
+    db.close();
+
+    const results = audit.query({ action: entry.action });
+    const row = results.find((r) => r.id === "corrupt-1");
+    expect(row).toBeDefined();
+    expect(row!.state_before).toBeUndefined();
+    expect(row!.state_after).toBeUndefined();
+  });
+
+  it("query() handles null-like params payload without throwing", () => {
+    const entry = makeEntry({ id: "null-params-1", params: { ok: true } });
+    audit.log(entry);
+
+    const db = new Database(dbPath);
+    db.prepare("UPDATE audit_log SET params = @params WHERE id = @id").run({
+      id: "null-params-1",
+      params: "null",
+    });
+    db.close();
+
+    const results = audit.query({ action: entry.action });
+    const row = results.find((r) => r.id === "null-params-1");
+    expect(row).toBeDefined();
+    expect(row!.params).toEqual({});
+  });
+
+  it("exportEntries(json) respects from/to timestamp filters", () => {
+    audit.log(makeEntry({ id: "exp-json-1", timestamp: "2026-01-15T00:00:00.000Z" }));
+    audit.log(makeEntry({ id: "exp-json-2", timestamp: "2026-03-15T00:00:00.000Z" }));
+    audit.log(makeEntry({ id: "exp-json-3", timestamp: "2026-04-01T00:00:00.000Z" }));
+
+    const exported = audit.exportEntries("json", {
+      from: "2026-03-01T00:00:00.000Z",
+      to: "2026-03-31T23:59:59.999Z",
+    });
+    const rows = JSON.parse(exported) as AuditEntry[];
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].id).toBe("exp-json-2");
+  });
+
+  it("exportEntries(csv) includes required columns and derived provider/approval fields", () => {
+    audit.log(makeEntry({
+      id: "exp-csv-1",
+      action: "proxmox_list_vms",
+      tier: "read",
+      params: { provider: "proxmox" },
+      state_before: { status: "before" },
+      state_after: { status: "after" },
+      approval: {
+        request_id: "req-csv-1",
+        approved: true,
+        approved_by: "operator",
+        method: "cli",
+        timestamp: new Date().toISOString(),
+      },
+    }));
+
+    const csv = audit.exportEntries("csv");
+    const lines = csv.split("\n");
+
+    expect(lines[0]).toBe("timestamp,tier,action,provider,state_before,state_after,approval_status");
+    expect(lines[1]).toContain(",read,proxmox_list_vms,proxmox,");
+    expect(lines[1]).toContain("approved");
+    expect(lines[1]).toContain("\"{\"\"status\"\":\"\"before\"\"}\"");
+    expect(lines[1]).toContain("\"{\"\"status\"\":\"\"after\"\"}\"");
   });
 
   it("close() does not throw", () => {

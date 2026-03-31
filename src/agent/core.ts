@@ -4,6 +4,7 @@
 // ============================================================
 
 import { randomUUID } from "node:crypto";
+import { AgentEventType } from "../types.js";
 import type {
   Goal,
   Plan,
@@ -141,7 +142,7 @@ export class AgentCore {
 
     // 4. Emit plan_created
     this.eventBus.emit({
-      type: "plan_created",
+      type: AgentEventType.PlanCreated,
       timestamp: new Date().toISOString(),
       data: {
         plan_id: plan.id,
@@ -161,7 +162,7 @@ export class AgentCore {
     // 5. Request plan-level approval
     if (this.requiresPlanApproval(goal.mode, plan)) {
       this.eventBus.emit({
-        type: "approval_requested",
+        type: AgentEventType.ApprovalRequested,
         timestamp: new Date().toISOString(),
         data: { plan_id: plan.id, type: "plan_approval", mode: goal.mode },
       });
@@ -190,7 +191,7 @@ export class AgentCore {
 
       plan.status = "approved";
       this.eventBus.emit({
-        type: "plan_approved",
+        type: AgentEventType.PlanApproved,
         timestamp: new Date().toISOString(),
         data: { plan_id: plan.id },
       });
@@ -242,7 +243,7 @@ export class AgentCore {
           // Check circuit breaker
           if (this.governance.circuitBreaker.isTripped()) {
             this.eventBus.emit({
-              type: "circuit_breaker_tripped",
+              type: AgentEventType.CircuitBreakerTripped,
               timestamp: new Date().toISOString(),
               data: { plan_id: activePlan.id, step_id: step.id },
             });
@@ -287,7 +288,7 @@ export class AgentCore {
             replans++;
 
             this.eventBus.emit({
-              type: "replan",
+              type: AgentEventType.Replan,
               timestamp: new Date().toISOString(),
               data: {
                 old_plan_id: activePlan.id,
@@ -376,7 +377,7 @@ export class AgentCore {
 
               // Emit step_failed with observation details
               this.eventBus.emit({
-                type: "step_failed",
+                type: AgentEventType.StepFailed,
                 timestamp: new Date().toISOString(),
                 data: {
                   step_id: step.id,
@@ -428,7 +429,7 @@ export class AgentCore {
    */
   async investigate(trigger: string): Promise<Investigation> {
     this.eventBus.emit({
-      type: "investigation_started",
+      type: AgentEventType.InvestigationStarted,
       timestamp: new Date().toISOString(),
       data: { trigger },
     });
@@ -449,7 +450,7 @@ export class AgentCore {
     const investigation = await this.investigator.investigate(trigger, context);
 
     this.eventBus.emit({
-      type: "investigation_complete",
+      type: AgentEventType.InvestigationComplete,
       timestamp: new Date().toISOString(),
       data: {
         investigation_id: investigation.id,

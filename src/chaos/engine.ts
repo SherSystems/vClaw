@@ -9,7 +9,8 @@ import type { EventBus } from "../agent/events.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import type { HealingOrchestrator } from "../healing/orchestrator.js";
 import type { Incident } from "../healing/incidents.js";
-import type { VMInfo, ClusterState, AgentEventType } from "../types.js";
+import { AgentEventType } from "../types.js";
+import type { VMInfo, ClusterState } from "../types.js";
 import type { ChaosScenario, ChaosAction } from "./scenarios.js";
 import { getScenario, getAllScenarios } from "./scenarios.js";
 
@@ -17,7 +18,7 @@ import { getScenario, getAllScenarios } from "./scenarios.js";
 
 export interface BlastRadiusResult {
   affected_vms: Array<{
-    vmid: number;
+    vmid: string;
     name: string;
     node: string;
     status: string;
@@ -141,7 +142,7 @@ export class ChaosEngine {
       };
 
       run.status = "pending";
-      this.emitEvent("chaos_simulated", {
+      this.emitEvent(AgentEventType.ChaosSimulated, {
         run_id: run.id,
         scenario_id: scenario.id,
         total_affected: blastRadius.total_affected,
@@ -188,7 +189,7 @@ export class ChaosEngine {
     run.status = "executing";
     const executionStart = Date.now();
 
-    this.emitEvent("chaos_started", {
+    this.emitEvent(AgentEventType.ChaosStarted, {
       run_id: run.id,
       scenario_id: run.scenario.id,
       scenario_name: run.scenario.name,
@@ -210,7 +211,7 @@ export class ChaosEngine {
 
       // Step 3: Wait for healing
       run.status = "recovering";
-      this.emitEvent("chaos_recovery_detected", {
+      this.emitEvent(AgentEventType.ChaosRecoveryDetected, {
         run_id: run.id,
         scenario_id: run.scenario.id,
         message: "Failures injected, waiting for healing orchestrator to respond",
@@ -242,7 +243,7 @@ export class ChaosEngine {
       run.status = "completed";
       run.completed_at = new Date().toISOString();
 
-      this.emitEvent("chaos_completed", {
+      this.emitEvent(AgentEventType.ChaosCompleted, {
         run_id: run.id,
         scenario_id: run.scenario.id,
         verdict: run.score.verdict,
@@ -261,7 +262,7 @@ export class ChaosEngine {
       run.completed_at = new Date().toISOString();
 
       const errMsg = err instanceof Error ? err.message : String(err);
-      this.emitEvent("chaos_failed", {
+      this.emitEvent(AgentEventType.ChaosFailed, {
         run_id: run.id,
         scenario_id: run.scenario.id,
         error: errMsg,
@@ -295,7 +296,7 @@ export class ChaosEngine {
     const run = this.activeRun;
     run.status = "failed";
     run.completed_at = new Date().toISOString();
-    this.emitEvent("chaos_failed", {
+    this.emitEvent(AgentEventType.ChaosFailed, {
       run_id: run.id,
       scenario_id: run.scenario.id,
       error: "Cancelled by operator",
@@ -326,19 +327,20 @@ export class ChaosEngine {
 
     switch (scenario.id) {
       case "vm_kill": {
-        const targetVmid = params?.vmid as number | undefined;
+        const targetVmid = params?.vmid as string | number | undefined;
         if (!targetVmid) {
           throw new Error("vm_kill scenario requires params.vmid");
         }
-        if (PROTECTED_VMIDS.has(String(targetVmid))) {
+        const targetVmidStr = String(targetVmid);
+        if (PROTECTED_VMIDS.has(targetVmidStr)) {
           throw new Error(`VM ${targetVmid} is protected — it runs vClaw itself and cannot be targeted`);
         }
-        const vm = clusterState.vms.find((v) => Number(v.id) === targetVmid);
+        const vm = clusterState.vms.find((v) => String(v.id) === targetVmidStr);
         if (!vm) {
           throw new Error(`VM ${targetVmid} not found in cluster state`);
         }
         affectedVMs.push({
-          vmid: Number(vm.id),
+          vmid: String(vm.id),
           name: vm.name,
           node: vm.node,
           status: vm.status,
@@ -357,7 +359,7 @@ export class ChaosEngine {
         for (let i = 0; i < runningVMs.length; i++) {
           const vm = runningVMs[i];
           affectedVMs.push({
-            vmid: Number(vm.id),
+            vmid: String(vm.id),
             name: vm.name,
             node: vm.node,
             status: vm.status,
@@ -383,16 +385,16 @@ export class ChaosEngine {
         }
         // Shuffle and pick
         const shuffled = [...runningVMs].sort(() => Math.random() - 0.5);
-        const picked = new Set(shuffled.slice(0, count).map((v) => Number(v.id)));
+        const picked = new Set(shuffled.slice(0, count).map((v) => String(v.id)));
 
         for (const vm of runningVMs) {
           affectedVMs.push({
-            vmid: Number(vm.id),
+            vmid: String(vm.id),
             name: vm.name,
             node: vm.node,
             status: vm.status,
-            will_be_affected: picked.has(Number(vm.id)),
-            expected_recovery: picked.has(Number(vm.id))
+            will_be_affected: picked.has(String(vm.id)),
+            expected_recovery: picked.has(String(vm.id))
               ? "Concurrent self-healing restart"
               : "Not affected",
           });
@@ -415,7 +417,7 @@ export class ChaosEngine {
         for (const vm of clusterState.vms) {
           const onTargetNode = vm.node === targetNode;
           affectedVMs.push({
-            vmid: Number(vm.id),
+            vmid: String(vm.id),
             name: vm.name,
             node: vm.node,
             status: vm.status,
@@ -425,6 +427,37 @@ export class ChaosEngine {
               : "Not affected (different node)",
           });
         }
+        break;
+      }
+
+      case "cpu_stress":
+      case "memory_pressure":
+      case "network_partition": {
+        const targetVmid = params?.vmid as string | number | undefined;
+        if (!targetVmid) {
+          throw new Error(`${scenario.id} scenario requires params.vmid`);
+        }
+
+        const targetVmidStr = String(targetVmid);
+        if (PROTECTED_VMIDS.has(targetVmidStr)) {
+          throw new Error(`VM ${targetVmid} is protected — it runs vClaw itself and cannot be targeted`);
+        }
+
+        const vm = clusterState.vms.find((v) => String(v.id) === targetVmidStr);
+        if (!vm) {
+          throw new Error(`VM ${targetVmid} not found in cluster state`);
+        }
+
+        affectedVMs.push({
+          vmid: String(vm.id),
+          name: vm.name,
+          node: vm.node,
+          status: vm.status,
+          will_be_affected: vm.status === "running",
+          expected_recovery: scenario.id === "network_partition"
+            ? "Connectivity should recover after partition window ends"
+            : "Resource pressure should recover after stress window ends",
+        });
         break;
       }
 
@@ -617,7 +650,23 @@ export class ChaosEngine {
           break;
         }
 
-        // stress_cpu, fill_disk, disconnect_network — placeholders for future
+        case "stress_cpu":
+        case "stress_memory":
+        case "disconnect_network": {
+          const targets = this.resolveTargetVMs(
+            action,
+            scenario,
+            runningVMs,
+            params,
+          );
+          for (const vm of targets) {
+            await this.injectGuestFault(vm, action);
+            stepsExecuted++;
+          }
+          break;
+        }
+
+        // fill_disk — placeholder for future implementation
         default:
           console.warn(
             `[chaos] Action type "${action.type}" not yet implemented, skipping`,
@@ -657,9 +706,9 @@ export class ChaosEngine {
     }
 
     // Explicit target by vmid
-    const vmid = (params?.vmid as number) ?? (_action.target ? Number(_action.target) : undefined);
+    const vmid = (params?.vmid as string | number | undefined) ?? _action.target;
     if (vmid !== undefined) {
-      const vm = runningVMs.find((v) => Number(v.id) === vmid);
+      const vm = runningVMs.find((v) => String(v.id) === String(vmid));
       if (!vm) {
         throw new Error(
           `Target VM ${vmid} not found or not running`,
@@ -679,13 +728,68 @@ export class ChaosEngine {
    */
   private async stopVM(vm: VMInfo): Promise<void> {
     console.log(`[chaos] Stopping VM ${vm.name} (${vm.id}) on ${vm.node}`);
-    const result = await this.toolRegistry.execute("stop_vm", {
-      node: vm.node,
-      vmid: Number(vm.id),
-    });
+    const vmId = String(vm.id);
+    const result = vmId.startsWith("vm-")
+      ? await this.toolRegistry.execute("vmware_vm_power_off", {
+          vm_id: vmId,
+        })
+      : await this.toolRegistry.execute("stop_vm", {
+          node: vm.node,
+          vmid: Number(vm.id),
+        });
     if (!result.success) {
       throw new Error(
         `Failed to stop VM ${vm.id} (${vm.name}): ${result.error}`,
+      );
+    }
+  }
+
+  private async injectGuestFault(vm: VMInfo, action: ChaosAction): Promise<void> {
+    if (!vm.ip_address) {
+      throw new Error(
+        `VM ${vm.id} (${vm.name}) has no IP address; cannot execute guest-level chaos action "${action.type}"`,
+      );
+    }
+
+    const durationS = Math.max(
+      1,
+      Number(action.params.duration_s ?? 60),
+    );
+
+    let command: string;
+    if (action.type === "stress_cpu") {
+      const workers = Math.max(1, Number(action.params.workers ?? 2));
+      command = [
+        "sh -lc",
+        `'for i in $(seq 1 ${workers}); do yes > /dev/null & done;`,
+        `sleep ${durationS};`,
+        "pkill -f '^yes$' || true'",
+      ].join(" ");
+    } else if (action.type === "stress_memory") {
+      const bytesMb = Math.max(32, Number(action.params.bytes_mb ?? 512));
+      const bytes = bytesMb * 1024 * 1024;
+      command = [
+        "python3 -c",
+        `'import time; _buf=bytearray(${bytes}); time.sleep(${durationS})'`,
+      ].join(" ");
+    } else {
+      command = [
+        "sh -lc",
+        `'iptables -I INPUT -j DROP; iptables -I OUTPUT -j DROP;`,
+        `sleep ${durationS};`,
+        "iptables -D INPUT 1 || true; iptables -D OUTPUT 1 || true'",
+      ].join(" ");
+    }
+
+    const result = await this.toolRegistry.execute("ssh_exec", {
+      host: vm.ip_address,
+      user: "root",
+      command,
+      timeout_ms: (durationS + 30) * 1000,
+    });
+    if (!result.success) {
+      throw new Error(
+        `Failed to execute "${action.type}" on VM ${vm.id} (${vm.name}): ${result.error}`,
       );
     }
   }
@@ -697,11 +801,11 @@ export class ChaosEngine {
    * or the timeout expires.
    */
   private async waitForRecovery(
-    affectedVmids: number[],
+    affectedVmids: string[],
     timeoutMs: number,
-  ): Promise<{ allRecovered: boolean; recovered: number[]; notRecovered: number[] }> {
+  ): Promise<{ allRecovered: boolean; recovered: string[]; notRecovered: string[] }> {
     const deadline = Date.now() + Math.min(timeoutMs, MAX_RECOVERY_WAIT_MS);
-    const recoveredSet = new Set<number>();
+    const recoveredSet = new Set<string>();
 
     while (Date.now() < deadline) {
       await this.sleep(RECOVERY_POLL_MS);
@@ -711,7 +815,7 @@ export class ChaosEngine {
 
       for (const vmid of affectedVmids) {
         if (recoveredSet.has(vmid)) continue;
-        const vm = state.vms.find((v) => Number(v.id) === vmid);
+        const vm = state.vms.find((v) => String(v.id) === vmid);
         if (vm && vm.status === "running") {
           recoveredSet.add(vmid);
           console.log(`[chaos] VM ${vmid} recovered (running)`);
@@ -735,7 +839,7 @@ export class ChaosEngine {
    * Find incidents that were opened for the affected VMs during this chaos run.
    */
   private findRelevantIncidents(
-    affectedVmids: number[],
+    affectedVmids: string[],
     executionStartMs: number,
   ): Incident[] {
     const recent = this.healingOrchestrator.incidentManager.getRecent(50);

@@ -3,6 +3,7 @@
 // ============================================================
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { AgentEventType } from "../../src/types.js";
 import type { Goal, Plan, PlanStep, MultiClusterState, ClusterState, ToolDefinition } from "../../src/types.js";
 import type { AIConfig } from "../../src/agent/llm.js";
 import type { PlanningContext } from "../../src/agent/planner.js";
@@ -391,7 +392,7 @@ describe("MultiProviderOrchestrator", () => {
 
     it("emits multi_provider_goal_started event", async () => {
       const events: any[] = [];
-      eventBus.on("multi_provider_goal_started", (e) => events.push(e));
+      eventBus.on(AgentEventType.MultiProviderGoalStarted, (e) => events.push(e));
 
       const plan = makePlan([makeStep("s1", "proxmox_list_vms")]);
       planner.plan.mockResolvedValue(plan);
@@ -406,7 +407,7 @@ describe("MultiProviderOrchestrator", () => {
 
     it("emits multi_provider_goal_completed event", async () => {
       const events: any[] = [];
-      eventBus.on("multi_provider_goal_completed", (e) => events.push(e));
+      eventBus.on(AgentEventType.MultiProviderGoalCompleted, (e) => events.push(e));
 
       const plan = makePlan([
         makeStep("s1", "proxmox_list_vms"),
@@ -507,7 +508,7 @@ describe("MultiProviderOrchestrator", () => {
 
     it("emits multi_provider_query event", async () => {
       const events: any[] = [];
-      eventBus.on("multi_provider_query", (e) => events.push(e));
+      eventBus.on(AgentEventType.MultiProviderQuery, (e) => events.push(e));
 
       await orchestrator.queryAllProviders("list all resources");
 
@@ -615,7 +616,7 @@ describe("MultiProviderOrchestrator", () => {
 
     it("emits capacity_analysis event", async () => {
       const events: any[] = [];
-      eventBus.on("capacity_analysis", (e) => events.push(e));
+      eventBus.on(AgentEventType.CapacityAnalysis, (e) => events.push(e));
 
       await orchestrator.getCapacityAnalysis();
 

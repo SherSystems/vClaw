@@ -4,6 +4,7 @@ import {
   type Anomaly,
 } from "../../src/healing/incidents.js";
 import { EventBus } from "../../src/agent/events.js";
+import { AgentEventType } from "../../src/types.js";
 import { rmSync } from "node:fs";
 
 // ── Helpers ────────────────────────────────────────────────
@@ -79,7 +80,7 @@ describe("IncidentManager", () => {
 
     it('emits "incident_opened" event', () => {
       const events: unknown[] = [];
-      bus.on("incident_opened" as any, (e) => events.push(e));
+      bus.on(AgentEventType.IncidentOpened, (e) => events.push(e));
 
       const incident = manager.open(makeAnomaly());
 
@@ -122,7 +123,7 @@ describe("IncidentManager", () => {
 
     it('emits "incident_action" event', () => {
       const events: unknown[] = [];
-      bus.on("incident_action" as any, (e) => events.push(e));
+      bus.on(AgentEventType.IncidentAction, (e) => events.push(e));
 
       const incident = manager.open(makeAnomaly());
       manager.recordAction(incident.id, "restart_vm", true, "done");
@@ -150,7 +151,7 @@ describe("IncidentManager", () => {
 
     it('emits "incident_resolved" event', () => {
       const events: unknown[] = [];
-      bus.on("incident_resolved" as any, (e) => events.push(e));
+      bus.on(AgentEventType.IncidentResolved, (e) => events.push(e));
 
       const incident = manager.open(makeAnomaly());
       manager.resolve(incident.id, "Fixed");
@@ -176,7 +177,7 @@ describe("IncidentManager", () => {
 
     it('emits "incident_failed" event', () => {
       const events: unknown[] = [];
-      bus.on("incident_failed" as any, (e) => events.push(e));
+      bus.on(AgentEventType.IncidentFailed, (e) => events.push(e));
 
       const incident = manager.open(makeAnomaly());
       manager.fail(incident.id, "Could not migrate");

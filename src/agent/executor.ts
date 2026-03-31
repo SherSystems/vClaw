@@ -4,6 +4,7 @@
 // ============================================================
 
 import { randomUUID } from "node:crypto";
+import { AgentEventType } from "../types.js";
 import type {
   PlanStep,
   StepResult,
@@ -67,7 +68,7 @@ export class Executor {
 
     // Emit step_started
     this.eventBus.emit({
-      type: "step_started",
+      type: AgentEventType.StepStarted,
       timestamp,
       data: { step_id: step.id, action: step.action, description: step.description },
     });
@@ -120,7 +121,7 @@ export class Executor {
           "Approval required but not granted",
         );
         this.eventBus.emit({
-          type: "approval_requested",
+          type: AgentEventType.ApprovalRequested,
           timestamp: new Date().toISOString(),
           data: {
             step_id: step.id,
@@ -227,7 +228,7 @@ export class Executor {
 
   private emitStepCompleted(step: PlanStep, result: StepResult): void {
     this.eventBus.emit({
-      type: "step_completed",
+      type: AgentEventType.StepCompleted,
       timestamp: new Date().toISOString(),
       data: {
         step_id: step.id,
@@ -240,7 +241,7 @@ export class Executor {
 
   private emitStepFailed(step: PlanStep, result: StepResult): void {
     this.eventBus.emit({
-      type: "step_failed",
+      type: AgentEventType.StepFailed,
       timestamp: new Date().toISOString(),
       data: {
         step_id: step.id,

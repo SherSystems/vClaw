@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { Goal, AgentEvent, AgentEventType } from "../types.js";
+import { AgentEventType } from "../types.js";
+import type { Goal, AgentEvent } from "../types.js";
 import type { EventBus } from "../agent/events.js";
 
 // ── Anomaly ─────────────────────────────────────────────────
@@ -89,7 +90,7 @@ export class PlaybookEngine {
     for (const playbook of this.playbooks.values()) {
       if (!this.triggerMatches(playbook.trigger, anomaly)) continue;
       if (this.isOnCooldown(playbook.id)) {
-        this.emitEvent("playbook_cooldown", {
+        this.emitEvent(AgentEventType.PlaybookCooldown, {
           playbook_id: playbook.id,
           playbook_name: playbook.name,
           anomaly_id: anomaly.id,
@@ -100,7 +101,7 @@ export class PlaybookEngine {
     }
 
     if (matched.length > 0) {
-      this.emitEvent("playbook_matched", {
+      this.emitEvent(AgentEventType.PlaybookMatched, {
         playbook_ids: matched.map((p) => p.id),
         playbook_names: matched.map((p) => p.name),
         anomaly_id: anomaly.id,
@@ -143,7 +144,7 @@ export class PlaybookEngine {
       executed_at: new Date().toISOString(),
     });
 
-    this.emitEvent("playbook_executed", {
+    this.emitEvent(AgentEventType.PlaybookExecuted, {
       playbook_id: playbookId,
       anomaly_id: anomalyId,
       success,
@@ -219,12 +220,9 @@ export class PlaybookEngine {
     }
   }
 
-  private emitEvent(
-    type: string,
-    data: Record<string, unknown>,
-  ): void {
+  private emitEvent(type: AgentEventType, data: Record<string, unknown>): void {
     this.eventBus.emit({
-      type: type as AgentEventType,
+      type,
       timestamp: new Date().toISOString(),
       data,
     });

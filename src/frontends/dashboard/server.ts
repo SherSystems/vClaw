@@ -137,6 +137,9 @@ export class DashboardServer {
         case "/api/audit/stats":
           this.handleAuditStats(res);
           break;
+        case "/api/audit/export":
+          this.handleAuditExport(res, url);
+          break;
         case "/api/incidents":
           this.handleIncidents(res);
           break;
@@ -362,6 +365,49 @@ export class DashboardServer {
       this.json(res, stats);
     } catch (err) {
       this.json(res, { error: "Failed to get audit stats" }, 500);
+    }
+  }
+
+  private handleAuditExport(res: ServerResponse, url: URL): void {
+    const formatRaw = (url.searchParams.get("format") ?? "json").toLowerCase();
+    if (formatRaw !== "json" && formatRaw !== "csv") {
+      this.json(res, { error: "Invalid format; expected json or csv" }, 400);
+      return;
+    }
+
+    const from = url.searchParams.get("from") ?? undefined;
+    const to = url.searchParams.get("to") ?? undefined;
+
+    if (from && Number.isNaN(Date.parse(from))) {
+      this.json(res, { error: "Invalid from timestamp (expected ISO8601)" }, 400);
+      return;
+    }
+
+    if (to && Number.isNaN(Date.parse(to))) {
+      this.json(res, { error: "Invalid to timestamp (expected ISO8601)" }, 400);
+      return;
+    }
+
+    if (from && to && Date.parse(from) > Date.parse(to)) {
+      this.json(res, { error: "from must be <= to" }, 400);
+      return;
+    }
+
+    try {
+      const payload = this.audit.exportEntries(formatRaw, { from, to });
+      if (formatRaw === "csv") {
+        res.writeHead(200, {
+          "Content-Type": "text/csv; charset=utf-8",
+          "Cache-Control": "no-cache",
+        });
+        res.end(payload);
+        return;
+      }
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(payload);
+    } catch (err) {
+      this.json(res, { error: "Failed to export audit log" }, 500);
     }
   }
 

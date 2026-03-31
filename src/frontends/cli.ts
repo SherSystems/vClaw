@@ -5,6 +5,7 @@
 
 import * as readline from "node:readline";
 import { randomUUID } from "node:crypto";
+import { AgentEventType } from "../types.js";
 import type { AgentCore } from "../agent/core.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import type { EventBus } from "../agent/events.js";
@@ -1011,7 +1012,7 @@ export class vClawCLI {
   // ── Event Subscriptions ───────────────────────────────────
 
   private subscribeToEvents(): void {
-    this.eventBus.on("plan_created", (event: AgentEvent) => {
+    this.eventBus.on(AgentEventType.PlanCreated, (event: AgentEvent) => {
       const data = event.data as {
         plan_id: string;
         goal: string;
@@ -1025,7 +1026,7 @@ export class vClawCLI {
       );
     });
 
-    this.eventBus.on("plan_approved", (event: AgentEvent) => {
+    this.eventBus.on(AgentEventType.PlanApproved, (event: AgentEvent) => {
       const data = event.data as { plan_id: string };
       console.log(
         green(
@@ -1034,7 +1035,7 @@ export class vClawCLI {
       );
     });
 
-    this.eventBus.on("step_started", (event: AgentEvent) => {
+    this.eventBus.on(AgentEventType.StepStarted, (event: AgentEvent) => {
       const data = event.data as { step_id: string; action: string };
       console.log(
         yellow(
@@ -1043,7 +1044,7 @@ export class vClawCLI {
       );
     });
 
-    this.eventBus.on("step_completed", (event: AgentEvent) => {
+    this.eventBus.on(AgentEventType.StepCompleted, (event: AgentEvent) => {
       const data = event.data as {
         step_id: string;
         action: string;
@@ -1056,7 +1057,7 @@ export class vClawCLI {
       );
     });
 
-    this.eventBus.on("step_failed", (event: AgentEvent) => {
+    this.eventBus.on(AgentEventType.StepFailed, (event: AgentEvent) => {
       const data = event.data as {
         step_id: string;
         action: string;
@@ -1072,7 +1073,7 @@ export class vClawCLI {
       }
     });
 
-    this.eventBus.on("replan", (event: AgentEvent) => {
+    this.eventBus.on(AgentEventType.Replan, (event: AgentEvent) => {
       const data = event.data as {
         new_plan_id: string;
         reasoning: string;
@@ -1084,12 +1085,12 @@ export class vClawCLI {
       );
     });
 
-    this.eventBus.on("investigation_started", (event: AgentEvent) => {
+    this.eventBus.on(AgentEventType.InvestigationStarted, (event: AgentEvent) => {
       const data = event.data as { trigger: string };
       console.log(cyan(`\n  [investigate] Starting: ${data.trigger}`));
     });
 
-    this.eventBus.on("investigation_complete", (event: AgentEvent) => {
+    this.eventBus.on(AgentEventType.InvestigationComplete, (event: AgentEvent) => {
       const data = event.data as {
         root_cause: string;
         findings_count: number;
@@ -1103,7 +1104,7 @@ export class vClawCLI {
       );
     });
 
-    this.eventBus.on("approval_requested", (event: AgentEvent) => {
+    this.eventBus.on(AgentEventType.ApprovalRequested, (event: AgentEvent) => {
       const data = event.data as {
         plan_id: string;
         type: string;
@@ -1116,13 +1117,13 @@ export class vClawCLI {
       );
     });
 
-    this.eventBus.on("circuit_breaker_tripped", () => {
+    this.eventBus.on(AgentEventType.CircuitBreakerTripped, () => {
       console.log(
         red(bold("\n  [CIRCUIT BREAKER] Tripped — execution halted.")),
       );
     });
 
-    this.eventBus.on("alert_fired", (event: AgentEvent) => {
+    this.eventBus.on(AgentEventType.AlertFired, (event: AgentEvent) => {
       const data = event.data as {
         severity: string;
         message: string;

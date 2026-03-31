@@ -69,7 +69,9 @@ async function main() {
   }
 
   // Register system adapter
-  const system = new SystemAdapter();
+  const system = new SystemAdapter({
+    sshStrictHostKeyCheck: config.system.sshStrictHostKeyCheck,
+  });
   registry.registerAdapter(system);
 
   // Connect all adapters

@@ -6,6 +6,7 @@ import {
   type Anomaly,
 } from "../../src/healing/playbooks.js";
 import { EventBus } from "../../src/agent/events.js";
+import { AgentEventType } from "../../src/types.js";
 
 // ── Helpers ────────────────────────────────────────────────
 
@@ -212,7 +213,7 @@ describe("PlaybookEngine", () => {
     it('emits "playbook_matched" event when match found', () => {
       engine.register(makePlaybook());
       const events: unknown[] = [];
-      bus.on("playbook_matched" as any, (e) => events.push(e));
+      bus.on(AgentEventType.PlaybookMatched, (e) => events.push(e));
 
       engine.match(makeAnomaly());
 
@@ -233,7 +234,7 @@ describe("PlaybookEngine", () => {
       engine.recordExecution("test_playbook", "anomaly-001", true);
 
       const events: unknown[] = [];
-      bus.on("playbook_cooldown" as any, (e) => events.push(e));
+      bus.on(AgentEventType.PlaybookCooldown, (e) => events.push(e));
 
       engine.match(makeAnomaly());
 
@@ -289,7 +290,7 @@ describe("PlaybookEngine", () => {
     it("recordExecution() stores execution and emits event", () => {
       engine.register(makePlaybook());
       const events: unknown[] = [];
-      bus.on("playbook_executed" as any, (e) => events.push(e));
+      bus.on(AgentEventType.PlaybookExecuted, (e) => events.push(e));
 
       engine.recordExecution("test_playbook", "anomaly-001", true);
 

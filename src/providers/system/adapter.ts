@@ -6,9 +6,20 @@ import type {
   ClusterState,
 } from "../types.js";
 
+export interface SystemAdapterConfig {
+  sshStrictHostKeyCheck?: boolean;
+}
+
 export class SystemAdapter implements InfraAdapter {
   name = "system";
   private _connected = false;
+  private readonly sshStrictHostKeyCheck: boolean;
+  private static readonly MAX_PACKAGE_INPUT_LENGTH = 512;
+  private static readonly PACKAGE_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9+_.:-]*$/;
+
+  constructor(config: SystemAdapterConfig = {}) {
+    this.sshStrictHostKeyCheck = config.sshStrictHostKeyCheck ?? true;
+  }
 
   async connect(): Promise<void> {
     this._connected = true;
@@ -173,10 +184,7 @@ export class SystemAdapter implements InfraAdapter {
     return this.runProcess(
       "ssh",
       [
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
-        "-o", `ConnectTimeout=${Math.ceil(timeout / 1000)}`,
-        "-o", "LogLevel=ERROR",
+        ...this.buildSshOptions(Math.ceil(timeout / 1000)),
         `${user}@${host}`,
         command,
       ],
@@ -240,16 +248,23 @@ export class SystemAdapter implements InfraAdapter {
       return { success: false, error: "host and packages are required" };
     }
 
+    const validation = this.validatePackageList(packages);
+    if (!validation.success) {
+      return { success: false, error: validation.error };
+    }
+
+    const safePackageList = validation.packages.map((pkg) => this.quoteShellWord(pkg)).join(" ");
+
     const script = `
       if command -v apt-get >/dev/null 2>&1; then
         export DEBIAN_FRONTEND=noninteractive
-        apt-get update -qq && apt-get install -y -qq ${packages}
+        apt-get update -qq && apt-get install -y -qq ${safePackageList}
       elif command -v dnf >/dev/null 2>&1; then
-        dnf install -y ${packages}
+        dnf install -y ${safePackageList}
       elif command -v yum >/dev/null 2>&1; then
-        yum install -y ${packages}
+        yum install -y ${safePackageList}
       elif command -v apk >/dev/null 2>&1; then
-        apk add ${packages}
+        apk add ${safePackageList}
       else
         echo "No supported package manager found" >&2
         exit 1
@@ -259,10 +274,7 @@ export class SystemAdapter implements InfraAdapter {
     const result = await this.runProcess(
       "ssh",
       [
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
-        "-o", "ConnectTimeout=10",
-        "-o", "LogLevel=ERROR",
+        ...this.buildSshOptions(10),
         `${user}@${host}`,
         script,
       ],
@@ -274,11 +286,40 @@ export class SystemAdapter implements InfraAdapter {
         success: true,
         data: {
           ...(result.data as Record<string, unknown>),
-          packages_installed: packages.split(/\s+/).filter(Boolean),
+          packages_installed: validation.packages,
         },
       };
     }
     return result;
+  }
+
+  private validatePackageList(rawPackages: string): { success: true; packages: string[] } | { success: false; error: string } {
+    if (rawPackages.includes("\0")) {
+      return { success: false, error: "packages contains invalid null bytes" };
+    }
+
+    const trimmed = rawPackages.trim();
+    if (!trimmed) {
+      return { success: false, error: "packages must contain at least one package name" };
+    }
+
+    if (trimmed.length > SystemAdapter.MAX_PACKAGE_INPUT_LENGTH) {
+      return {
+        success: false,
+        error: `packages input exceeds ${SystemAdapter.MAX_PACKAGE_INPUT_LENGTH} characters`,
+      };
+    }
+
+    const packages = trimmed.split(/\s+/);
+    const invalid = packages.find((pkg) => !SystemAdapter.PACKAGE_NAME_PATTERN.test(pkg));
+    if (invalid) {
+      return {
+        success: false,
+        error: `packages contains invalid token: "${invalid}"`,
+      };
+    }
+
+    return { success: true, packages };
   }
 
   private async configureService(params: Record<string, unknown>): Promise<ToolCallResult> {
@@ -327,10 +368,7 @@ export class SystemAdapter implements InfraAdapter {
     const result = await this.runProcess(
       "ssh",
       [
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
-        "-o", "ConnectTimeout=10",
-        "-o", "LogLevel=ERROR",
+        ...this.buildSshOptions(10),
         `${user}@${host}`,
         script,
       ],
@@ -362,10 +400,7 @@ export class SystemAdapter implements InfraAdapter {
     return this.runProcess(
       "ssh",
       [
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
-        "-o", "ConnectTimeout=10",
-        "-o", "LogLevel=ERROR",
+        ...this.buildSshOptions(10),
         `${user}@${host}`,
         script,
       ],
@@ -389,11 +424,7 @@ export class SystemAdapter implements InfraAdapter {
       const result = await this.runProcess(
         "ssh",
         [
-          "-o", "StrictHostKeyChecking=no",
-          "-o", "UserKnownHostsFile=/dev/null",
-          "-o", "ConnectTimeout=5",
-          "-o", "LogLevel=ERROR",
-          "-o", "BatchMode=yes",
+          ...this.buildSshOptions(5, ["-o", "BatchMode=yes"]),
           `${user}@${host}`,
           "echo ok",
         ],
@@ -472,5 +503,25 @@ export class SystemAdapter implements InfraAdapter {
         resolve({ success: false, error: err.message });
       });
     });
+  }
+
+  private buildSshOptions(connectTimeoutSeconds: number, extra: string[] = []): string[] {
+    const strictMode = this.sshStrictHostKeyCheck ? "yes" : "no";
+    const options = ["-o", `StrictHostKeyChecking=${strictMode}`];
+    if (!this.sshStrictHostKeyCheck) {
+      options.push("-o", "UserKnownHostsFile=/dev/null");
+    }
+    options.push(
+      "-o",
+      `ConnectTimeout=${connectTimeoutSeconds}`,
+      "-o",
+      "LogLevel=ERROR",
+      ...extra,
+    );
+    return options;
+  }
+
+  private quoteShellWord(value: string): string {
+    return `'${value.replace(/'/g, "'\\''")}'`;
   }
 }

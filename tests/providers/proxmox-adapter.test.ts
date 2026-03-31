@@ -204,6 +204,12 @@ describe("ProxmoxAdapter", () => {
       expect(tool).toBeDefined();
       expect(tool!.tier).toBe("destructive");
     });
+
+    it("delete_snapshot is a destructive tool", () => {
+      const tool = adapter.getTools().find(t => t.name === "delete_snapshot");
+      expect(tool).toBeDefined();
+      expect(tool!.tier).toBe("destructive");
+    });
   });
 
   describe("execute", () => {
@@ -292,6 +298,124 @@ describe("ProxmoxAdapter", () => {
       const result = await adapter.execute("list_vms", {});
       expect(result.success).toBe(false);
       expect(result.error).toContain("Connection refused");
+    });
+
+    it("dispatches the remaining tool branches to the Proxmox client", async () => {
+      const mockClient = await getMockClient();
+
+      const cases: Array<{
+        toolName: string;
+        params: Record<string, unknown>;
+        method: string;
+        expectedArgs: unknown[];
+      }> = [
+        { toolName: "get_node_stats", params: { node: "pve1" }, method: "getNodeStats", expectedArgs: ["pve1"] },
+        { toolName: "list_snapshots", params: { node: "pve1", vmid: 100 }, method: "listSnapshots", expectedArgs: ["pve1", 100] },
+        { toolName: "get_vm_config", params: { node: "pve1", vmid: 100 }, method: "getVMConfig", expectedArgs: ["pve1", 100] },
+        { toolName: "list_isos", params: { node: "pve1", storage: "local" }, method: "getISOs", expectedArgs: ["pve1", "local"] },
+        { toolName: "list_templates", params: { node: "pve1", storage: "local" }, method: "getTemplates", expectedArgs: ["pve1", "local"] },
+        { toolName: "get_task_status", params: { node: "pve1", upid: "UPID:1" }, method: "getTaskStatus", expectedArgs: ["pve1", "UPID:1"] },
+        { toolName: "list_tasks", params: { node: "pve1", limit: 25 }, method: "getTasks", expectedArgs: ["pve1", 25] },
+        {
+          toolName: "search_logs",
+          params: { node: "pve1", start: 1, limit: 10, since: "2026-01-01 00:00:00", until: "2026-01-01 01:00:00", service: "pvedaemon" },
+          method: "getNodeSyslog",
+          expectedArgs: ["pve1", { start: 1, limit: 10, since: "2026-01-01 00:00:00", until: "2026-01-01 01:00:00", service: "pvedaemon" }],
+        },
+        { toolName: "list_network_interfaces", params: { node: "pve1" }, method: "getNetworkInterfaces", expectedArgs: ["pve1"] },
+        { toolName: "get_vm_firewall_rules", params: { node: "pve1", vmid: 100 }, method: "getVMFirewallRules", expectedArgs: ["pve1", 100] },
+        { toolName: "wait_for_task", params: { node: "pve1", upid: "UPID:2" }, method: "waitForTask", expectedArgs: ["pve1", "UPID:2", 120000, 2000] },
+        { toolName: "resume_vm", params: { node: "pve1", vmid: 100 }, method: "resumeVM", expectedArgs: ["pve1", 100] },
+        {
+          toolName: "create_ct",
+          params: { node: "pve1", vmid: 201, ostemplate: "local:vztmpl/debian.tar.zst", hostname: "ct-201", memory: 1024, cores: 2 },
+          method: "createCT",
+          expectedArgs: [{
+            node: "pve1",
+            vmid: 201,
+            hostname: "ct-201",
+            ostemplate: "local:vztmpl/debian.tar.zst",
+            memory: 1024,
+            cores: 2,
+            swap: undefined,
+            rootfs: undefined,
+            net0: undefined,
+            password: undefined,
+            ssh_public_keys: undefined,
+            start: undefined,
+            onboot: undefined,
+            unprivileged: undefined,
+          }],
+        },
+        {
+          toolName: "clone_vm",
+          params: { node: "pve1", vmid: 100, newid: 250, name: "clone-250", target: "pve2", full: true, storage: "local-lvm", description: "test clone" },
+          method: "cloneVM",
+          expectedArgs: [{
+            node: "pve1",
+            vmid: 100,
+            newid: 250,
+            name: "clone-250",
+            target: "pve2",
+            full: true,
+            storage: "local-lvm",
+            description: "test clone",
+          }],
+        },
+        { toolName: "shutdown_vm", params: { node: "pve1", vmid: 100, timeout: 30 }, method: "shutdownVM", expectedArgs: ["pve1", 100, 30] },
+        { toolName: "reboot_vm", params: { node: "pve1", vmid: 100 }, method: "rebootVM", expectedArgs: ["pve1", 100] },
+        {
+          toolName: "update_vm_config",
+          params: { node: "pve1", vmid: 100, config: { memory: 8192, cores: 4 } },
+          method: "updateVMConfig",
+          expectedArgs: ["pve1", 100, { memory: 8192, cores: 4 }],
+        },
+        { toolName: "resize_disk", params: { node: "pve1", vmid: 100, disk: "scsi0", size: "+10G" }, method: "resizeDisk", expectedArgs: ["pve1", 100, "scsi0", "+10G"] },
+        {
+          toolName: "migrate_vm",
+          params: { node: "pve1", vmid: 100, target: "pve2", online: true, force: false, with_local_disks: true, targetstorage: "local-lvm" },
+          method: "migrateVM",
+          expectedArgs: [{
+            node: "pve1",
+            vmid: 100,
+            target: "pve2",
+            online: true,
+            force: false,
+            with_local_disks: true,
+            targetstorage: "local-lvm",
+          }],
+        },
+        {
+          toolName: "add_firewall_rule",
+          params: { node: "pve1", vmid: 100, type: "in", action: "ACCEPT", enable: true, comment: "allow ssh", dport: "22", proto: "tcp" },
+          method: "addVMFirewallRule",
+          expectedArgs: ["pve1", 100, {
+            type: "in",
+            action: "ACCEPT",
+            enable: true,
+            comment: "allow ssh",
+            source: undefined,
+            dest: undefined,
+            sport: undefined,
+            dport: "22",
+            proto: "tcp",
+            macro: undefined,
+            iface: undefined,
+            log: undefined,
+          }],
+        },
+        { toolName: "rollback_snapshot", params: { node: "pve1", vmid: 100, snapname: "before-upgrade" }, method: "rollbackSnapshot", expectedArgs: ["pve1", 100, "before-upgrade"] },
+        { toolName: "delete_snapshot", params: { node: "pve1", vmid: 100, snapname: "before-upgrade" }, method: "deleteSnapshot", expectedArgs: ["pve1", 100, "before-upgrade"] },
+        { toolName: "delete_vm", params: { node: "pve1", vmid: 100 }, method: "deleteVM", expectedArgs: ["pve1", 100, undefined] },
+      ];
+
+      for (const c of cases) {
+        const fn = (mockClient as Record<string, ReturnType<typeof vi.fn>>)[c.method];
+        fn.mockClear();
+        const result = await adapter.execute(c.toolName, c.params);
+        expect(result.success).toBe(true);
+        expect(fn).toHaveBeenCalledWith(...c.expectedArgs);
+      }
     });
   });
 

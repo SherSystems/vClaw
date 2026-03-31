@@ -4,6 +4,7 @@ import type {
   InfraAdapter,
   ClusterState,
   MultiClusterState,
+  ProviderType,
 } from "./types.js";
 
 export class ToolRegistry {
@@ -107,7 +108,7 @@ export class ToolRegistry {
           const state = await adapter.getClusterState();
           providers.push({
             name: adapter.name,
-            type: adapter.name as "proxmox" | "vmware" | "system",
+            type: adapter.name as ProviderType,
             state,
           });
         } catch {

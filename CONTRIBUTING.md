@@ -55,6 +55,16 @@ vClaw uses a plugin architecture for infrastructure providers. To add a new one:
 5. Add configuration documentation to the README
 
 See `src/providers/proxmox/` or `src/providers/vmware/` for reference implementations.
+For a step-by-step walkthrough, use `docs/provider-authoring-guide.md`.
+
+## Security Contributions
+
+Security-sensitive changes need extra rigor:
+
+- Never pass user-controlled input directly into shell commands without strict validation/sanitization.
+- All new provider tools must wrap error paths and return structured failures (`{ success: false, error }`) instead of crashing.
+- Any input-handling code change must include tests that cover malicious and malformed inputs.
+- Use OWASP Command Injection prevention guidance when designing command execution paths: https://cheatsheetseries.owasp.org/cheatsheets/OS_Command_Injection_Defense_Cheat_Sheet.html
 
 ## Code Style
 
@@ -65,7 +75,7 @@ See `src/providers/proxmox/` or `src/providers/vmware/` for reference implementa
 
 ## Testing
 
-We take testing seriously. The project has 907+ tests and we want to keep that bar high.
+We take testing seriously. The project currently has 907 tests and we want to keep that bar high.
 
 - Every new feature needs tests
 - Every bug fix needs a regression test

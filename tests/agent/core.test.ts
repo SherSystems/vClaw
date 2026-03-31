@@ -90,6 +90,7 @@ vi.mock("../../src/agent/investigator.js", () => {
 
 import { AgentCore } from "../../src/agent/core.js";
 import { EventBus } from "../../src/agent/events.js";
+import { AgentEventType } from "../../src/types.js";
 import type { Goal } from "../../src/types.js";
 
 // ── Helpers ─────────────────────────────────────────────────
@@ -267,7 +268,7 @@ describe("AgentCore", () => {
       });
 
       const events: any[] = [];
-      eventBus.on("circuit_breaker_tripped", (e) => events.push(e));
+      eventBus.on(AgentEventType.CircuitBreakerTripped, (e) => events.push(e));
 
       const result = await agent.run(mockGoal);
 
@@ -371,7 +372,7 @@ describe("AgentCore", () => {
 
     it("emits plan_created event", async () => {
       const events: any[] = [];
-      eventBus.on("plan_created", (e) => events.push(e));
+      eventBus.on(AgentEventType.PlanCreated, (e) => events.push(e));
 
       await agent.run(mockGoal);
 
@@ -396,8 +397,8 @@ describe("AgentCore", () => {
     it("emits investigation_started and investigation_complete events", async () => {
       const started: any[] = [];
       const completed: any[] = [];
-      eventBus.on("investigation_started", (e) => started.push(e));
-      eventBus.on("investigation_complete", (e) => completed.push(e));
+      eventBus.on(AgentEventType.InvestigationStarted, (e) => started.push(e));
+      eventBus.on(AgentEventType.InvestigationComplete, (e) => completed.push(e));
 
       await agent.investigate("high CPU usage");
 

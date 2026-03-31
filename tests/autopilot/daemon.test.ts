@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { AutopilotDaemon } from "../../src/autopilot/daemon.js";
 import { EventBus } from "../../src/agent/events.js";
+import { AgentEventType } from "../../src/types.js";
 import type { ToolRegistry } from "../../src/tools/registry.js";
 import type { GovernanceEngine } from "../../src/governance/index.js";
 import type { ClusterState, NodeInfo, VMInfo, StorageInfo } from "../../src/types.js";
@@ -345,7 +346,7 @@ describe("AutopilotDaemon", () => {
   describe("health check events", () => {
     it("emits a health_check event with counts", async () => {
       const events: Array<{ type: string; data: Record<string, unknown> }> = [];
-      eventBus.on("health_check", (e) => events.push(e));
+      eventBus.on(AgentEventType.HealthCheck, (e) => events.push(e));
 
       const registry = createMockToolRegistry(
         makeClusterState({

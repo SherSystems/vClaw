@@ -3598,6 +3598,24 @@ const state = {
 let evtSource = null;
 let reconnectTimer = null;
 
+function parseSsePayload(eventType, e) {
+  if (!e || typeof e.data !== 'string') return null;
+  try {
+    return JSON.parse(e.data);
+  } catch (err) {
+    console.warn('[dashboard] Ignoring malformed SSE payload for ' + eventType, err);
+    return null;
+  }
+}
+
+function bindParsedEvent(eventType, handler) {
+  evtSource.addEventListener(eventType, (e) => {
+    const parsed = parseSsePayload(eventType, e);
+    if (parsed === null) return;
+    handler(parsed);
+  });
+}
+
 function connect() {
   if (evtSource) { try { evtSource.close(); } catch {} }
 
@@ -3608,43 +3626,48 @@ function connect() {
     updateConnStatus();
   });
 
-  evtSource.addEventListener('plan_created', (e) => handleEvent(JSON.parse(e.data)));
-  evtSource.addEventListener('plan_approved', (e) => handleEvent(JSON.parse(e.data)));
-  evtSource.addEventListener('step_started', (e) => handleEvent(JSON.parse(e.data)));
-  evtSource.addEventListener('step_completed', (e) => handleEvent(JSON.parse(e.data)));
-  evtSource.addEventListener('step_failed', (e) => handleEvent(JSON.parse(e.data)));
-  evtSource.addEventListener('replan', (e) => handleEvent(JSON.parse(e.data)));
-  evtSource.addEventListener('approval_requested', (e) => handleEvent(JSON.parse(e.data)));
-  evtSource.addEventListener('circuit_breaker_tripped', (e) => handleEvent(JSON.parse(e.data)));
-  evtSource.addEventListener('investigation_started', (e) => handleEvent(JSON.parse(e.data)));
-  evtSource.addEventListener('investigation_complete', (e) => handleEvent(JSON.parse(e.data)));
+  const planAndIncidentEvents = [
+    'plan_created',
+    'plan_approved',
+    'step_started',
+    'step_completed',
+    'step_failed',
+    'replan',
+    'approval_requested',
+    'circuit_breaker_tripped',
+    'investigation_started',
+    'investigation_complete',
+    'incident_opened',
+    'incident_action',
+    'incident_resolved',
+    'incident_failed',
+    'incident_rca',
+    'healing_started',
+    'healing_completed',
+    'healing_failed',
+    'healing_paused',
+    'healing_escalated',
+  ];
 
-  // Incident & healing events
-  evtSource.addEventListener('incident_opened', (e) => handleEvent(JSON.parse(e.data)));
-  evtSource.addEventListener('incident_action', (e) => handleEvent(JSON.parse(e.data)));
-  evtSource.addEventListener('incident_resolved', (e) => handleEvent(JSON.parse(e.data)));
-  evtSource.addEventListener('incident_failed', (e) => handleEvent(JSON.parse(e.data)));
-  evtSource.addEventListener('incident_rca', (e) => handleEvent(JSON.parse(e.data)));
-  evtSource.addEventListener('healing_started', (e) => handleEvent(JSON.parse(e.data)));
-  evtSource.addEventListener('healing_completed', (e) => handleEvent(JSON.parse(e.data)));
-  evtSource.addEventListener('healing_failed', (e) => handleEvent(JSON.parse(e.data)));
-  evtSource.addEventListener('healing_paused', (e) => handleEvent(JSON.parse(e.data)));
-  evtSource.addEventListener('healing_escalated', (e) => handleEvent(JSON.parse(e.data)));
+  for (const eventType of planAndIncidentEvents) {
+    bindParsedEvent(eventType, handleEvent);
+  }
 
-  // Chaos engineering events
-  evtSource.addEventListener('chaos_simulated', (e) => handleChaosEvent('chaos_simulated', JSON.parse(e.data)));
-  evtSource.addEventListener('chaos_started', (e) => handleChaosEvent('chaos_started', JSON.parse(e.data)));
-  evtSource.addEventListener('chaos_recovery_detected', (e) => handleChaosEvent('chaos_recovery_detected', JSON.parse(e.data)));
-  evtSource.addEventListener('chaos_completed', (e) => handleChaosEvent('chaos_completed', JSON.parse(e.data)));
-  evtSource.addEventListener('chaos_failed', (e) => handleChaosEvent('chaos_failed', JSON.parse(e.data)));
+  const chaosEvents = [
+    'chaos_simulated',
+    'chaos_started',
+    'chaos_recovery_detected',
+    'chaos_completed',
+    'chaos_failed',
+  ];
+  for (const eventType of chaosEvents) {
+    bindParsedEvent(eventType, (payload) => handleChaosEvent(eventType, payload));
+  }
 
   // Health check events — update gauges, sparklines, stat cards
-  evtSource.addEventListener('health_check', (e) => {
-    try {
-      const evt = JSON.parse(e.data);
-      const d = evt.data || evt;
-      handleHealthCheck(d);
-    } catch {}
+  bindParsedEvent('health_check', (evt) => {
+    const d = evt.data || evt;
+    handleHealthCheck(d);
   });
 
   evtSource.onerror = () => {

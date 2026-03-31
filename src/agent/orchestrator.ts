@@ -14,6 +14,7 @@ import type {
   ProviderType,
   MultiClusterState,
 } from "../types.js";
+import { AgentEventType } from "../types.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import type { Planner, PlanningContext } from "./planner.js";
 import type { Executor } from "./executor.js";
@@ -126,7 +127,7 @@ export class MultiProviderOrchestrator {
 
     // 2. Emit multi-provider goal started
     this.eventBus.emit({
-      type: "multi_provider_goal_started",
+      type: AgentEventType.MultiProviderGoalStarted,
       timestamp: new Date().toISOString(),
       data: {
         goal_id: goal.id,
@@ -239,7 +240,7 @@ export class MultiProviderOrchestrator {
 
     // 7. Emit completion
     this.eventBus.emit({
-      type: "multi_provider_goal_completed",
+      type: AgentEventType.MultiProviderGoalCompleted,
       timestamp: new Date().toISOString(),
       data: {
         goal_id: goal.id,
@@ -311,7 +312,7 @@ export class MultiProviderOrchestrator {
     };
 
     this.eventBus.emit({
-      type: "multi_provider_query",
+      type: AgentEventType.MultiProviderQuery,
       timestamp: new Date().toISOString(),
       data: {
         query,
@@ -405,7 +406,7 @@ export class MultiProviderOrchestrator {
     }
 
     this.eventBus.emit({
-      type: "capacity_analysis",
+      type: AgentEventType.CapacityAnalysis,
       timestamp: new Date().toISOString(),
       data: {
         provider_count: providerCapacities.length,

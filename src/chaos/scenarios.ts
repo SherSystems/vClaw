@@ -30,6 +30,7 @@ export interface ChaosAction {
     | "stop_vm"
     | "kill_vm"
     | "stress_cpu"
+    | "stress_memory"
     | "fill_disk"
     | "disconnect_network"
     | "custom_goal";
@@ -156,6 +157,90 @@ export const BUILTIN_SCENARIOS: ChaosScenario[] = [
         "incidents_opened",
         "incidents_resolved",
         "no_circuit_breaker_trip",
+      ],
+    },
+    requires_approval: true,
+    reversible: true,
+  },
+
+  // 5. CPU Stress — saturate CPU on a target VM
+  {
+    id: "cpu_stress",
+    name: "CPU Stress",
+    description:
+      "Inject high CPU load on a target VM to validate detection of sustained saturation " +
+      "and verify the platform remains responsive under pressure.",
+    severity: "medium",
+    target_type: "vm",
+    actions: [
+      {
+        type: "stress_cpu",
+        params: { duration_s: 120, workers: 2 },
+        description: "Run bounded CPU stress workload inside the target VM",
+      },
+    ],
+    expected_recovery: {
+      description: "CPU returns to baseline after the stress window completes",
+      max_recovery_time_s: 180,
+      verification_checks: [
+        "cpu_spike_detected",
+        "cpu_returns_to_baseline",
+      ],
+    },
+    requires_approval: false,
+    reversible: true,
+  },
+
+  // 6. Memory Pressure — force reclaim pressure on a target VM
+  {
+    id: "memory_pressure",
+    name: "Memory Pressure",
+    description:
+      "Allocate temporary memory pressure inside a target VM to validate alerting and " +
+      "recovery behavior under RAM contention.",
+    severity: "high",
+    target_type: "vm",
+    actions: [
+      {
+        type: "stress_memory",
+        params: { duration_s: 120, bytes_mb: 512 },
+        description: "Allocate and hold memory pressure for a bounded interval",
+      },
+    ],
+    expected_recovery: {
+      description: "Memory usage returns to steady state after the pressure test completes",
+      max_recovery_time_s: 240,
+      verification_checks: [
+        "memory_spike_detected",
+        "memory_returns_to_baseline",
+      ],
+    },
+    requires_approval: true,
+    reversible: true,
+  },
+
+  // 7. Network Partition — isolate a target VM from the network
+  {
+    id: "network_partition",
+    name: "Network Partition",
+    description:
+      "Temporarily isolate a target VM from network traffic to validate detection and " +
+      "incident handling for partition scenarios.",
+    severity: "high",
+    target_type: "network",
+    actions: [
+      {
+        type: "disconnect_network",
+        params: { duration_s: 90 },
+        description: "Drop ingress/egress traffic for the target VM during the test window",
+      },
+    ],
+    expected_recovery: {
+      description: "Connectivity is restored and health checks recover after isolation ends",
+      max_recovery_time_s: 180,
+      verification_checks: [
+        "connectivity_loss_detected",
+        "connectivity_restored",
       ],
     },
     requires_approval: true,

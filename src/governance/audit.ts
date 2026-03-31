@@ -39,6 +39,13 @@ export interface AuditStats {
   recent_failures: AuditEntry[];
 }
 
+export interface AuditExportFilters {
+  from?: string;
+  to?: string;
+}
+
+export type AuditExportFormat = "json" | "csv";
+
 // ── AuditLog Class ──────────────────────────────────────────
 
 export class AuditLog {
@@ -179,6 +186,17 @@ export class AuditLog {
   }
 
   /**
+   * Export audit entries in JSON or CSV format.
+   */
+  exportEntries(format: AuditExportFormat, filters: AuditExportFilters = {}): string {
+    const rows = this.queryExportRows(filters).map(deserializeRow);
+    if (format === "json") {
+      return JSON.stringify(rows, null, 2);
+    }
+    return toAuditCsv(rows);
+  }
+
+  /**
    * Close the database connection.
    */
   close(): void {
@@ -212,6 +230,28 @@ export class AuditLog {
       CREATE INDEX IF NOT EXISTS idx_audit_tier ON audit_log(tier);
     `);
   }
+
+  private queryExportRows(filters: AuditExportFilters): RawAuditRow[] {
+    const conditions: string[] = [];
+    const values: Record<string, unknown> = {};
+
+    if (filters.from) {
+      conditions.push("timestamp >= @from");
+      values.from = filters.from;
+    }
+
+    if (filters.to) {
+      conditions.push("timestamp <= @to");
+      values.to = filters.to;
+    }
+
+    const where =
+      conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    return this.db
+      .prepare(`SELECT * FROM audit_log ${where} ORDER BY timestamp ASC`)
+      .all(values) as RawAuditRow[];
+  }
 }
 
 // ── Row Deserialization ─────────────────────────────────────
@@ -223,7 +263,7 @@ interface RawAuditRow {
   tier: string;
   approval: string | null;
   reasoning: string;
-  params: string;
+  params: string | null;
   result: string;
   error: string | null;
   state_before: string | null;
@@ -233,21 +273,88 @@ interface RawAuditRow {
   duration_ms: number;
 }
 
+function parseJsonOr<T>(value: string | null | undefined, fallback: T): T {
+  if (typeof value !== "string") return fallback;
+  try {
+    const parsed = JSON.parse(value) as T;
+    if (parsed === null || parsed === undefined) return fallback;
+    return parsed;
+  } catch {
+    return fallback;
+  }
+}
+
 function deserializeRow(row: RawAuditRow): AuditEntry {
   return {
     id: row.id,
     timestamp: row.timestamp,
     action: row.action,
     tier: row.tier as AuditEntry["tier"],
-    approval: row.approval ? JSON.parse(row.approval) : undefined,
+    approval: parseJsonOr(row.approval, undefined),
     reasoning: row.reasoning,
-    params: JSON.parse(row.params),
+    params: parseJsonOr(row.params, {}),
     result: row.result as AuditEntry["result"],
     error: row.error ?? undefined,
-    state_before: row.state_before ? JSON.parse(row.state_before) : undefined,
-    state_after: row.state_after ? JSON.parse(row.state_after) : undefined,
+    state_before: parseJsonOr(row.state_before, undefined),
+    state_after: parseJsonOr(row.state_after, undefined),
     plan_id: row.plan_id ?? undefined,
     step_id: row.step_id ?? undefined,
     duration_ms: row.duration_ms,
   };
+}
+
+function inferProvider(entry: AuditEntry): string {
+  const provider = entry.params?.provider;
+  if (typeof provider === "string" && provider.trim()) {
+    return provider;
+  }
+
+  const adapter = entry.params?.adapter;
+  if (typeof adapter === "string" && adapter.trim()) {
+    return adapter;
+  }
+
+  if (entry.action.startsWith("proxmox_")) return "proxmox";
+  if (entry.action.startsWith("vmware_")) return "vmware";
+  if (entry.action.startsWith("system_")) return "system";
+  return "unknown";
+}
+
+function approvalStatus(entry: AuditEntry): string {
+  if (!entry.approval) return "none";
+  return entry.approval.approved ? "approved" : "denied";
+}
+
+function toAuditCsv(entries: AuditEntry[]): string {
+  const header = [
+    "timestamp",
+    "tier",
+    "action",
+    "provider",
+    "state_before",
+    "state_after",
+    "approval_status",
+  ];
+
+  const lines = entries.map((entry) =>
+    [
+      entry.timestamp,
+      entry.tier,
+      entry.action,
+      inferProvider(entry),
+      entry.state_before ? JSON.stringify(entry.state_before) : "",
+      entry.state_after ? JSON.stringify(entry.state_after) : "",
+      approvalStatus(entry),
+    ]
+      .map(csvEscape)
+      .join(","),
+  );
+
+  return [header.join(","), ...lines].join("\n");
+}
+
+function csvEscape(value: unknown): string {
+  const normalized = String(value ?? "");
+  if (!/[",\n\r]/.test(normalized)) return normalized;
+  return `"${normalized.replace(/"/g, "\"\"")}"`;
 }

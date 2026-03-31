@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { EventBus } from "../agent/events.js";
+import { AgentEventType } from "../types.js";
 
 // ── Types ───────────────────────────────────────────────────
 
@@ -99,7 +100,7 @@ export class IncidentManager {
     this.persist();
 
     this.bus.emit({
-      type: "incident_opened",
+      type: AgentEventType.IncidentOpened,
       timestamp: now,
       data: {
         incident_id: incident.id,
@@ -135,7 +136,7 @@ export class IncidentManager {
     this.persist();
 
     this.bus.emit({
-      type: "incident_action",
+      type: AgentEventType.IncidentAction,
       timestamp: now,
       data: {
         incident_id: incidentId,
@@ -159,7 +160,7 @@ export class IncidentManager {
     this.persist();
 
     this.bus.emit({
-      type: "incident_resolved",
+      type: AgentEventType.IncidentResolved,
       timestamp: now,
       data: {
         incident_id: incidentId,
@@ -183,7 +184,7 @@ export class IncidentManager {
     this.persist();
 
     this.bus.emit({
-      type: "incident_failed",
+      type: AgentEventType.IncidentFailed,
       timestamp: now,
       data: {
         incident_id: incidentId,

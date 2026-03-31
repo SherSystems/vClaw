@@ -19,6 +19,7 @@
 
 <p align="center">
   <a href="#quick-start">Quick Start</a> &bull;
+  <a href="#documentation">Documentation</a> &bull;
   <a href="#how-it-works">How It Works</a> &bull;
   <a href="#features">Features</a> &bull;
   <a href="#architecture">Architecture</a> &bull;
@@ -97,6 +98,9 @@ VMWARE_HOST=vcenter.local
 VMWARE_USER=administrator@vsphere.local
 VMWARE_PASSWORD=your-password
 
+# System Adapter SSH policy (secure-by-default)
+SYSTEM_SSH_STRICT_HOST_KEY_CHECK=true
+
 # AI Provider
 AI_PROVIDER=anthropic
 AI_API_KEY=sk-ant-...
@@ -126,6 +130,14 @@ npm run dev:mcp
 > Take a snapshot of the production cluster before the upgrade
 > Run chaos tests on staging and tell me what breaks
 ```
+
+---
+
+## Documentation
+
+- [Quickstart Guide](docs/quickstart.md) (Proxmox + VMware setup paths, first command, governance walkthrough)
+- [Provider Authoring Guide](docs/provider-authoring-guide.md) (implementing and registering new adapters)
+- [CHANGELOG](CHANGELOG.md) (including 0.2.0 draft release notes)
 
 ---
 
@@ -163,6 +175,7 @@ Manage multiple infrastructure platforms from a single agent:
 - **Proxmox VE**: 30+ tools covering VMs, containers, nodes, storage, snapshots, firewall rules, migrations, and cluster management
 - **VMware vSphere**: 18+ tools for VMs, hosts, datastores, snapshots, guest operations, and resource pools
 - **System**: SSH and local execution for package management, script execution, and configuration
+- **Kubernetes (scaffold)**: `ProviderAdapter` skeleton with documented planned `kubectl`/API integration points
 - **Pluggable**: Provider abstraction layer makes it straightforward to add AWS, Azure, Kubernetes, or any other platform
 
 ### Enterprise Safety (NemoClaw-Inspired)
@@ -249,7 +262,8 @@ vClaw (14,000+ lines of TypeScript)
 │   ├── Proxmox Adapter     30+ infrastructure tools
 │   ├── VMware Adapter      18+ infrastructure tools
 │   ├── System Adapter      SSH and local execution
-│   └── [Planned]           AWS, Azure, Kubernetes
+│   ├── Kubernetes Adapter  Scaffold (state + integration call map)
+│   └── [Planned]           AWS, Azure (full adapters)
 │
 ├── Security Layer (NemoClaw-inspired)
 │   ├── Credential Vault    AES-256-GCM encrypted secrets
@@ -351,6 +365,7 @@ The short version:
 - Every feature needs tests
 - Every bug fix needs a regression test
 - Open a Discussion before proposing large changes
+- For adapter development, start with [docs/provider-authoring-guide.md](docs/provider-authoring-guide.md)
 
 ### Adding a Provider
 

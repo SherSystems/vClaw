@@ -83,12 +83,12 @@ async function main() {
     vsphereClient: vsphere,
     proxmoxClient: proxmox,
     sshExec,
-    esxiHost: "192.168.86.37",
-    esxiUser: "root",
-    proxmoxHost: "192.168.86.50",
-    proxmoxUser: "root",
-    proxmoxNode: "pranavlab",
-    proxmoxStorage: "local-lvm",
+    esxiHost: process.env.MIGRATION_ESXI_HOST!,
+    esxiUser: process.env.MIGRATION_ESXI_USER || "root",
+    proxmoxHost: process.env.MIGRATION_PROXMOX_HOST!,
+    proxmoxUser: process.env.MIGRATION_PROXMOX_USER || "root",
+    proxmoxNode: process.env.MIGRATION_PROXMOX_NODE!,
+    proxmoxStorage: process.env.MIGRATION_PROXMOX_STORAGE || "local-lvm",
     onProgress: (step, detail) => {
       log(`  [${step}] ${detail}`);
     },

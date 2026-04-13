@@ -49,7 +49,14 @@ async function main() {
   // or just use curl against ESXi directly with its own API
 
   // ESXi has its own /api endpoint. Let's try enabling SSH via esxi-01 directly
-  const esxiHosts = [...configured from env...];
+  const esxiHosts = (process.env.ESXI_HOSTS || "").split(",").filter(Boolean);
+  const esxiUser = process.env.ESXI_USER || "root";
+  const esxiPass = process.env.ESXI_PASSWORD!;
+
+  if (!esxiHosts.length || !esxiPass) {
+    console.error("Set ESXI_HOSTS (comma-separated) and ESXI_PASSWORD env vars");
+    process.exit(1);
+  }
 
   for (const esxi of esxiHosts) {
     console.log(`\nEnabling SSH on ${esxi}...`);
@@ -57,7 +64,7 @@ async function main() {
     const esxiSess = await new Promise<{ status: number; data: string }>((resolve, reject) => {
       const headers: Record<string, string> = {
         Accept: "application/json",
-        Authorization: `Basic ${Buffer.from(`root:${process.env.ESXI_PASSWORD}`).toString("base64")}`,
+        Authorization: `Basic ${Buffer.from(`${esxiUser}:${esxiPass}`).toString("base64")}`,
       };
       const req = https.request({ hostname: esxi, port: 443, path: "/api/session", method: "POST", headers, rejectUnauthorized: false }, (res) => {
         let data = "";

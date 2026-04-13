@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License" /></a>
-  <img src="https://img.shields.io/badge/Tests-907_passing-FF9500" alt="Tests" />
+  <img src="https://img.shields.io/badge/Tests-1141_passing-FF9500" alt="Tests" />
   <img src="https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white" alt="TypeScript" />
   <img src="https://img.shields.io/badge/Node.js_22+-339933?logo=node.js&logoColor=white" alt="Node.js" />
   <img src="https://img.shields.io/badge/Proxmox_VE-E57000?logo=proxmox&logoColor=white" alt="Proxmox" />
@@ -176,6 +176,7 @@ Manage multiple infrastructure platforms from a single agent:
 - **VMware vSphere**: 18+ tools for VMs, hosts, datastores, snapshots, guest operations, and resource pools
 - **System**: SSH and local execution for package management, script execution, and configuration
 - **Kubernetes (scaffold)**: `ProviderAdapter` skeleton with documented planned `kubectl`/API integration points
+- **Cross-Provider Migration**: Bidirectional VM migration between VMware and Proxmox with disk conversion (VMDK ↔ QCOW2)
 - **Pluggable**: Provider abstraction layer makes it straightforward to add AWS, Azure, Kubernetes, or any other platform
 
 ### Enterprise Safety (NemoClaw-Inspired)
@@ -188,6 +189,16 @@ Security model inspired by [NVIDIA NemoClaw](https://github.com/NVIDIA/NeMo-Guar
 - **Sandboxed Execution**: Every tool invocation runs in an isolated context with timeouts. Crashes are contained and cannot cascade to the agent core.
 - **Circuit Breaker**: Stops execution after N consecutive failures to prevent cascading infrastructure damage.
 - **Immutable Audit Trail**: Every action logged to SQLite with WAL journaling. Captures timestamp, user, action, provider, risk tier, approval status, and before/after state.
+
+### Cross-Provider VM Migration
+
+Migrate VMs between hypervisors with zero manual steps:
+
+- **VMware → Proxmox**: Export VM config, SCP VMDK, convert to QCOW2, create target VM, boot
+- **Proxmox → VMware**: Export QCOW2, convert to VMDK, import to ESXi via `vim-cmd`, register with vCenter
+- Real-time progress tracking in the dashboard with per-step status
+- Disk format conversion (VMDK ↔ QCOW2) handled automatically
+- Full plan preview before execution with blast radius and config summary
 
 ### Self-Healing
 
@@ -258,6 +269,14 @@ vClaw (14,000+ lines of TypeScript)
 │   ├── Healing Engine      Auto-remediation playbooks
 │   └── Chaos Engine        Fault injection and resilience testing
 │
+├── Migration Engine
+│   ├── VMware Exporter     Extract VMs from vSphere
+│   ├── VMware Importer     Create VMs on ESXi
+│   ├── Proxmox Exporter    Extract VMs from Proxmox
+│   ├── Proxmox Importer    Create VMs on Proxmox
+│   ├── Disk Converter      VMDK ↔ QCOW2 conversion
+│   └── Orchestrator        End-to-end migration pipeline
+│
 ├── Provider Layer (plugin architecture)
 │   ├── Proxmox Adapter     30+ infrastructure tools
 │   ├── VMware Adapter      18+ infrastructure tools
@@ -292,16 +311,17 @@ vClaw (14,000+ lines of TypeScript)
 
 ## Testing
 
-907 tests across the entire codebase:
+1141 tests across the entire codebase:
 
 - **Agent core**: Planning, execution, observation, memory, replanning
 - **Providers**: Proxmox and VMware tool coverage
+- **Migration**: VMware ↔ Proxmox exporters, importers, disk conversion, orchestration
 - **Security**: Vault encryption/decryption, privacy router redaction, sandbox isolation, audit integrity
 - **Governance**: Risk classification, approval gates, circuit breaker behavior
 - **Edge cases**: 163 dedicated tests for boundary conditions, null handling, unicode, concurrent access, and error paths
 
 ```bash
-npm test              # Run all 907 tests
+npm test              # Run all 1141 tests
 npm run test:watch    # Watch mode for development
 npm run test:coverage # Generate coverage report
 ```
@@ -314,11 +334,12 @@ npm run test:coverage # Generate coverage report
 - [x] Proxmox VE provider (30+ tools)
 - [x] VMware vSphere provider (18+ tools)
 - [x] Multi-provider orchestration
+- [x] Cross-provider VM migration (VMware ↔ Proxmox)
 - [x] NemoClaw-inspired security model
 - [x] Self-healing and chaos engineering
-- [x] Real-time web dashboard
+- [x] Real-time web dashboard with multi-provider topology
 - [x] MCP server for Claude Desktop
-- [x] 907 passing tests
+- [x] 1141 passing tests
 
 ### Phase 2: Enterprise (Q2 2026)
 - [ ] Kubernetes provider (EKS, AKS, GKE)

@@ -2983,6 +2983,155 @@ tbody tr:last-child td {
 .chaos-history-item:last-child { border-bottom: none; }
 .chaos-history-meta { color: var(--text-tertiary); font-size: 0.71rem; }
 
+/* ── Migrations ────────────────────────────────────── */
+.mig-controls {
+  display: flex; gap: 10px; align-items: flex-end;
+  padding: 12px 16px 16px; flex-wrap: wrap;
+}
+.mig-field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 140px; }
+.mig-field label { font-size: 0.71rem; color: var(--text-tertiary); font-weight: 500; text-transform: uppercase; letter-spacing: 0.03em; }
+.mig-field select {
+  background: var(--bg-input); border: 1px solid var(--border-subtle);
+  border-radius: 6px; padding: 7px 10px; font-size: 0.82rem;
+  color: var(--text-primary); font-family: var(--font-mono);
+  outline: none; cursor: pointer;
+}
+.mig-field select:focus { border-color: var(--teal-border); }
+
+.btn-mig-plan {
+  padding: 7px 18px; font-size: 0.78rem; font-weight: 600;
+  border: 1px solid rgba(59,158,255,0.25); border-radius: 6px;
+  background: rgba(59,158,255,0.1); color: var(--blue);
+  cursor: pointer; white-space: nowrap; transition: all 0.15s;
+}
+.btn-mig-plan:hover { background: rgba(59,158,255,0.18); border-color: rgba(59,158,255,0.35); }
+.btn-mig-plan:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-mig-execute {
+  padding: 7px 18px; font-size: 0.78rem; font-weight: 600;
+  border: 1px solid rgba(255,149,0,0.3); border-radius: 6px;
+  background: rgba(255,149,0,0.12); color: var(--teal);
+  cursor: pointer; white-space: nowrap; transition: all 0.15s;
+}
+.btn-mig-execute:hover { background: rgba(255,149,0,0.22); border-color: rgba(255,149,0,0.45); }
+.btn-mig-execute:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.mig-error {
+  margin: 0 16px 12px; padding: 8px 12px; border-radius: 6px;
+  background: var(--red-muted); color: var(--red); font-size: 0.78rem;
+  border: 1px solid rgba(239,68,68,0.2);
+}
+
+/* Plan preview */
+.mig-plan-preview {
+  margin: 0 16px 16px; padding: 14px;
+  background: var(--bg-card-inner, rgba(255,255,255,0.02));
+  border: 1px solid var(--border-subtle); border-radius: 8px;
+  animation: fadeIn 0.2s ease;
+}
+.mig-plan-title {
+  font-size: 0.78rem; font-weight: 600; color: var(--text-secondary);
+  margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.04em;
+}
+.mig-plan-summary { margin-bottom: 12px; }
+.mig-plan-row { display: flex; gap: 16px; flex-wrap: wrap; }
+.mig-plan-cell { display: flex; flex-direction: column; gap: 2px; min-width: 80px; }
+.mig-plan-label { font-size: 0.67rem; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; }
+.mig-plan-value { font-size: 0.85rem; font-weight: 600; color: var(--text-primary); font-family: var(--font-brand); }
+
+.mig-plan-steps { margin-bottom: 14px; }
+.mig-step-list { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.mig-step-chip {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 12px;
+  background: rgba(255,255,255,0.04); border: 1px solid var(--border-subtle);
+  font-size: 0.71rem; color: var(--text-secondary);
+}
+.mig-step-num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--teal); color: #000;
+  font-size: 0.6rem; font-weight: 700;
+}
+
+.mig-plan-route {
+  display: flex; align-items: center; justify-content: center; gap: 16px;
+  padding: 12px 0 4px;
+}
+.mig-route-node {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 8px 16px; border-radius: 8px;
+  background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle);
+}
+.mig-route-provider { font-size: 0.71rem; font-weight: 700; color: var(--teal); letter-spacing: 0.05em; }
+.mig-route-detail { font-size: 0.71rem; color: var(--text-tertiary); }
+.mig-route-arrow { display: flex; align-items: center; }
+
+/* Execution */
+.mig-execution {
+  margin: 0 16px 16px; padding: 14px;
+  background: var(--bg-card-inner, rgba(255,255,255,0.02));
+  border: 1px solid var(--border-subtle); border-radius: 8px;
+  animation: fadeIn 0.2s ease;
+}
+.mig-exec-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.mig-exec-status {
+  padding: 3px 10px; border-radius: 4px;
+  font-size: 0.71rem; font-weight: 700; letter-spacing: 0.05em;
+}
+.mig-exec-status.exporting,
+.mig-exec-status.converting,
+.mig-exec-status.transferring,
+.mig-exec-status.importing { background: var(--amber-muted); color: var(--amber); }
+.mig-exec-status.completed { background: var(--green-muted); color: var(--green); }
+.mig-exec-status.failed { background: var(--red-muted); color: var(--red); }
+.mig-exec-status.pending { background: rgba(255,255,255,0.06); color: var(--text-tertiary); }
+
+.mig-exec-timer {
+  font-family: var(--font-mono); font-size: 1rem;
+  font-weight: 600; color: var(--teal);
+  letter-spacing: 0.08em;
+}
+
+.mig-exec-steps { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+.mig-exec-step {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 8px; border-radius: 4px; font-size: 0.78rem;
+  color: var(--text-tertiary);
+}
+.mig-exec-step.completed { color: var(--green); }
+.mig-exec-step.failed { color: var(--red); }
+.mig-exec-step-icon { width: 14px; text-align: center; }
+.mig-exec-step-detail { margin-left: auto; font-size: 0.71rem; color: var(--text-tertiary); }
+
+.mig-exec-log {
+  max-height: 180px; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 8px; border-radius: 6px;
+  background: rgba(0,0,0,0.15); font-family: var(--font-mono);
+  font-size: 0.71rem;
+}
+.mig-log-entry { display: flex; gap: 10px; }
+.mig-log-time { color: var(--text-tertiary); white-space: nowrap; }
+
+/* History */
+.mig-history { display: flex; flex-direction: column; }
+.mig-history-item {
+  padding: 10px 14px; border-bottom: 1px solid var(--border-subtle);
+}
+.mig-history-item:last-child { border-bottom: none; }
+.mig-history-main { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.mig-history-name { font-size: 0.82rem; font-weight: 600; color: var(--text-primary); }
+.mig-history-status {
+  padding: 2px 8px; border-radius: 4px;
+  font-size: 0.67rem; font-weight: 700; letter-spacing: 0.04em;
+}
+.mig-history-status.completed { background: var(--green-muted); color: var(--green); }
+.mig-history-status.failed { background: var(--red-muted); color: var(--red); }
+.mig-history-detail {
+  display: flex; gap: 16px; font-size: 0.71rem; color: var(--text-tertiary);
+}
+
 /* ── Command Palette (Cmd+K) ───────────────────────── */
 @keyframes cmdPaletteFadeIn {
   from { opacity: 0; }
@@ -3777,6 +3926,30 @@ button, select, a, .tab, .incident-card, .incident-row, .audit-header, .audit-pl
   .chaos-comparison {
     grid-template-columns: 1fr;
   }
+
+  /* ── Migrations ─────────────────────────────── */
+  .mig-controls {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 0 12px;
+  }
+
+  .mig-field { min-width: 100%; }
+
+  .btn-mig-plan,
+  .btn-mig-execute {
+    width: 100%;
+    min-height: 44px;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .mig-plan-row { flex-direction: column; gap: 8px; }
+
+  .mig-plan-route { flex-direction: column; gap: 8px; }
+
+  .mig-history-detail { flex-direction: column; gap: 4px; }
 
   /* ── Incidents ───────────────────────────────── */
   .incident-card {

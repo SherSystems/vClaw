@@ -44,6 +44,15 @@ const DashboardConfigSchema = z.object({
   port: z.coerce.number().default(3000),
 });
 
+const MigrationConfigSchema = z.object({
+  esxiHost: z.string().default(""),
+  esxiUser: z.string().default("root"),
+  proxmoxHost: z.string().default(""),
+  proxmoxUser: z.string().default("root"),
+  proxmoxNode: z.string().default(""),
+  proxmoxStorage: z.string().default("local-lvm"),
+});
+
 const AutopilotConfigSchema = z.object({
   pollIntervalMs: z.coerce.number().default(30000),
   enabled: z
@@ -58,6 +67,7 @@ export const ConfigSchema = z.object({
   system: SystemConfigSchema.default({ sshStrictHostKeyCheck: "true" }),
   ai: AIConfigSchema,
   dashboard: DashboardConfigSchema,
+  migration: MigrationConfigSchema.default({}),
   autopilot: AutopilotConfigSchema,
 });
 
@@ -92,6 +102,14 @@ export function getConfig(): Config {
     },
     dashboard: {
       port: process.env.DASHBOARD_PORT,
+    },
+    migration: {
+      esxiHost: process.env.MIGRATION_ESXI_HOST,
+      esxiUser: process.env.MIGRATION_ESXI_USER,
+      proxmoxHost: process.env.MIGRATION_PROXMOX_HOST,
+      proxmoxUser: process.env.MIGRATION_PROXMOX_USER,
+      proxmoxNode: process.env.MIGRATION_PROXMOX_NODE,
+      proxmoxStorage: process.env.MIGRATION_PROXMOX_STORAGE,
     },
     autopilot: {
       pollIntervalMs: process.env.AUTOPILOT_POLL_INTERVAL_MS,

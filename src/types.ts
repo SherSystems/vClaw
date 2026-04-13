@@ -303,6 +303,10 @@ export enum AgentEventType {
   MultiProviderGoalCompleted = "multi_provider_goal_completed",
   MultiProviderQuery = "multi_provider_query",
   CapacityAnalysis = "capacity_analysis",
+  MigrationStarted = "migration_started",
+  MigrationStep = "migration_step",
+  MigrationCompleted = "migration_completed",
+  MigrationFailed = "migration_failed",
 }
 
 export interface AgentEvent {

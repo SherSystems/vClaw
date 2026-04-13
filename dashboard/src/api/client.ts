@@ -76,6 +76,25 @@ export const executeChaos = (scenario: string, params: Record<string, unknown>) 
 export const cancelChaos = () =>
   request<{ ok: boolean; run_id: string }>("/api/chaos/cancel");
 
+// Migration
+export const fetchMigrationVMs = (provider: "vmware" | "proxmox") =>
+  request<{ vms: import("../types").MigrationVM[] }>(`/api/migration/vms?provider=${provider}`);
+
+export const planMigration = (direction: import("../types").MigrationDirection, vmId: string | number) =>
+  request<import("../types").MigrationPlan>("/api/migration/plan", {
+    method: "POST",
+    body: JSON.stringify({ direction, vm_id: vmId }),
+  });
+
+export const executeMigration = (direction: import("../types").MigrationDirection, vmId: string | number) =>
+  request<import("../types").MigrationPlan>("/api/migration/execute", {
+    method: "POST",
+    body: JSON.stringify({ direction, vm_id: vmId }),
+  });
+
+export const fetchMigrationHistory = () =>
+  request<{ migrations: import("../types").MigrationPlan[] }>("/api/migration/history");
+
 // Agent command
 export const sendAgentCommand = (command: string) =>
   request<Record<string, unknown>>("/api/agent/command", {

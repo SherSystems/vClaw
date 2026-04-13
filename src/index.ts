@@ -21,6 +21,11 @@ import { AutopilotDaemon } from "./autopilot/daemon.js";
 import { HealingOrchestrator } from "./healing/orchestrator.js";
 import { ChaosEngine } from "./chaos/engine.js";
 import { RunTelemetryCollector } from "./monitoring/run-telemetry.js";
+import { MigrationAdapter } from "./migration/adapter.js";
+import { VSphereClient } from "./providers/vmware/client.js";
+import { ProxmoxClient } from "./providers/proxmox/client.js";
+import { spawn } from "node:child_process";
+import type { SSHExecResult } from "./migration/types.js";
 import { join } from "path";
 import { mkdirSync } from "fs";
 
@@ -75,6 +80,63 @@ async function main() {
     sshStrictHostKeyCheck: config.system.sshStrictHostKeyCheck,
   });
   registry.registerAdapter(system);
+
+  // Create migration adapter if both providers are configured
+  let migrationAdapter: MigrationAdapter | undefined;
+  if (
+    config.proxmox.tokenId && config.proxmox.tokenSecret &&
+    config.vmware.host &&
+    config.migration.esxiHost && config.migration.proxmoxHost
+  ) {
+    const migVsphere = new VSphereClient({
+      host: config.vmware.host,
+      user: config.vmware.user,
+      password: config.vmware.password,
+      insecure: config.vmware.insecure,
+    });
+    await migVsphere.createSession();
+
+    const migProxmox = new ProxmoxClient({
+      host: config.proxmox.host,
+      port: config.proxmox.port,
+      tokenId: config.proxmox.tokenId,
+      tokenSecret: config.proxmox.tokenSecret,
+      allowSelfSignedCerts: config.proxmox.allowSelfSignedCerts,
+    });
+    await migProxmox.connect();
+
+    const sshExec = (host: string, user: string, command: string, timeoutMs = 30_000): Promise<SSHExecResult> => {
+      return new Promise((resolve) => {
+        const args = [
+          "-o", "StrictHostKeyChecking=no",
+          "-o", "UserKnownHostsFile=/dev/null",
+          "-o", `ConnectTimeout=${Math.ceil(timeoutMs / 1000)}`,
+          `${user}@${host}`,
+          command,
+        ];
+        const proc = spawn("ssh", args, { timeout: timeoutMs });
+        let stdout = "";
+        let stderr = "";
+        proc.stdout.on("data", (data) => { stdout += data.toString(); });
+        proc.stderr.on("data", (data) => { stderr += data.toString(); });
+        proc.on("close", (code) => { resolve({ stdout, stderr, exitCode: code ?? 1 }); });
+        proc.on("error", (err) => { resolve({ stdout, stderr: err.message, exitCode: 1 }); });
+      });
+    };
+
+    migrationAdapter = new MigrationAdapter({
+      vsphereClient: migVsphere,
+      proxmoxClient: migProxmox,
+      sshExec,
+      esxiHost: config.migration.esxiHost,
+      esxiUser: config.migration.esxiUser,
+      proxmoxHost: config.migration.proxmoxHost,
+      proxmoxUser: config.migration.proxmoxUser,
+      proxmoxNode: config.migration.proxmoxNode,
+      proxmoxStorage: config.migration.proxmoxStorage,
+    });
+    await migrationAdapter.connect();
+  }
 
   // Connect all adapters
   await registry.connectAll();
@@ -234,6 +296,12 @@ async function main() {
       // Expose on dashboard for API routes
       (dashboard as unknown as { chaosEngine: ChaosEngine }).chaosEngine = chaosEngine;
 
+      // Migration adapter
+      if (migrationAdapter) {
+        (dashboard as unknown as { migrationAdapter: MigrationAdapter }).migrationAdapter = migrationAdapter;
+        console.log("  Migration adapter ready");
+      }
+
       console.log("  Chaos engineering engine ready");
 
       console.log("\nAll services running. Press Ctrl+C to stop.\n");
@@ -280,6 +348,11 @@ async function main() {
 
       // Expose on dashboard for API routes
       (dashboard as unknown as { chaosEngine: ChaosEngine }).chaosEngine = devChaosEngine;
+
+      // Migration adapter
+      if (migrationAdapter) {
+        (dashboard as unknown as { migrationAdapter: MigrationAdapter }).migrationAdapter = migrationAdapter;
+      }
 
       const cli = new vClawCLI(agentCore, registry, eventBus, governance);
       await cli.start();

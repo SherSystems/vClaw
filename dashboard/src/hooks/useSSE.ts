@@ -14,6 +14,7 @@ const EVENT_TYPES = [
   "chaos_simulated", "chaos_started", "chaos_recovery_detected",
   "chaos_completed", "chaos_failed",
   "health_check",
+  "migration_started", "migration_step", "migration_completed", "migration_failed",
 ] as const;
 
 type StoreSnapshot = ReturnType<typeof useStore.getState>;
@@ -211,6 +212,36 @@ export function applySseEvent(event: AgentEvent, s: StoreSnapshot) {
 
     case "health_check":
       s.addHealth(d as unknown as import("../types").HealthSummary);
+      break;
+
+    case "migration_started":
+      s.addToast({
+        type: "info",
+        title: "Migration Started",
+        message: (d.vm_name as string) || `VM ${d.vm_id} migration in progress`,
+      });
+      break;
+
+    case "migration_step":
+      // Step updates are handled by the Migrations component via events
+      break;
+
+    case "migration_completed":
+      s.addToast({
+        type: "success",
+        title: "Migration Complete",
+        message: (d.vm_name as string)
+          ? `${d.vm_name} migrated successfully`
+          : "Migration completed",
+      });
+      break;
+
+    case "migration_failed":
+      s.addToast({
+        type: "error",
+        title: "Migration Failed",
+        message: (d.error as string) || "Migration failed",
+      });
       break;
   }
 }

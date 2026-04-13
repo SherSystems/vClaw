@@ -74,7 +74,17 @@ describe("VMwareImporter", () => {
       ]),
     };
 
-    mockSshExec = vi.fn().mockResolvedValue(ok());
+    mockSshExec = vi.fn().mockImplementation((_host: string, _user: string, cmd: string) => {
+      // find command returns VM directory path
+      if (cmd.includes("find /vmfs")) {
+        return Promise.resolve(ok("/vmfs/volumes/datastore1/migrated-to-vmware"));
+      }
+      // vim-cmd getallvms returns VM listing with ESXi VMID
+      if (cmd.includes("getallvms")) {
+        return Promise.resolve(ok("Vmid  Name                 File                 Guest OS\n18    migrated-to-vmware   [datastore1] migrated-to-vmware/migrated-to-vmware.vmx   otherLinux64Guest"));
+      }
+      return Promise.resolve(ok());
+    });
     importer = new VMwareImporter(mockClient as VSphereClient, mockSshExec);
   });
 
@@ -117,7 +127,7 @@ describe("VMwareImporter", () => {
   });
 
   describe("importVM", () => {
-    it("should create VM directory on ESXi", async () => {
+    it("should find VM directory on ESXi after creation", async () => {
       await importer.importVM(
         {
           config: testConfig,
@@ -131,12 +141,12 @@ describe("VMwareImporter", () => {
         "192.168.86.50"
       );
 
-      // Should SSH to Proxmox which SSHes to ESXi to mkdir
-      const mkdirCall = (mockSshExec as ReturnType<typeof vi.fn>).mock.calls.find(
-        (c: string[]) => c[2].includes("mkdir")
+      // Should SSH to Proxmox which SSHes to ESXi to find the VM directory
+      const findCall = (mockSshExec as ReturnType<typeof vi.fn>).mock.calls.find(
+        (c: string[]) => c[2].includes("find /vmfs")
       );
-      expect(mkdirCall).toBeDefined();
-      expect(mkdirCall![2]).toContain("migrated-to-vmware");
+      expect(findCall).toBeDefined();
+      expect(findCall![2]).toContain("migrated-to-vmware");
     });
 
     it("should SCP vmdk from Proxmox to ESXi", async () => {
@@ -230,9 +240,9 @@ describe("VMwareImporter", () => {
     });
 
     it("should throw on SCP failure", async () => {
-      // mkdir ok, scp fails
+      // find ok, scp fails
       (mockSshExec as ReturnType<typeof vi.fn>)
-        .mockResolvedValueOnce(ok()) // mkdir on ESXi
+        .mockResolvedValueOnce(ok("/vmfs/volumes/datastore1/migrated-to-vmware")) // find
         .mockResolvedValueOnce({ stdout: "", stderr: "Connection refused", exitCode: 1 }); // scp
 
       await expect(

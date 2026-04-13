@@ -10,6 +10,7 @@ import type {
   HealthSummary,
   TabId,
   Toast,
+  MigrationPlan,
 } from "../types";
 
 interface DashboardState {
@@ -75,6 +76,14 @@ interface DashboardState {
   toasts: Toast[];
   addToast: (toast: Omit<Toast, "id" | "timestamp">) => void;
   removeToast: (id: string) => void;
+
+  // Migrations
+  activeMigration: MigrationPlan | null;
+  migrationHistory: MigrationPlan[];
+  setActiveMigration: (m: MigrationPlan | null) => void;
+  updateMigrationStep: (stepName: string, updates: Partial<MigrationPlan["steps"][0]>) => void;
+  completeMigration: (m: MigrationPlan) => void;
+  setMigrationHistory: (h: MigrationPlan[]) => void;
 
   // Governance counters
   totalActions: number;
@@ -215,6 +224,28 @@ export const useStore = create<DashboardState>((set) => ({
   },
   removeToast: (id) =>
     set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+
+  activeMigration: null,
+  migrationHistory: [],
+  setActiveMigration: (m) => set({ activeMigration: m }),
+  updateMigrationStep: (stepName, updates) =>
+    set((s) => {
+      if (!s.activeMigration) return s;
+      return {
+        activeMigration: {
+          ...s.activeMigration,
+          steps: s.activeMigration.steps.map((step) =>
+            step.name === stepName ? { ...step, ...updates } : step
+          ),
+        },
+      };
+    }),
+  completeMigration: (m) =>
+    set((s) => ({
+      activeMigration: null,
+      migrationHistory: [m, ...s.migrationHistory].slice(0, 50),
+    })),
+  setMigrationHistory: (h) => set({ migrationHistory: h }),
 
   totalActions: 0,
   failures: 0,

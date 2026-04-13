@@ -8,6 +8,7 @@ import type { AgentCore } from "../../agent/core.js";
 import type { ToolRegistry } from "../../tools/registry.js";
 import { EventBus } from "../../agent/events.js";
 import type { AuditLog } from "../../governance/audit.js";
+import { AgentEventType } from "../../types.js";
 import type { AgentEvent, Goal } from "../../types.js";
 import { randomUUID } from "node:crypto";
 import { IncidentManager } from "../../healing/incidents.js";
@@ -18,6 +19,8 @@ import { readFileSync, existsSync } from "node:fs";
 import { extname } from "node:path";
 import type { HealingOrchestrator } from "../../healing/orchestrator.js";
 import type { ChaosEngine } from "../../chaos/engine.js";
+import type { MigrationAdapter } from "../../migration/adapter.js";
+import type { MigrationPlan } from "../../migration/types.js";
 import { linearRegression, predictTimeToThreshold } from "../../monitoring/anomaly.js";
 import type { DataPoint as AnomalyDataPoint } from "../../monitoring/anomaly.js";
 import { metricStore } from "../../monitoring/metric-store.js";
@@ -41,6 +44,8 @@ export class DashboardServer {
   private incidentManager: IncidentManager;
   healer?: HealingOrchestrator;
   chaosEngine?: ChaosEngine;
+  migrationAdapter?: MigrationAdapter;
+  private migrationHistory: MigrationPlan[] = [];
 
   constructor(
     private readonly port: number,
@@ -184,6 +189,28 @@ export class DashboardServer {
           break;
         case "/api/telemetry/runs":
           this.handleRunTelemetry(res, url);
+          break;
+        case "/api/migration/vms":
+          this.handleMigrationVMs(res, url);
+          break;
+        case "/api/migration/plan":
+          if (req.method === "POST") {
+            this.handleMigrationPlan(req, res);
+          } else {
+            res.writeHead(405, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "Method not allowed" }));
+          }
+          break;
+        case "/api/migration/execute":
+          if (req.method === "POST") {
+            this.handleMigrationExecute(req, res);
+          } else {
+            res.writeHead(405, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "Method not allowed" }));
+          }
+          break;
+        case "/api/migration/history":
+          this.handleMigrationHistory(res);
           break;
         case "/api/agent/command":
           if (req.method === "POST") {
@@ -792,6 +819,140 @@ export class DashboardServer {
       console.error("[DashboardServer] Chaos scenarios error:", err);
       this.json(res, { error: "Failed to get chaos scenarios" }, 500);
     }
+  }
+
+  // ── Migration ───────────────────────────────────────────
+
+  private async handleMigrationVMs(res: ServerResponse, url: URL): Promise<void> {
+    try {
+      if (!this.migrationAdapter) {
+        this.json(res, { error: "Migration not configured" }, 503);
+        return;
+      }
+      const provider = url.searchParams.get("provider") as "vmware" | "proxmox";
+      if (!provider || !["vmware", "proxmox"].includes(provider)) {
+        this.json(res, { error: "Invalid provider (vmware or proxmox)" }, 400);
+        return;
+      }
+
+      // Get VMs from the cluster state of the appropriate provider
+      const state = await this.toolRegistry.getMultiClusterState();
+      const providerState = state.providers.find(
+        (p) => p.type === provider
+      );
+
+      const vms = (providerState?.state?.vms || []).map((vm) => ({
+        id: vm.id,
+        name: vm.name,
+        provider,
+        status: vm.status,
+        cpu: vm.cpu_cores || 0,
+        memoryMiB: vm.ram_mb || 0,
+        diskGB: vm.disk_gb || 0,
+      }));
+
+      this.json(res, { vms });
+    } catch (err) {
+      console.error("[DashboardServer] Migration VMs error:", err);
+      this.json(res, { error: "Failed to fetch VMs" }, 500);
+    }
+  }
+
+  private async handleMigrationPlan(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    try {
+      if (!this.migrationAdapter) {
+        this.json(res, { error: "Migration not configured" }, 503);
+        return;
+      }
+      const body = await this.parseBody(req);
+      const direction = body.direction as string;
+      const vmId = body.vm_id;
+
+      if (!direction || !vmId) {
+        this.json(res, { error: "Missing direction or vm_id" }, 400);
+        return;
+      }
+
+      const toolName = direction === "vmware_to_proxmox"
+        ? "plan_migration_vmware_to_proxmox"
+        : "plan_migration_proxmox_to_vmware";
+
+      const result = await this.migrationAdapter.execute(toolName, { vm_id: vmId });
+      if (!result.success) {
+        this.json(res, { error: result.error }, 400);
+        return;
+      }
+
+      const plan = result.data as MigrationPlan;
+      this.json(res, { ...plan, direction });
+    } catch (err) {
+      console.error("[DashboardServer] Migration plan error:", err);
+      this.json(res, { error: "Failed to create migration plan" }, 500);
+    }
+  }
+
+  private async handleMigrationExecute(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    try {
+      if (!this.migrationAdapter) {
+        this.json(res, { error: "Migration not configured" }, 503);
+        return;
+      }
+      const body = await this.parseBody(req);
+      const direction = body.direction as string;
+      const vmId = body.vm_id;
+
+      if (!direction || !vmId) {
+        this.json(res, { error: "Missing direction or vm_id" }, 400);
+        return;
+      }
+
+      const toolName = direction === "vmware_to_proxmox"
+        ? "migrate_vmware_to_proxmox"
+        : "migrate_proxmox_to_vmware";
+
+      // Emit migration_started event
+      this.broadcast({
+        type: AgentEventType.MigrationStarted,
+        timestamp: new Date().toISOString(),
+        data: { direction, vm_id: vmId },
+      });
+
+      const result = await this.migrationAdapter.execute(toolName, { vm_id: vmId });
+
+      if (!result.success) {
+        this.broadcast({
+          type: AgentEventType.MigrationFailed,
+          timestamp: new Date().toISOString(),
+          data: { direction, vm_id: vmId, error: result.error },
+        });
+        this.json(res, { error: result.error }, 400);
+        return;
+      }
+
+      const plan = result.data as MigrationPlan;
+      this.migrationHistory.unshift(plan);
+      if (this.migrationHistory.length > 50) this.migrationHistory.pop();
+
+      this.broadcast({
+        type: AgentEventType.MigrationCompleted,
+        timestamp: new Date().toISOString(),
+        data: { direction, vm_id: vmId, status: plan.status },
+      });
+
+      this.json(res, plan);
+    } catch (err) {
+      console.error("[DashboardServer] Migration execute error:", err);
+      this.broadcast({
+        type: AgentEventType.MigrationFailed,
+        timestamp: new Date().toISOString(),
+        data: { error: err instanceof Error ? err.message : String(err) },
+      });
+      this.json(res, { error: "Migration failed" }, 500);
+    }
+  }
+
+  private handleMigrationHistory(res: ServerResponse): void {
+    this.json(res, { migrations: this.migrationHistory });
   }
 
   // ── Agent Command (Cmd+K palette) ──────────────────────

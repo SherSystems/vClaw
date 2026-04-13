@@ -283,4 +283,60 @@ export interface Toast {
   timestamp: string;
 }
 
-export type TabId = "topology" | "plan" | "resources" | "nodes" | "incidents" | "governance" | "chaos";
+// Migration types
+export type MigrationDirection = "vmware_to_proxmox" | "proxmox_to_vmware";
+export type MigrationStatus = "pending" | "exporting" | "converting" | "transferring" | "importing" | "completed" | "failed";
+
+export interface MigrationStep {
+  name: string;
+  status: "pending" | "completed" | "failed";
+  detail?: string;
+  startedAt?: string;
+  completedAt?: string;
+  error?: string;
+}
+
+export interface MigrationPlan {
+  id: string;
+  direction: MigrationDirection;
+  status: MigrationStatus;
+  source: {
+    provider: "vmware" | "proxmox";
+    vmId: string;
+    vmName: string;
+    host: string;
+  };
+  target: {
+    provider: "vmware" | "proxmox";
+    node: string;
+    host: string;
+    storage: string;
+    vmId?: number;
+  };
+  vmConfig: {
+    name: string;
+    cpuCount: number;
+    coresPerSocket: number;
+    memoryMiB: number;
+    guestOS: string;
+    firmware: string;
+    disks: { label: string; capacityBytes: number }[];
+    nics: { label: string; macAddress?: string }[];
+  };
+  steps: MigrationStep[];
+  startedAt?: string;
+  completedAt?: string;
+  error?: string;
+}
+
+export interface MigrationVM {
+  id: string;
+  name: string;
+  provider: "vmware" | "proxmox";
+  status: string;
+  cpu: number;
+  memoryMiB: number;
+  diskGB: number;
+}
+
+export type TabId = "topology" | "plan" | "resources" | "nodes" | "incidents" | "governance" | "chaos" | "migrations";

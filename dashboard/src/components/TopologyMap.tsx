@@ -33,6 +33,25 @@ function providerColor(type: string): string {
   return type === "vmware" ? "#4B91E2" : "var(--teal)";
 }
 
+/** Map raw IP-based ESXi host names to friendly display names */
+function friendlyNodeName(name: string): string {
+  // If it's an IP address, give it a friendly ESXi label
+  if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(name)) {
+    const lastOctet = name.split(".").pop();
+    return `esxi-${lastOctet}`;
+  }
+  return name;
+}
+
+/** Map datastore IDs like "datastore-14" to the name if available, otherwise clean up the ID */
+function friendlyStorageName(id: string, type?: string): string {
+  // If it's already a friendly name, keep it
+  if (!id.startsWith("datastore-") && !id.startsWith("storage/")) return id;
+  // Strip prefix for display
+  if (id.startsWith("storage/")) return id.replace("storage/", "");
+  return id;
+}
+
 interface ProviderSectionProps {
   label: string;
   providerType: string;
@@ -168,7 +187,7 @@ function ProviderSection({
               fill={node.status === "online" ? accent : "var(--red)"}
             />
             <text x={bx + 26} y={by + 22} fill="var(--text-primary)" fontSize={13} fontWeight={600}>
-              {node.name}
+              {friendlyNodeName(node.name)}
             </text>
             {/* CPU bar */}
             <rect x={bx + 14} y={by + 36} width={barW} height={barH} rx={3} fill="var(--bg-tertiary)" />
@@ -296,7 +315,7 @@ function ProviderSection({
               fill="var(--bg-card)" stroke="var(--border)"
             />
             <text x={bx + 12} y={by + 20} fill="var(--text-primary)" fontSize={12} fontWeight={500}>
-              {s.id}
+              {friendlyStorageName(s.id, s.type)}
             </text>
             <text x={bx + 12} y={by + 34} fill="var(--text-secondary)" fontSize={9}>
               {s.used_gb.toFixed(1)} / {s.total_gb.toFixed(1)} GB ({usagePct.toFixed(0)}%)

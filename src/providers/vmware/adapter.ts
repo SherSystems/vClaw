@@ -465,7 +465,7 @@ export class VMwareAdapter implements InfraAdapter {
 
     // Map Datastores → StorageInfo
     const storage: StorageInfo[] = rawDatastores.map((ds) => ({
-      id: ds.datastore,
+      id: ds.name || ds.datastore,
       node: "",
       type: ds.type,
       total_gb: ds.capacity ? Math.round((ds.capacity / 1024 / 1024 / 1024) * 10) / 10 : 0,

@@ -84,7 +84,7 @@ async function main() {
       guest_OS: "OTHER_LINUX_64",
       placement: {
         folder,
-        host: "host-11", // esxi-01 (192.168.86.37)
+        host: process.env.MIGRATION_ESXI_HOST_ID || "host-11",
         datastore: "datastore-14", // datastore1 on esxi-01
       },
       cpu: { count: 1, cores_per_socket: 1 },
@@ -120,12 +120,12 @@ async function main() {
     vsphereClient: vsphere,
     proxmoxClient: proxmox,
     sshExec,
-    esxiHost: "192.168.86.37",
-    esxiUser: "root",
-    proxmoxHost: "192.168.86.50",
-    proxmoxUser: "root",
-    proxmoxNode: "pranavlab",
-    proxmoxStorage: "local-lvm",
+    esxiHost: process.env.MIGRATION_ESXI_HOST!,
+    esxiUser: process.env.MIGRATION_ESXI_USER || "root",
+    proxmoxHost: process.env.MIGRATION_PROXMOX_HOST!,
+    proxmoxUser: process.env.MIGRATION_PROXMOX_USER || "root",
+    proxmoxNode: process.env.MIGRATION_PROXMOX_NODE!,
+    proxmoxStorage: process.env.MIGRATION_PROXMOX_STORAGE || "local-lvm",
     onProgress: (step, detail) => {
       log(`  [${step}] ${detail}`);
     },

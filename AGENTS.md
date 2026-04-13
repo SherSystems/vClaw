@@ -26,6 +26,7 @@ Primary runtime modes:
 - `src/providers/proxmox/`: Proxmox adapter and REST client
 - `src/providers/system/`: SSH/local/system tools
 - `src/tools/`: backwards-compatible re-exports (use `src/providers/` for new work)
+- `src/migration/`: cross-provider VM migration (VMware ↔ Proxmox)
 - `src/healing/`: incident management, playbooks, healing orchestrator
 - `src/monitoring/`: health metric collection and anomaly detection
 - `src/chaos/`: chaos simulation and execution
@@ -80,6 +81,7 @@ Important env vars live in `.env.example`:
 - Dashboard: `DASHBOARD_PORT`
 - Autopilot: `AUTOPILOT_ENABLED`, `AUTOPILOT_POLL_INTERVAL_MS`
 - Chaos: `CHAOS_PROTECTED_VMIDS`
+- Migration: `MIGRATION_ESXI_HOST`, `MIGRATION_ESXI_USER`, `MIGRATION_PROXMOX_HOST`, `MIGRATION_PROXMOX_USER`, `MIGRATION_PROXMOX_NODE`, `MIGRATION_PROXMOX_STORAGE`
 
 The backend supports both `anthropic` and `openai` providers via `src/agent/llm.ts`.
 
@@ -91,7 +93,7 @@ The dashboard frontend (`dashboard/`) is a React 19 + Vite 6 app using Zustand f
 - **Zustand store** (`src/store.ts`) is the single source of truth. Components subscribe to slices of state, not props.
 - **Cluster API fallback**: when SSE health events aren't flowing, components fall back to cluster API data (e.g. `useStore(s => s.cluster)`) so the UI still populates.
 - **CSS lives in `src/styles/index.css`** with CSS custom properties for theming (`--bg`, `--teal`, `--red`, `--amber`, etc.).
-- Components: `Header`, `Topology`, `Resources`, `Nodes`, `Incidents`, `Governance`, `Chaos`, `EventStream`, `CommandPalette`.
+- Components: `Header`, `Topology`, `Resources`, `Nodes`, `Incidents`, `Governance`, `Chaos`, `Migrations`, `EventStream`, `CommandPalette`.
 - The gauge SVG pattern uses a `div.gauge-svg > svg` wrapper structure. Do not render `<svg className="gauge-svg">` directly as the CSS expects the div wrapper.
 
 ## Provider Architecture
@@ -108,7 +110,8 @@ vClaw uses a provider abstraction pattern:
 - The backend dashboard server serves `dashboard/dist` if it exists; otherwise it falls back to an inline HTML template.
 - The default policy accepts `approve_fix` in YAML and normalizes it to `approve_risky` in `src/governance/policy.ts`.
 - Test suite: `npm test` runs vitest across `tests/`.
-- `ToolRegistry.getClusterState()` returns the first connected adapter's cluster state, so changes that depend on cluster snapshots should be made carefully.
+- `ToolRegistry.getClusterState()` returns the first connected adapter's cluster state; `getMultiClusterState()` aggregates all providers.
+- The migration engine (`src/migration/`) uses SSH for cross-host file transfer and disk conversion. It requires both providers configured plus migration env vars (`MIGRATION_ESXI_HOST`, etc.).
 - The system adapter exposes powerful commands like `local_exec`, `ssh_exec`, and `run_script`; keep these governed and avoid bypassing the normal execution path.
 
 ## Preferred Change Workflow

@@ -595,7 +595,7 @@ describe("VMwareAdapter", () => {
     it("maps datastores to StorageInfo", async () => {
       const state = await adapter.getClusterState();
       expect(state.storage).toHaveLength(1);
-      expect(state.storage[0].id).toBe("datastore-15");
+      expect(state.storage[0].id).toBe("localDS");
       expect(state.storage[0].type).toBe("VMFS");
       expect(state.storage[0].total_gb).toBeCloseTo(931.3, 0);
       expect(state.storage[0].available_gb).toBeCloseTo(465.7, 0);
@@ -624,16 +624,17 @@ describe("VMwareAdapter", () => {
       expect(state.nodes[0].status).toBe("offline");
     });
 
-    it("gracefully handles getHost 404 by keeping zeros", async () => {
+    it("gracefully handles getHost 404 by aggregating from VMs", async () => {
       const mc = await getMockClient();
       mc.getHost.mockRejectedValueOnce(new Error("vSphere API error: 404 Not Found"));
       const state = await adapter.getClusterState();
       expect(state.nodes).toHaveLength(1);
       expect(state.nodes[0].id).toBe("host-10");
-      expect(state.nodes[0].cpu_cores).toBe(0);
-      expect(state.nodes[0].cpu_usage_pct).toBe(0);
-      expect(state.nodes[0].ram_total_mb).toBe(0);
-      expect(state.nodes[0].ram_used_mb).toBe(0);
+      // Falls back to VM aggregation: 4+8=12 total vCPUs, 8192+16384=24576 total RAM
+      expect(state.nodes[0].cpu_cores).toBe(12);
+      expect(state.nodes[0].ram_total_mb).toBe(24576);
+      // Only powered-on VM: 8192 MB RAM used
+      expect(state.nodes[0].ram_used_mb).toBe(8192);
     });
 
     it("maps SUSPENDED VM to paused status", async () => {

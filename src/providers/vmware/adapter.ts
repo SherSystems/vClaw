@@ -408,13 +408,16 @@ export class VMwareAdapter implements InfraAdapter {
       this.client.listDatastores(),
     ]);
 
-    // Map ESXi hosts → NodeInfo (with real metrics from detail endpoint)
+    // Map ESXi hosts → NodeInfo
+    // Try host detail endpoint first; if unavailable (404 on some vCenter versions),
+    // fall back to aggregating VM allocations for CPU/RAM metrics.
     const nodes: NodeInfo[] = [];
     for (const h of rawHosts) {
       let cpuCores = 0;
       let cpuUsagePct = 0;
       let ramTotalMb = 0;
       let ramUsedMb = 0;
+      let gotHostDetail = false;
 
       try {
         const detail = await this.client.getHost(h.host);
@@ -423,8 +426,27 @@ export class VMwareAdapter implements InfraAdapter {
         cpuUsagePct = cpuMhzTotal > 0 ? Math.round(((detail.cpu?.overall_cpu_usage ?? 0) / cpuMhzTotal) * 100) : 0;
         ramTotalMb = Math.round((detail.memory?.total_memory ?? 0) / 1024 / 1024);
         ramUsedMb = Math.round((detail.memory?.memory_usage ?? 0));
+        gotHostDetail = true;
       } catch {
-        // Host may be unreachable — keep zeros
+        // Host detail endpoint unavailable — aggregate from VM data
+      }
+
+      if (!gotHostDetail) {
+        // Aggregate CPU and RAM from VMs running on this host
+        // In single-host environments all VMs belong to the same host;
+        // in multi-host we split evenly (VM→host mapping not in REST list API)
+        const poweredOnVMs = rawVMs.filter((v) => v.power_state === "POWERED_ON");
+        const allVMCpus = rawVMs.reduce((sum, v) => sum + (v.cpu_count ?? 0), 0);
+        const allVMRamMb = rawVMs.reduce((sum, v) => sum + (v.memory_size_MiB ?? 0), 0);
+        const onVMCpus = poweredOnVMs.reduce((sum, v) => sum + (v.cpu_count ?? 0), 0);
+        const onVMRamMb = poweredOnVMs.reduce((sum, v) => sum + (v.memory_size_MiB ?? 0), 0);
+
+        // Per-host share (divide evenly when multiple hosts)
+        const hostCount = rawHosts.length || 1;
+        cpuCores = Math.ceil(allVMCpus / hostCount);
+        ramTotalMb = Math.ceil(allVMRamMb / hostCount);
+        ramUsedMb = Math.ceil(onVMRamMb / hostCount);
+        cpuUsagePct = cpuCores > 0 ? Math.round((onVMCpus / (allVMCpus || 1)) * 100) : 0;
       }
 
       // Aggregate storage from datastores for this host

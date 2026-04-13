@@ -161,5 +161,27 @@ describe("SystemAdapter", () => {
       expect(result.success).toBe(false);
       expect(result.error).toContain("Exit code");
     });
+
+    it("truncates oversized stderr output", async () => {
+      const result = await adapter.execute("local_exec", {
+        command: "node -e \"process.stderr.write('x'.repeat(6000)); process.exit(1)\"",
+        timeout_ms: 5000,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("Exit code");
+      expect((result.data as { stderr: string }).stderr).toContain("...[truncated]");
+    });
+
+    it("surfaces process spawn errors", async () => {
+      const result = await (adapter as any).runProcess(
+        "vclaw-command-that-does-not-exist",
+        [],
+        1000,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/ENOENT|spawn/i);
+    });
   });
 });

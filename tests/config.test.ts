@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { join } from "node:path";
 
 // Mock dotenv so it doesn't load .env file at import time
 vi.mock("dotenv", () => ({
@@ -86,5 +87,101 @@ describe("getConfig", () => {
     vi.stubEnv("AI_PROVIDER", "invalid_provider");
     const { getConfig } = await import("../src/config.js");
     expect(() => getConfig()).toThrow();
+  });
+
+  it("reads VMware and system SSH strict host key check env vars", async () => {
+    vi.stubEnv("VMWARE_HOST", "vcsa.local");
+    vi.stubEnv("VMWARE_USER", "administrator@vsphere.local");
+    vi.stubEnv("VMWARE_PASSWORD", "secret");
+    vi.stubEnv("VMWARE_INSECURE", "false");
+    vi.stubEnv("SYSTEM_SSH_STRICT_HOST_KEY_CHECK", "false");
+
+    const { getConfig } = await import("../src/config.js");
+    const config = getConfig();
+
+    expect(config.vmware.host).toBe("vcsa.local");
+    expect(config.vmware.user).toBe("administrator@vsphere.local");
+    expect(config.vmware.password).toBe("secret");
+    expect(config.vmware.insecure).toBe(false);
+    expect(config.system.sshStrictHostKeyCheck).toBe(false);
+  });
+
+  it("returns stable project, policies, and data directories", async () => {
+    const { getProjectRoot, getPoliciesDir, getDataDir } = await import(
+      "../src/config.js"
+    );
+
+    const root = getProjectRoot();
+    expect(getPoliciesDir()).toBe(join(root, "policies"));
+    expect(getDataDir()).toBe(join(root, "data"));
+  });
+
+  it("returns null from getOrCreateVault when vault key is missing", async () => {
+    const { getOrCreateVault } = await import("../src/config.js");
+    expect(getOrCreateVault()).toBeNull();
+  });
+
+  it("creates and caches vault instance when VCLAW_VAULT_KEY is set", async () => {
+    vi.stubEnv("VCLAW_VAULT_KEY", "unit-test-master-key");
+
+    const { getOrCreateVault } = await import("../src/config.js");
+    const first = getOrCreateVault();
+    const second = getOrCreateVault();
+
+    expect(first).not.toBeNull();
+    expect(second).toBe(first);
+  });
+
+  it("migrates config secrets into the vault", async () => {
+    const { migrateToVault } = await import("../src/config.js");
+    const importFromConfig = vi.fn();
+    const mockVault = { importFromConfig } as unknown as {
+      importFromConfig: (secrets: Record<string, unknown>) => void;
+    };
+
+    migrateToVault(
+      {
+        proxmox: {
+          host: "pve.local",
+          port: 8006,
+          tokenId: "root@pam!qa",
+          tokenSecret: "proxmox-secret",
+          allowSelfSignedCerts: true,
+        },
+        vmware: {
+          host: "vcsa.local",
+          user: "administrator",
+          password: "vmware-secret",
+          insecure: true,
+        },
+        system: { sshStrictHostKeyCheck: true },
+        ai: {
+          provider: "anthropic",
+          apiKey: "ai-secret",
+          model: "claude-sonnet-4-20250514",
+        },
+        dashboard: { port: 3000 },
+        autopilot: { pollIntervalMs: 30000, enabled: false },
+      },
+      mockVault as never,
+    );
+
+    expect(importFromConfig).toHaveBeenCalledWith({
+      "proxmox.tokenSecret": {
+        value: "proxmox-secret",
+        provider: "proxmox",
+        field: "tokenSecret",
+      },
+      "vmware.password": {
+        value: "vmware-secret",
+        provider: "vmware",
+        field: "password",
+      },
+      "ai.apiKey": {
+        value: "ai-secret",
+        provider: "ai",
+        field: "apiKey",
+      },
+    });
   });
 });

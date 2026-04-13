@@ -100,6 +100,17 @@ export interface HostInfo {
   name: string;
   connection_state: HostConnectionState;
   power_state: HostPowerState;
+  cpu?: {
+    num_cpu_packages?: number;
+    num_cpu_cores?: number;
+    num_cpu_threads?: number;
+    cpu_mhz?: number;
+    overall_cpu_usage?: number;
+  };
+  memory?: {
+    total_memory?: number;
+    memory_usage?: number;
+  };
 }
 
 // ── Datastore Types ─────────────────────────────────────────
@@ -201,6 +212,16 @@ export interface GuestInfo {
   dns?: {
     ip_addresses?: string[];
   };
+}
+
+// ── Folder Types ───────────────────────────────────────────
+
+export type FolderType = "VIRTUAL_MACHINE" | "DATACENTER" | "DATASTORE" | "HOST" | "NETWORK";
+
+export interface FolderSummary {
+  folder: string;
+  name: string;
+  type: FolderType;
 }
 
 // ── VM Create Spec ──────────────────────────────────────────

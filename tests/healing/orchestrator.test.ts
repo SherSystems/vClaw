@@ -240,4 +240,32 @@ describe("HealingOrchestrator", () => {
     expect(eventTypes).toContain("incident_resolved");
     expect(eventTypes).toContain("healing_completed");
   });
+
+  it("proxies lifecycle and status accessors to the healing engine", () => {
+    const orchestrator = makeOrchestrator();
+    const engine = (orchestrator as any).engine;
+    const startSpy = vi.spyOn(engine, "start").mockImplementation(() => undefined);
+    const stopSpy = vi.spyOn(engine, "stop").mockImplementation(() => undefined);
+    const expectedStatus = {
+      running: true,
+      healingEnabled: true,
+      activeHeals: [],
+      openIncidents: [],
+      circuitBreaker: {
+        consecutiveFailures: 0,
+        paused: false,
+      },
+    };
+    const statusSpy = vi.spyOn(engine, "getStatus").mockReturnValue(expectedStatus);
+
+    orchestrator.start();
+    orchestrator.stop();
+
+    expect(startSpy).toHaveBeenCalledTimes(1);
+    expect(stopSpy).toHaveBeenCalledTimes(1);
+    expect(orchestrator.getStatus()).toBe(expectedStatus);
+    expect(statusSpy).toHaveBeenCalledTimes(1);
+    expect(orchestrator.getHealthMonitor()).toBe((orchestrator as any).healthMonitor);
+    expect((orchestrator as any).openIncidents).toEqual([]);
+  });
 });

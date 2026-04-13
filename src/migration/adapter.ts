@@ -104,15 +104,55 @@ export class MigrationAdapter implements InfraAdapter {
         ],
         returns: "MigrationPlan (dry-run) with VM config and planned steps",
       },
+      {
+        name: "migrate_proxmox_to_vmware",
+        description:
+          "Migrate a VM from Proxmox VE to VMware vSphere. " +
+          "Exports the VM config, converts the disk (raw/qcow2 -> vmdk), " +
+          "uploads to ESXi datastore, and creates a new VM on vSphere. " +
+          "The source VM will be stopped during migration.",
+        tier: "risky_write",
+        adapter: "migration",
+        params: [
+          {
+            name: "vm_id",
+            type: "number",
+            required: true,
+            description: "Proxmox VMID (e.g. 112)",
+          },
+        ],
+        returns: "MigrationPlan with status, steps, and target vSphere VM details",
+      },
+      {
+        name: "plan_migration_proxmox_to_vmware",
+        description:
+          "Dry-run planning for Proxmox -> VMware migration. " +
+          "Reads VM config and validates connectivity without making changes.",
+        tier: "read",
+        adapter: "migration",
+        params: [
+          {
+            name: "vm_id",
+            type: "number",
+            required: true,
+            description: "Proxmox VMID (e.g. 112)",
+          },
+        ],
+        returns: "MigrationPlan (dry-run) with VM config and planned steps",
+      },
     ];
   }
 
   async execute(tool: string, params: Record<string, unknown>): Promise<ToolCallResult> {
     switch (tool) {
       case "migrate_vmware_to_proxmox":
-        return this.executeMigration(params);
+        return this.executeVMwareToProxmox(params);
       case "plan_migration_vmware_to_proxmox":
-        return this.executePlanMigration(params);
+        return this.executePlanVMwareToProxmox(params);
+      case "migrate_proxmox_to_vmware":
+        return this.executeProxmoxToVMware(params);
+      case "plan_migration_proxmox_to_vmware":
+        return this.executePlanProxmoxToVMware(params);
       default:
         return { success: false, error: `Unknown migration tool: ${tool}` };
     }
@@ -132,21 +172,13 @@ export class MigrationAdapter implements InfraAdapter {
 
   // ── Private ────────────────────────────────────────────────
 
-  private async executeMigration(params: Record<string, unknown>): Promise<ToolCallResult> {
+  private async executeVMwareToProxmox(params: Record<string, unknown>): Promise<ToolCallResult> {
     const vmId = params.vm_id as string;
     if (!vmId) return { success: false, error: "vm_id is required" };
 
-    const orchestrator = new MigrationOrchestrator({
-      vsphereClient: this.config.vsphereClient,
-      proxmoxClient: this.config.proxmoxClient,
-      sshExec: this.config.sshExec,
-      esxiHost: this.config.esxiHost,
-      esxiUser: this.config.esxiUser,
-      proxmoxHost: this.config.proxmoxHost,
-      proxmoxUser: this.config.proxmoxUser,
+    const orchestrator = this.createOrchestrator({
       proxmoxNode: (params.target_node as string) ?? this.config.proxmoxNode,
       proxmoxStorage: (params.target_storage as string) ?? this.config.proxmoxStorage,
-      targetVmId: params.target_vmid as number | undefined,
     });
 
     try {
@@ -160,21 +192,11 @@ export class MigrationAdapter implements InfraAdapter {
     }
   }
 
-  private async executePlanMigration(params: Record<string, unknown>): Promise<ToolCallResult> {
+  private async executePlanVMwareToProxmox(params: Record<string, unknown>): Promise<ToolCallResult> {
     const vmId = params.vm_id as string;
     if (!vmId) return { success: false, error: "vm_id is required" };
 
-    const orchestrator = new MigrationOrchestrator({
-      vsphereClient: this.config.vsphereClient,
-      proxmoxClient: this.config.proxmoxClient,
-      sshExec: this.config.sshExec,
-      esxiHost: this.config.esxiHost,
-      esxiUser: this.config.esxiUser,
-      proxmoxHost: this.config.proxmoxHost,
-      proxmoxUser: this.config.proxmoxUser,
-      proxmoxNode: this.config.proxmoxNode,
-      proxmoxStorage: this.config.proxmoxStorage,
-    });
+    const orchestrator = this.createOrchestrator();
 
     try {
       const plan = await orchestrator.planMigration(vmId);
@@ -185,5 +207,53 @@ export class MigrationAdapter implements InfraAdapter {
         error: err instanceof Error ? err.message : String(err),
       };
     }
+  }
+
+  private async executeProxmoxToVMware(params: Record<string, unknown>): Promise<ToolCallResult> {
+    const vmId = params.vm_id as number;
+    if (vmId === undefined || vmId === null) return { success: false, error: "vm_id is required" };
+
+    const orchestrator = this.createOrchestrator();
+
+    try {
+      const plan = await orchestrator.migrateProxmoxToVMware(vmId);
+      return { success: true, data: plan };
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  private async executePlanProxmoxToVMware(params: Record<string, unknown>): Promise<ToolCallResult> {
+    const vmId = params.vm_id as number;
+    if (vmId === undefined || vmId === null) return { success: false, error: "vm_id is required" };
+
+    const orchestrator = this.createOrchestrator();
+
+    try {
+      const plan = await orchestrator.planProxmoxToVMware(vmId);
+      return { success: true, data: plan };
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  private createOrchestrator(overrides: Partial<MigrationAdapterConfig> = {}): MigrationOrchestrator {
+    return new MigrationOrchestrator({
+      vsphereClient: this.config.vsphereClient,
+      proxmoxClient: this.config.proxmoxClient,
+      sshExec: this.config.sshExec,
+      esxiHost: overrides.esxiHost ?? this.config.esxiHost,
+      esxiUser: overrides.esxiUser ?? this.config.esxiUser,
+      proxmoxHost: overrides.proxmoxHost ?? this.config.proxmoxHost,
+      proxmoxUser: overrides.proxmoxUser ?? this.config.proxmoxUser,
+      proxmoxNode: overrides.proxmoxNode ?? this.config.proxmoxNode,
+      proxmoxStorage: overrides.proxmoxStorage ?? this.config.proxmoxStorage,
+    });
   }
 }

@@ -476,96 +476,37 @@ describe("VSphereClient", () => {
 
   // ── Snapshot Operations ─────────────────────────────────
 
+  // ── Snapshot Operations (SOAP-only) ─────────────────────
+
   describe("listSnapshots", () => {
-    beforeEach(async () => {
-      setupMockRequest(200, { value: "token" });
-      await client.createSession();
-    });
-
-    it("returns list of snapshots", async () => {
-      setupMockRequest(200, {
-        value: {
-          items: [
-            { snapshot: "snap-1", name: "before-upgrade", description: "Pre-upgrade snapshot" },
-          ],
-        },
-      });
-      const result = await client.listSnapshots("vm-42");
-      expect(result).toHaveLength(1);
-      expect(result[0].name).toBe("before-upgrade");
-    });
-
-    it("returns empty array when no snapshots", async () => {
-      setupMockRequest(200, { value: {} });
-      const result = await client.listSnapshots("vm-42");
-      expect(result).toEqual([]);
+    it("throws SOAP-only error", async () => {
+      await expect(client.listSnapshots("vm-42")).rejects.toThrow(
+        "Snapshot operations are not supported via the vSphere REST API"
+      );
     });
   });
 
   describe("createSnapshot", () => {
-    beforeEach(async () => {
-      setupMockRequest(200, { value: "token" });
-      await client.createSession();
-    });
-
-    it("creates a snapshot and returns its ID", async () => {
-      setupMockRequest(200, { value: "snapshot-123" });
-      const result = await client.createSnapshot("vm-42", "test-snap", "Test snapshot", true);
-      expect(result).toBe("snapshot-123");
-
-      const opts = mockRequest.mock.calls[1][0];
-      expect(opts.method).toBe("POST");
-      expect(opts.path).toBe("/api/vcenter/vm/vm-42/snapshots");
-    });
-
-    it("sends correct body with name, description, and memory", async () => {
-      let writtenData = "";
-      mockRequest.mockImplementation((_opts: unknown, callback: (res: unknown) => void) => {
-        const res = createMockResponse(200, { value: "snap-1" });
-        callback(res);
-        return {
-          on: vi.fn(),
-          setTimeout: vi.fn(),
-          write: vi.fn((d: string) => { writtenData = d; }),
-          end: vi.fn(),
-          destroy: vi.fn(),
-        };
-      });
-      await client.createSnapshot("vm-42", "snap1", "desc", true);
-      const body = JSON.parse(writtenData);
-      expect(body.name).toBe("snap1");
-      expect(body.description).toBe("desc");
-      expect(body.memory).toBe(true);
+    it("throws SOAP-only error", async () => {
+      await expect(client.createSnapshot("vm-42", "snap1", "desc", true)).rejects.toThrow(
+        "Snapshot operations are not supported via the vSphere REST API"
+      );
     });
   });
 
   describe("deleteSnapshot", () => {
-    beforeEach(async () => {
-      setupMockRequest(200, { value: "token" });
-      await client.createSession();
-    });
-
-    it("sends DELETE to correct path", async () => {
-      setupMockRequest(200, "");
-      await client.deleteSnapshot("vm-42", "snap-1");
-      const opts = mockRequest.mock.calls[1][0];
-      expect(opts.method).toBe("DELETE");
-      expect(opts.path).toBe("/api/vcenter/vm/vm-42/snapshots/snap-1");
+    it("throws SOAP-only error", async () => {
+      await expect(client.deleteSnapshot("vm-42", "snap-1")).rejects.toThrow(
+        "Snapshot operations are not supported via the vSphere REST API"
+      );
     });
   });
 
   describe("revertSnapshot", () => {
-    beforeEach(async () => {
-      setupMockRequest(200, { value: "token" });
-      await client.createSession();
-    });
-
-    it("sends POST with action=revert", async () => {
-      setupMockRequest(200, "");
-      await client.revertSnapshot("vm-42", "snap-1");
-      const opts = mockRequest.mock.calls[1][0];
-      expect(opts.method).toBe("POST");
-      expect(opts.path).toBe("/api/vcenter/vm/vm-42/snapshots/snap-1?action=revert");
+    it("throws SOAP-only error", async () => {
+      await expect(client.revertSnapshot("vm-42", "snap-1")).rejects.toThrow(
+        "Snapshot operations are not supported via the vSphere REST API"
+      );
     });
   });
 
@@ -590,7 +531,7 @@ describe("VSphereClient", () => {
       expect(opts.path).toBe("/api/vcenter/vm");
     });
 
-    it("sends spec wrapped in { spec: ... }", async () => {
+    it("sends spec fields at top level (not wrapped in { spec })", async () => {
       let writtenData = "";
       mockRequest.mockImplementation((_opts: unknown, callback: (res: unknown) => void) => {
         const res = createMockResponse(200, { value: "vm-100" });
@@ -605,8 +546,8 @@ describe("VSphereClient", () => {
       });
       await client.createVM({ name: "test", guest_OS: "UBUNTU_64" });
       const body = JSON.parse(writtenData);
-      expect(body.spec).toBeDefined();
-      expect(body.spec.name).toBe("test");
+      expect(body.name).toBe("test");
+      expect(body.guest_OS).toBe("UBUNTU_64");
     });
   });
 
@@ -712,6 +653,201 @@ describe("VSphereClient", () => {
       await client.getVM("vm-42/test");
       const opts = mockRequest.mock.calls[1][0];
       expect(opts.path).toBe("/api/vcenter/vm/vm-42%2Ftest");
+    });
+  });
+
+  // ── Guest Operations ───────────────────────────────────
+
+  describe("vmGuestShutdown", () => {
+    beforeEach(async () => {
+      setupMockRequest(200, { value: "token" });
+      await client.createSession();
+    });
+
+    it("sends POST with action=shutdown to guest power endpoint", async () => {
+      setupMockRequest(200, "");
+      await client.vmGuestShutdown("vm-42");
+      const opts = mockRequest.mock.calls[1][0];
+      expect(opts.method).toBe("POST");
+      expect(opts.path).toBe("/api/vcenter/vm/vm-42/guest/power?action=shutdown");
+    });
+  });
+
+  describe("vmGuestReboot", () => {
+    beforeEach(async () => {
+      setupMockRequest(200, { value: "token" });
+      await client.createSession();
+    });
+
+    it("sends POST with action=reboot to guest power endpoint", async () => {
+      setupMockRequest(200, "");
+      await client.vmGuestReboot("vm-42");
+      const opts = mockRequest.mock.calls[1][0];
+      expect(opts.method).toBe("POST");
+      expect(opts.path).toBe("/api/vcenter/vm/vm-42/guest/power?action=reboot");
+    });
+  });
+
+  // ── VM Reconfigure ─────────────────────────────────────
+
+  describe("vmUpdateCpu", () => {
+    beforeEach(async () => {
+      setupMockRequest(200, { value: "token" });
+      await client.createSession();
+    });
+
+    it("sends PATCH to hardware/cpu with count", async () => {
+      let writtenData = "";
+      mockRequest.mockImplementation((_opts: unknown, callback: (res: unknown) => void) => {
+        const res = createMockResponse(200, "");
+        callback(res);
+        return {
+          on: vi.fn(),
+          setTimeout: vi.fn(),
+          write: vi.fn((d: string) => { writtenData = d; }),
+          end: vi.fn(),
+          destroy: vi.fn(),
+        };
+      });
+      await client.vmUpdateCpu("vm-42", 8);
+      const opts = mockRequest.mock.calls[1][0];
+      expect(opts.method).toBe("PATCH");
+      expect(opts.path).toBe("/api/vcenter/vm/vm-42/hardware/cpu");
+      const body = JSON.parse(writtenData);
+      expect(body.count).toBe(8);
+    });
+
+    it("includes cores_per_socket when provided", async () => {
+      let writtenData = "";
+      mockRequest.mockImplementation((_opts: unknown, callback: (res: unknown) => void) => {
+        const res = createMockResponse(200, "");
+        callback(res);
+        return {
+          on: vi.fn(),
+          setTimeout: vi.fn(),
+          write: vi.fn((d: string) => { writtenData = d; }),
+          end: vi.fn(),
+          destroy: vi.fn(),
+        };
+      });
+      await client.vmUpdateCpu("vm-42", 8, 4);
+      const body = JSON.parse(writtenData);
+      expect(body.count).toBe(8);
+      expect(body.cores_per_socket).toBe(4);
+    });
+  });
+
+  describe("vmUpdateMemory", () => {
+    beforeEach(async () => {
+      setupMockRequest(200, { value: "token" });
+      await client.createSession();
+    });
+
+    it("sends PATCH to hardware/memory with size_MiB", async () => {
+      let writtenData = "";
+      mockRequest.mockImplementation((_opts: unknown, callback: (res: unknown) => void) => {
+        const res = createMockResponse(200, "");
+        callback(res);
+        return {
+          on: vi.fn(),
+          setTimeout: vi.fn(),
+          write: vi.fn((d: string) => { writtenData = d; }),
+          end: vi.fn(),
+          destroy: vi.fn(),
+        };
+      });
+      await client.vmUpdateMemory("vm-42", 16384);
+      const opts = mockRequest.mock.calls[1][0];
+      expect(opts.method).toBe("PATCH");
+      expect(opts.path).toBe("/api/vcenter/vm/vm-42/hardware/memory");
+      const body = JSON.parse(writtenData);
+      expect(body.size_MiB).toBe(16384);
+    });
+  });
+
+  // ── Folders ──────────────────────────────────────────────
+
+  describe("listFolders", () => {
+    beforeEach(async () => {
+      setupMockRequest(200, { value: "token" });
+      await client.createSession();
+    });
+
+    it("returns list of folders", async () => {
+      const mockFolders = [
+        { folder: "group-v3", name: "vm", type: "VIRTUAL_MACHINE" },
+      ];
+      setupMockRequest(200, { value: mockFolders });
+      const result = await client.listFolders("VIRTUAL_MACHINE");
+      expect(result).toHaveLength(1);
+      expect(result[0].folder).toBe("group-v3");
+    });
+
+    it("sends GET /api/vcenter/folder with type param", async () => {
+      setupMockRequest(200, { value: [] });
+      await client.listFolders("VIRTUAL_MACHINE");
+      const opts = mockRequest.mock.calls[1][0];
+      expect(opts.method).toBe("GET");
+      expect(opts.path).toBe("/api/vcenter/folder?type=VIRTUAL_MACHINE");
+    });
+
+    it("sends GET /api/vcenter/folder without type when omitted", async () => {
+      setupMockRequest(200, { value: [] });
+      await client.listFolders();
+      const opts = mockRequest.mock.calls[1][0];
+      expect(opts.path).toBe("/api/vcenter/folder");
+    });
+  });
+
+  // ── vMotion (Relocate) ─────────────────────────────────
+
+  describe("vmRelocate", () => {
+    beforeEach(async () => {
+      setupMockRequest(200, { value: "token" });
+      await client.createSession();
+    });
+
+    it("sends POST with action=relocate and host placement", async () => {
+      let writtenData = "";
+      mockRequest.mockImplementation((_opts: unknown, callback: (res: unknown) => void) => {
+        const res = createMockResponse(200, { value: "task-123" });
+        callback(res);
+        return {
+          on: vi.fn(),
+          setTimeout: vi.fn(),
+          write: vi.fn((d: string) => { writtenData = d; }),
+          end: vi.fn(),
+          destroy: vi.fn(),
+        };
+      });
+      const result = await client.vmRelocate("vm-42", "host-20");
+      expect(result).toBe("task-123");
+      const opts = mockRequest.mock.calls[1][0];
+      expect(opts.method).toBe("POST");
+      expect(opts.path).toBe("/api/vcenter/vm/vm-42?action=relocate");
+      const body = JSON.parse(writtenData);
+      expect(body.placement.host).toBe("host-20");
+      expect(body.placement.datastore).toBeUndefined();
+    });
+
+    it("includes datastore in placement when provided", async () => {
+      let writtenData = "";
+      mockRequest.mockImplementation((_opts: unknown, callback: (res: unknown) => void) => {
+        const res = createMockResponse(200, { value: "task-456" });
+        callback(res);
+        return {
+          on: vi.fn(),
+          setTimeout: vi.fn(),
+          write: vi.fn((d: string) => { writtenData = d; }),
+          end: vi.fn(),
+          destroy: vi.fn(),
+        };
+      });
+      const result = await client.vmRelocate("vm-42", "host-20", "datastore-30");
+      expect(result).toBe("task-456");
+      const body = JSON.parse(writtenData);
+      expect(body.placement.host).toBe("host-20");
+      expect(body.placement.datastore).toBe("datastore-30");
     });
   });
 });

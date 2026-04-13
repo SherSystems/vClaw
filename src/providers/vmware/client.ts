@@ -20,6 +20,7 @@ import type {
   SnapshotSummary,
   GuestInfo,
   VmCreateSpec,
+  FolderSummary,
 } from "./types.js";
 
 // ── Config ──────────────────────────────────────────────────
@@ -146,49 +147,110 @@ export class VSphereClient {
   }
 
   // ── Snapshots ──────────────────────────────────────────────
+  // NOTE: vSphere 8.0 REST API does not expose snapshot operations.
+  // The /api/vcenter/vm/{vm}/snapshots endpoint does not exist.
+  // Snapshots are only available via the SOAP API (vim.VirtualMachine.CreateSnapshot, etc.)
+  // These methods throw a descriptive error until SOAP support is implemented.
 
-  async listSnapshots(vmId: string): Promise<SnapshotSummary[]> {
-    const result = await this.request<{ items: SnapshotSummary[] }>(
-      "GET",
-      `/api/vcenter/vm/${encodeURIComponent(vmId)}/snapshots`
+  async listSnapshots(_vmId: string): Promise<SnapshotSummary[]> {
+    throw new Error(
+      "Snapshot operations are not supported via the vSphere REST API. " +
+      "Snapshots require the SOAP API (vim.VirtualMachine snapshot methods). " +
+      "This will be implemented in a future version with SOAP support."
     );
-    return result.items ?? [];
   }
 
   async createSnapshot(
-    vmId: string,
-    name: string,
-    description?: string,
-    memory?: boolean
+    _vmId: string,
+    _name: string,
+    _description?: string,
+    _memory?: boolean
   ): Promise<string> {
-    const body: Record<string, unknown> = { name };
-    if (description !== undefined) body.description = description;
-    if (memory !== undefined) body.memory = memory;
-    return this.request<string>(
+    throw new Error(
+      "Snapshot operations are not supported via the vSphere REST API. " +
+      "Snapshots require the SOAP API (vim.VirtualMachine.CreateSnapshot_Task). " +
+      "This will be implemented in a future version with SOAP support."
+    );
+  }
+
+  async deleteSnapshot(_vmId: string, _snapshotId: string): Promise<void> {
+    throw new Error(
+      "Snapshot operations are not supported via the vSphere REST API. " +
+      "Snapshots require the SOAP API (vim.VirtualMachine.RemoveSnapshot_Task). " +
+      "This will be implemented in a future version with SOAP support."
+    );
+  }
+
+  async revertSnapshot(_vmId: string, _snapshotId: string): Promise<void> {
+    throw new Error(
+      "Snapshot operations are not supported via the vSphere REST API. " +
+      "Snapshots require the SOAP API (vim.VirtualMachine.RevertToCurrentSnapshot_Task). " +
+      "This will be implemented in a future version with SOAP support."
+    );
+  }
+
+  // ── Guest Operations ────────────────────────────────────────
+
+  async vmGuestShutdown(vmId: string): Promise<void> {
+    await this.request<void>(
       "POST",
-      `/api/vcenter/vm/${encodeURIComponent(vmId)}/snapshots`,
+      `/api/vcenter/vm/${encodeURIComponent(vmId)}/guest/power?action=shutdown`
+    );
+  }
+
+  async vmGuestReboot(vmId: string): Promise<void> {
+    await this.request<void>(
+      "POST",
+      `/api/vcenter/vm/${encodeURIComponent(vmId)}/guest/power?action=reboot`
+    );
+  }
+
+  // ── VM Reconfigure ────────────────────────────────────────
+
+  async vmUpdateCpu(vmId: string, count: number, coresPerSocket?: number): Promise<void> {
+    const body: Record<string, unknown> = { count };
+    if (coresPerSocket !== undefined) body.cores_per_socket = coresPerSocket;
+    await this.request<void>(
+      "PATCH",
+      `/api/vcenter/vm/${encodeURIComponent(vmId)}/hardware/cpu`,
       body
     );
   }
 
-  async deleteSnapshot(vmId: string, snapshotId: string): Promise<void> {
+  async vmUpdateMemory(vmId: string, sizeMiB: number): Promise<void> {
     await this.request<void>(
-      "DELETE",
-      `/api/vcenter/vm/${encodeURIComponent(vmId)}/snapshots/${encodeURIComponent(snapshotId)}`
+      "PATCH",
+      `/api/vcenter/vm/${encodeURIComponent(vmId)}/hardware/memory`,
+      { size_MiB: sizeMiB }
     );
   }
 
-  async revertSnapshot(vmId: string, snapshotId: string): Promise<void> {
-    await this.request<void>(
+  // ── vMotion (Relocate) ────────────────────────────────────
+
+  async vmRelocate(vmId: string, hostId: string, datastoreId?: string): Promise<string> {
+    // The vSphere REST API doesn't have a direct relocate endpoint.
+    // Use the SOAP-style task via the /api/vcenter/vm/{vm}?action=relocate
+    // which is available in vSphere 8.0+
+    const placement: Record<string, string> = { host: hostId };
+    if (datastoreId) placement.datastore = datastoreId;
+    return this.request<string>(
       "POST",
-      `/api/vcenter/vm/${encodeURIComponent(vmId)}/snapshots/${encodeURIComponent(snapshotId)}?action=revert`
+      `/api/vcenter/vm/${encodeURIComponent(vmId)}?action=relocate`,
+      { placement }
     );
+  }
+
+  // ── Folders ─────────────────────────────────────────────────
+
+  async listFolders(type?: string): Promise<FolderSummary[]> {
+    const query = type ? `?type=${encodeURIComponent(type)}` : "";
+    return this.request<FolderSummary[]>("GET", `/api/vcenter/folder${query}`);
   }
 
   // ── VM CRUD ────────────────────────────────────────────────
 
   async createVM(spec: VmCreateSpec): Promise<string> {
-    return this.request<string>("POST", "/api/vcenter/vm", { spec });
+    return this.request<string>("POST", "/api/vcenter/vm", spec);
   }
 
   async deleteVM(vmId: string): Promise<void> {

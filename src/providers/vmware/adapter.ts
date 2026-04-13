@@ -91,7 +91,13 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     vmIdParam,
   ], "GuestInfo"),
 
-  tool("vmware_list_snapshots", "List all snapshots for a VM", "read", [
+  tool("vmware_list_folders", "List VM folders in vCenter (useful for resolving folder IDs for VM creation)", "read", [
+    param("type", "string", false, "Folder type filter (VIRTUAL_MACHINE, DATACENTER, DATASTORE, HOST, NETWORK)", "VIRTUAL_MACHINE"),
+  ], "FolderSummary[]"),
+
+  // NOTE: Snapshot operations require the SOAP API — these are not available via vSphere REST API.
+  // Listed here so the agent can discover them and get a clear error message.
+  tool("vmware_list_snapshots", "List all snapshots for a VM (SOAP-only — not yet implemented)", "read", [
     vmIdParam,
   ], "SnapshotSummary[]"),
 
@@ -101,7 +107,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     vmIdParam,
   ], "void"),
 
-  tool("vmware_create_snapshot", "Create a snapshot of a VM", "safe_write", [
+  tool("vmware_create_snapshot", "Create a snapshot of a VM (SOAP-only — not yet implemented)", "safe_write", [
     vmIdParam,
     param("name", "string", true, "Snapshot name"),
     param("description", "string", false, "Snapshot description"),
@@ -135,15 +141,46 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     param("disk_capacity_bytes", "number", false, "Primary disk capacity in bytes"),
   ], "string"),
 
-  tool("vmware_delete_snapshot", "Delete a snapshot from a VM", "risky_write", [
+  tool("vmware_delete_snapshot", "Delete a snapshot from a VM (SOAP-only — not yet implemented)", "risky_write", [
     vmIdParam,
     snapshotIdParam,
   ], "void"),
 
-  tool("vmware_revert_snapshot", "Revert a VM to a snapshot", "risky_write", [
+  tool("vmware_revert_snapshot", "Revert a VM to a snapshot (SOAP-only — not yet implemented)", "risky_write", [
     vmIdParam,
     snapshotIdParam,
   ], "void"),
+
+  // ── Guest Operations ──────────────────────────────────────
+
+  tool("vmware_vm_guest_shutdown", "Gracefully shut down a VM via guest OS (requires VMware Tools)", "safe_write", [
+    vmIdParam,
+  ], "void"),
+
+  tool("vmware_vm_guest_reboot", "Gracefully reboot a VM via guest OS (requires VMware Tools)", "safe_write", [
+    vmIdParam,
+  ], "void"),
+
+  // ── VM Reconfigure ──────────────────────────────────────
+
+  tool("vmware_vm_update_cpu", "Change the CPU count of a VM (VM must be powered off unless hot-add is enabled)", "risky_write", [
+    vmIdParam,
+    param("count", "number", true, "Number of CPUs"),
+    param("cores_per_socket", "number", false, "Cores per socket"),
+  ], "void"),
+
+  tool("vmware_vm_update_memory", "Change the memory of a VM (VM must be powered off unless hot-add is enabled)", "risky_write", [
+    vmIdParam,
+    param("size_MiB", "number", true, "Memory size in MiB"),
+  ], "void"),
+
+  // ── vMotion ─────────────────────────────────────────────
+
+  tool("vmware_vm_relocate", "Live-migrate (vMotion) a VM to a different ESXi host", "risky_write", [
+    vmIdParam,
+    hostIdParam,
+    param("datastore_id", "string", false, "Destination datastore identifier (for cross-host storage migration)"),
+  ], "string"),
 
   // ── Destructive Tools ─────────────────────────────────────
 
@@ -246,6 +283,9 @@ export class VMwareAdapter implements InfraAdapter {
       case "vmware_get_vm_guest":
         return this.client.getVMGuest(p.vm_id as string);
 
+      case "vmware_list_folders":
+        return this.client.listFolders(p.type as string | undefined);
+
       case "vmware_list_snapshots":
         return this.client.listSnapshots(p.vm_id as string);
 
@@ -271,20 +311,61 @@ export class VMwareAdapter implements InfraAdapter {
       case "vmware_vm_suspend":
         return this.client.vmSuspend(p.vm_id as string);
 
+      // ── Guest Operations ──────────────────────────────────
+      case "vmware_vm_guest_shutdown":
+        return this.client.vmGuestShutdown(p.vm_id as string);
+
+      case "vmware_vm_guest_reboot":
+        return this.client.vmGuestReboot(p.vm_id as string);
+
+      // ── VM Reconfigure ─────────────────────────────────────
+      case "vmware_vm_update_cpu":
+        return this.client.vmUpdateCpu(
+          p.vm_id as string,
+          p.count as number,
+          p.cores_per_socket as number | undefined,
+        );
+
+      case "vmware_vm_update_memory":
+        return this.client.vmUpdateMemory(
+          p.vm_id as string,
+          p.size_MiB as number,
+        );
+
+      // ── vMotion ────────────────────────────────────────────
+      case "vmware_vm_relocate":
+        return this.client.vmRelocate(
+          p.vm_id as string,
+          p.host_id as string,
+          p.datastore_id as string | undefined,
+        );
+
       case "vmware_create_vm": {
         const spec: Record<string, unknown> = {
           name: p.name as string,
           guest_OS: p.guest_OS as string,
         };
-        if (p.datastore || p.resource_pool || p.folder || p.host || p.cluster) {
-          const placement: Record<string, unknown> = {};
-          if (p.datastore) placement.datastore = p.datastore;
-          if (p.resource_pool) placement.resource_pool = p.resource_pool;
-          if (p.folder) placement.folder = p.folder;
-          if (p.host) placement.host = p.host;
-          if (p.cluster) placement.cluster = p.cluster;
+
+        // vSphere 8 API requires a folder in the placement spec.
+        // Auto-resolve the default VM folder if none is provided.
+        let folder = p.folder as string | undefined;
+        if (!folder) {
+          const folders = await this.client.listFolders("VIRTUAL_MACHINE");
+          if (folders.length > 0) {
+            folder = folders[0].folder;
+          }
+        }
+
+        const placement: Record<string, unknown> = {};
+        if (folder) placement.folder = folder;
+        if (p.datastore) placement.datastore = p.datastore;
+        if (p.resource_pool) placement.resource_pool = p.resource_pool;
+        if (p.host) placement.host = p.host;
+        if (p.cluster) placement.cluster = p.cluster;
+        if (Object.keys(placement).length > 0) {
           spec.placement = placement;
         }
+
         if (p.cpu_count) {
           spec.cpu = { count: p.cpu_count };
         }
@@ -327,27 +408,46 @@ export class VMwareAdapter implements InfraAdapter {
       this.client.listDatastores(),
     ]);
 
-    // Map ESXi hosts → NodeInfo
+    // Map ESXi hosts → NodeInfo (with real metrics from detail endpoint)
     const nodes: NodeInfo[] = [];
     for (const h of rawHosts) {
-      let hostInfo;
+      let cpuCores = 0;
+      let cpuUsagePct = 0;
+      let ramTotalMb = 0;
+      let ramUsedMb = 0;
+
       try {
-        hostInfo = await this.client.getHost(h.host);
+        const detail = await this.client.getHost(h.host);
+        cpuCores = detail.cpu?.num_cpu_cores ?? 0;
+        const cpuMhzTotal = (detail.cpu?.num_cpu_cores ?? 0) * (detail.cpu?.cpu_mhz ?? 0);
+        cpuUsagePct = cpuMhzTotal > 0 ? Math.round(((detail.cpu?.overall_cpu_usage ?? 0) / cpuMhzTotal) * 100) : 0;
+        ramTotalMb = Math.round((detail.memory?.total_memory ?? 0) / 1024 / 1024);
+        ramUsedMb = Math.round((detail.memory?.memory_usage ?? 0));
       } catch {
-        // Host may be unreachable
+        // Host may be unreachable — keep zeros
       }
+
+      // Aggregate storage from datastores for this host
+      let diskTotalGb = 0;
+      let diskUsedGb = 0;
+      for (const ds of rawDatastores) {
+        diskTotalGb += ds.capacity ? ds.capacity / 1024 / 1024 / 1024 : 0;
+        diskUsedGb += ds.capacity && ds.free_space ? (ds.capacity - ds.free_space) / 1024 / 1024 / 1024 : 0;
+      }
+      diskTotalGb = Math.round(diskTotalGb * 10) / 10 / rawHosts.length;
+      diskUsedGb = Math.round(diskUsedGb * 10) / 10 / rawHosts.length;
 
       nodes.push({
         id: h.host,
         name: h.name,
         status: this.mapHostStatus(h.connection_state),
-        cpu_cores: 0, // Not available from list endpoint
-        cpu_usage_pct: 0,
-        ram_total_mb: 0,
-        ram_used_mb: 0,
-        disk_total_gb: 0,
-        disk_used_gb: 0,
-        disk_usage_pct: 0,
+        cpu_cores: cpuCores,
+        cpu_usage_pct: cpuUsagePct,
+        ram_total_mb: ramTotalMb,
+        ram_used_mb: ramUsedMb,
+        disk_total_gb: diskTotalGb,
+        disk_used_gb: diskUsedGb,
+        disk_usage_pct: diskTotalGb > 0 ? Math.round((diskUsedGb / diskTotalGb) * 100) : 0,
         uptime_s: 0,
       });
     }

@@ -33,6 +33,17 @@ vi.mock("../../src/providers/vmware/client.js", () => {
       name: "esxi-01.lab.local",
       connection_state: "CONNECTED",
       power_state: "POWERED_ON",
+      cpu: {
+        num_cpu_packages: 2,
+        num_cpu_cores: 40,
+        num_cpu_threads: 80,
+        cpu_mhz: 2400,
+        overall_cpu_usage: 24000,
+      },
+      memory: {
+        total_memory: 137438953472,
+        memory_usage: 32768,
+      },
     }),
     listDatastores: vi.fn().mockResolvedValue([
       { datastore: "datastore-15", name: "localDS", type: "VMFS", free_space: 500000000000, capacity: 1000000000000 },
@@ -65,14 +76,36 @@ vi.mock("../../src/providers/vmware/client.js", () => {
       ip_address: "10.0.0.42",
       name: "UBUNTU_64",
     }),
-    listSnapshots: vi.fn().mockResolvedValue([
-      { snapshot: "snap-1", name: "before-upgrade", description: "Pre-upgrade" },
+    listSnapshots: vi.fn().mockRejectedValue(new Error(
+      "Snapshot operations are not supported via the vSphere REST API. " +
+      "Snapshots require the SOAP API (vim.VirtualMachine snapshot methods). " +
+      "This will be implemented in a future version with SOAP support."
+    )),
+    createSnapshot: vi.fn().mockRejectedValue(new Error(
+      "Snapshot operations are not supported via the vSphere REST API. " +
+      "Snapshots require the SOAP API (vim.VirtualMachine.CreateSnapshot_Task). " +
+      "This will be implemented in a future version with SOAP support."
+    )),
+    deleteSnapshot: vi.fn().mockRejectedValue(new Error(
+      "Snapshot operations are not supported via the vSphere REST API. " +
+      "Snapshots require the SOAP API (vim.VirtualMachine.RemoveSnapshot_Task). " +
+      "This will be implemented in a future version with SOAP support."
+    )),
+    revertSnapshot: vi.fn().mockRejectedValue(new Error(
+      "Snapshot operations are not supported via the vSphere REST API. " +
+      "Snapshots require the SOAP API (vim.VirtualMachine.RevertToCurrentSnapshot_Task). " +
+      "This will be implemented in a future version with SOAP support."
+    )),
+    listFolders: vi.fn().mockResolvedValue([
+      { folder: "group-v3", name: "vm", type: "VIRTUAL_MACHINE" },
     ]),
-    createSnapshot: vi.fn().mockResolvedValue("snap-new"),
-    deleteSnapshot: vi.fn().mockResolvedValue(undefined),
-    revertSnapshot: vi.fn().mockResolvedValue(undefined),
     createVM: vi.fn().mockResolvedValue("vm-100"),
     deleteVM: vi.fn().mockResolvedValue(undefined),
+    vmGuestShutdown: vi.fn().mockResolvedValue(undefined),
+    vmGuestReboot: vi.fn().mockResolvedValue(undefined),
+    vmUpdateCpu: vi.fn().mockResolvedValue(undefined),
+    vmUpdateMemory: vi.fn().mockResolvedValue(undefined),
+    vmRelocate: vi.fn().mockResolvedValue("task-123"),
   };
 
   return {
@@ -97,7 +130,12 @@ const defaultConfig = {
 describe("VMwareAdapter", () => {
   let adapter: VMwareAdapter;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    const mc = await getMockClient();
+    // Clear call counts but preserve mock implementations
+    for (const key of Object.keys(mc)) {
+      mc[key].mockClear();
+    }
     adapter = new VMwareAdapter(defaultConfig);
   });
 
@@ -133,7 +171,7 @@ describe("VMwareAdapter", () => {
   describe("getTools", () => {
     it("returns all tool definitions", () => {
       const tools = adapter.getTools();
-      expect(tools.length).toBeGreaterThanOrEqual(18);
+      expect(tools.length).toBeGreaterThanOrEqual(19);
     });
 
     it("all tools have adapter set to vmware", () => {
@@ -157,6 +195,7 @@ describe("VMwareAdapter", () => {
       expect(readNames).toContain("vmware_list_clusters");
       expect(readNames).toContain("vmware_list_resource_pools");
       expect(readNames).toContain("vmware_get_vm_guest");
+      expect(readNames).toContain("vmware_list_folders");
       expect(readNames).toContain("vmware_list_snapshots");
     });
 
@@ -287,11 +326,18 @@ describe("VMwareAdapter", () => {
       expect((result.data as Record<string, unknown>).ip_address).toBe("10.0.0.42");
     });
 
-    it("vmware_list_snapshots calls client.listSnapshots", async () => {
+    it("vmware_list_folders calls client.listFolders", async () => {
       const mc = await getMockClient();
-      const result = await adapter.execute("vmware_list_snapshots", { vm_id: "vm-42" });
+      const result = await adapter.execute("vmware_list_folders", { type: "VIRTUAL_MACHINE" });
       expect(result.success).toBe(true);
-      expect(mc.listSnapshots).toHaveBeenCalledWith("vm-42");
+      expect(mc.listFolders).toHaveBeenCalledWith("VIRTUAL_MACHINE");
+      expect(result.data).toHaveLength(1);
+    });
+
+    it("vmware_list_snapshots returns SOAP-only error", async () => {
+      const result = await adapter.execute("vmware_list_snapshots", { vm_id: "vm-42" });
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("not supported via the vSphere REST API");
     });
   });
 
@@ -326,40 +372,36 @@ describe("VMwareAdapter", () => {
       expect(mc.vmSuspend).toHaveBeenCalledWith("vm-42");
     });
 
-    it("vmware_create_snapshot calls client.createSnapshot", async () => {
-      const mc = await getMockClient();
+    it("vmware_create_snapshot returns SOAP-only error", async () => {
       const result = await adapter.execute("vmware_create_snapshot", {
         vm_id: "vm-42",
         name: "test-snap",
         description: "Test",
         memory: true,
       });
-      expect(result.success).toBe(true);
-      expect(mc.createSnapshot).toHaveBeenCalledWith("vm-42", "test-snap", "Test", true);
-      expect(result.data).toBe("snap-new");
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("not supported via the vSphere REST API");
     });
 
-    it("vmware_delete_snapshot calls client.deleteSnapshot", async () => {
-      const mc = await getMockClient();
+    it("vmware_delete_snapshot returns SOAP-only error", async () => {
       const result = await adapter.execute("vmware_delete_snapshot", {
         vm_id: "vm-42",
         snapshot_id: "snap-1",
       });
-      expect(result.success).toBe(true);
-      expect(mc.deleteSnapshot).toHaveBeenCalledWith("vm-42", "snap-1");
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("not supported via the vSphere REST API");
     });
 
-    it("vmware_revert_snapshot calls client.revertSnapshot", async () => {
-      const mc = await getMockClient();
+    it("vmware_revert_snapshot returns SOAP-only error", async () => {
       const result = await adapter.execute("vmware_revert_snapshot", {
         vm_id: "vm-42",
         snapshot_id: "snap-1",
       });
-      expect(result.success).toBe(true);
-      expect(mc.revertSnapshot).toHaveBeenCalledWith("vm-42", "snap-1");
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("not supported via the vSphere REST API");
     });
 
-    it("vmware_create_vm calls client.createVM with spec", async () => {
+    it("vmware_create_vm calls client.createVM with spec and auto-resolves folder", async () => {
       const mc = await getMockClient();
       const result = await adapter.execute("vmware_create_vm", {
         name: "new-vm",
@@ -369,13 +411,28 @@ describe("VMwareAdapter", () => {
         datastore: "datastore-15",
       });
       expect(result.success).toBe(true);
+      expect(mc.listFolders).toHaveBeenCalledWith("VIRTUAL_MACHINE");
       expect(mc.createVM).toHaveBeenCalled();
-      const spec = mc.createVM.mock.calls[0][0];
-      expect(spec.name).toBe("new-vm");
-      expect(spec.guest_OS).toBe("OTHER_LINUX_64");
-      expect(spec.cpu.count).toBe(4);
-      expect(spec.memory.size_MiB).toBe(8192);
-      expect(spec.placement.datastore).toBe("datastore-15");
+      const arg = mc.createVM.mock.calls[0][0];
+      expect(arg.name).toBe("new-vm");
+      expect(arg.guest_OS).toBe("OTHER_LINUX_64");
+      expect(arg.cpu.count).toBe(4);
+      expect(arg.memory.size_MiB).toBe(8192);
+      expect(arg.placement.datastore).toBe("datastore-15");
+      expect(arg.placement.folder).toBe("group-v3");
+    });
+
+    it("vmware_create_vm uses provided folder instead of auto-resolving", async () => {
+      const mc = await getMockClient();
+      const result = await adapter.execute("vmware_create_vm", {
+        name: "new-vm",
+        guest_OS: "OTHER_LINUX_64",
+        folder: "group-v99",
+      });
+      expect(result.success).toBe(true);
+      expect(mc.listFolders).not.toHaveBeenCalled();
+      const arg = mc.createVM.mock.calls[0][0];
+      expect(arg.placement.folder).toBe("group-v99");
     });
 
     it("vmware_delete_vm calls client.deleteVM", async () => {
@@ -383,6 +440,90 @@ describe("VMwareAdapter", () => {
       const result = await adapter.execute("vmware_delete_vm", { vm_id: "vm-42" });
       expect(result.success).toBe(true);
       expect(mc.deleteVM).toHaveBeenCalledWith("vm-42");
+    });
+  });
+
+  // ── Execute — New Operations ────────────────────────────
+
+  describe("execute — guest operations", () => {
+    it("vmware_vm_guest_shutdown calls client.vmGuestShutdown", async () => {
+      const mc = await getMockClient();
+      const result = await adapter.execute("vmware_vm_guest_shutdown", { vm_id: "vm-42" });
+      expect(result.success).toBe(true);
+      expect(mc.vmGuestShutdown).toHaveBeenCalledWith("vm-42");
+    });
+
+    it("vmware_vm_guest_reboot calls client.vmGuestReboot", async () => {
+      const mc = await getMockClient();
+      const result = await adapter.execute("vmware_vm_guest_reboot", { vm_id: "vm-42" });
+      expect(result.success).toBe(true);
+      expect(mc.vmGuestReboot).toHaveBeenCalledWith("vm-42");
+    });
+  });
+
+  describe("execute — VM reconfigure", () => {
+    it("vmware_vm_update_cpu calls client.vmUpdateCpu", async () => {
+      const mc = await getMockClient();
+      const result = await adapter.execute("vmware_vm_update_cpu", {
+        vm_id: "vm-42",
+        count: 8,
+        cores_per_socket: 4,
+      });
+      expect(result.success).toBe(true);
+      expect(mc.vmUpdateCpu).toHaveBeenCalledWith("vm-42", 8, 4);
+    });
+
+    it("vmware_vm_update_memory calls client.vmUpdateMemory", async () => {
+      const mc = await getMockClient();
+      const result = await adapter.execute("vmware_vm_update_memory", {
+        vm_id: "vm-42",
+        size_MiB: 16384,
+      });
+      expect(result.success).toBe(true);
+      expect(mc.vmUpdateMemory).toHaveBeenCalledWith("vm-42", 16384);
+    });
+  });
+
+  describe("execute — vMotion", () => {
+    it("vmware_vm_relocate calls client.vmRelocate", async () => {
+      const mc = await getMockClient();
+      const result = await adapter.execute("vmware_vm_relocate", {
+        vm_id: "vm-42",
+        host_id: "host-20",
+      });
+      expect(result.success).toBe(true);
+      expect(mc.vmRelocate).toHaveBeenCalledWith("vm-42", "host-20", undefined);
+      expect(result.data).toBe("task-123");
+    });
+
+    it("vmware_vm_relocate passes datastore_id when provided", async () => {
+      const mc = await getMockClient();
+      const result = await adapter.execute("vmware_vm_relocate", {
+        vm_id: "vm-42",
+        host_id: "host-20",
+        datastore_id: "datastore-30",
+      });
+      expect(result.success).toBe(true);
+      expect(mc.vmRelocate).toHaveBeenCalledWith("vm-42", "host-20", "datastore-30");
+    });
+  });
+
+  // ── Tool Definitions — New Tools ───────────────────────
+
+  describe("getTools — new tools", () => {
+    it("includes guest operation tools as safe_write", () => {
+      const tools = adapter.getTools();
+      const safeWrite = tools.filter((t) => t.tier === "safe_write").map((t) => t.name);
+      expect(safeWrite).toContain("vmware_vm_guest_shutdown");
+      expect(safeWrite).toContain("vmware_vm_guest_reboot");
+    });
+
+    it("includes reconfigure and vMotion tools as risky_write", () => {
+      const tools = adapter.getTools();
+      const risky = tools.filter((t) => t.tier === "risky_write").map((t) => t.name);
+      expect(risky).toContain("vmware_vm_update_cpu");
+      expect(risky).toContain("vmware_vm_update_memory");
+      expect(risky).toContain("vmware_vm_relocate");
     });
   });
 
@@ -481,6 +622,18 @@ describe("VMwareAdapter", () => {
       ]);
       const state = await adapter.getClusterState();
       expect(state.nodes[0].status).toBe("offline");
+    });
+
+    it("gracefully handles getHost 404 by keeping zeros", async () => {
+      const mc = await getMockClient();
+      mc.getHost.mockRejectedValueOnce(new Error("vSphere API error: 404 Not Found"));
+      const state = await adapter.getClusterState();
+      expect(state.nodes).toHaveLength(1);
+      expect(state.nodes[0].id).toBe("host-10");
+      expect(state.nodes[0].cpu_cores).toBe(0);
+      expect(state.nodes[0].cpu_usage_pct).toBe(0);
+      expect(state.nodes[0].ram_total_mb).toBe(0);
+      expect(state.nodes[0].ram_used_mb).toBe(0);
     });
 
     it("maps SUSPENDED VM to paused status", async () => {

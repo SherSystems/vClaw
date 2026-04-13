@@ -9,6 +9,12 @@ export type { MigrationConfig } from "./orchestrator.js";
 export { VMwareExporter } from "./vmware-exporter.js";
 export type { VMwareExportResult } from "./vmware-exporter.js";
 
+export { VMwareImporter } from "./vmware-importer.js";
+export type { VMwareImportOptions, VMwareImportResult } from "./vmware-importer.js";
+
+export { ProxmoxExporter } from "./proxmox-exporter.js";
+export type { ProxmoxExportResult } from "./proxmox-exporter.js";
+
 export { ProxmoxImporter } from "./proxmox-importer.js";
 export type { ProxmoxImportOptions, ProxmoxImportResult } from "./proxmox-importer.js";
 

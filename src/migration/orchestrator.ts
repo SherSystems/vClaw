@@ -1,7 +1,7 @@
 // ============================================================
 // vClaw — Migration Orchestrator
 // End-to-end cross-provider VM migration pipeline
-// Phase 1: VMware -> Proxmox (cold migration)
+// Phase 1: VMware -> Proxmox | Phase 2: Proxmox -> VMware
 // ============================================================
 
 import type { VSphereClient } from "../providers/vmware/client.js";
@@ -13,6 +13,8 @@ import type {
   SSHExecFn,
 } from "./types.js";
 import { VMwareExporter } from "./vmware-exporter.js";
+import { VMwareImporter } from "./vmware-importer.js";
+import { ProxmoxExporter } from "./proxmox-exporter.js";
 import { ProxmoxImporter } from "./proxmox-importer.js";
 import { DiskConverter } from "./disk-converter.js";
 
@@ -47,14 +49,18 @@ export interface MigrationConfig {
 
 export class MigrationOrchestrator {
   private readonly config: MigrationConfig;
-  private readonly exporter: VMwareExporter;
-  private readonly importer: ProxmoxImporter;
+  private readonly vmwareExporter: VMwareExporter;
+  private readonly vmwareImporter: VMwareImporter;
+  private readonly proxmoxExporter: ProxmoxExporter;
+  private readonly proxmoxImporter: ProxmoxImporter;
   private readonly converter: DiskConverter;
 
   constructor(config: MigrationConfig) {
     this.config = config;
-    this.exporter = new VMwareExporter(config.vsphereClient, config.sshExec);
-    this.importer = new ProxmoxImporter(config.proxmoxClient, config.sshExec);
+    this.vmwareExporter = new VMwareExporter(config.vsphereClient, config.sshExec);
+    this.vmwareImporter = new VMwareImporter(config.vsphereClient, config.sshExec);
+    this.proxmoxExporter = new ProxmoxExporter(config.proxmoxClient, config.sshExec);
+    this.proxmoxImporter = new ProxmoxImporter(config.proxmoxClient, config.sshExec);
     this.converter = new DiskConverter(config.sshExec);
   }
 
@@ -121,7 +127,7 @@ export class MigrationOrchestrator {
       plan.status = "exporting";
       report("export_config", `Reading VM ${vmId} config from vSphere`);
 
-      const exportResult = await this.exporter.exportVM(vmId, this.config.esxiHost, esxiUser);
+      const exportResult = await this.vmwareExporter.exportVM(vmId, this.config.esxiHost, esxiUser);
       plan.vmConfig = exportResult.vmConfig;
       plan.source.vmName = exportResult.vmConfig.name;
       complete(s1, `Exported config for "${exportResult.vmConfig.name}"`);
@@ -164,7 +170,7 @@ export class MigrationOrchestrator {
       // ── Step 4: Transfer vmdk from ESXi to Proxmox ──────
       // Only handle first disk for Phase 1
       const primaryDisk = exportResult.vmConfig.disks[0];
-      const vmdkFsPath = this.exporter.datastorePathToFs(primaryDisk.sourcePath);
+      const vmdkFsPath = this.vmwareExporter.datastorePathToFs(primaryDisk.sourcePath);
       const stageDir = `${workDir}/${plan.id}`;
       const stagedQcow2 = `${workDir}/${plan.id}.qcow2`;
 
@@ -173,7 +179,7 @@ export class MigrationOrchestrator {
       report("transfer_disk", `Transferring ${primaryDisk.label} from ESXi to Proxmox`);
 
       // transferDisk copies both descriptor + flat vmdk, returns descriptor path
-      const stagedVmdk = await this.exporter.transferDisk(
+      const stagedVmdk = await this.vmwareExporter.transferDisk(
         this.config.esxiHost,
         esxiUser,
         vmdkFsPath,
@@ -209,11 +215,11 @@ export class MigrationOrchestrator {
       // Get VMID
       const targetVmId =
         this.config.targetVmId ??
-        (await this.importer.getNextVMID(this.config.proxmoxHost, proxmoxUser));
+        (await this.proxmoxImporter.getNextVMID(this.config.proxmoxHost, proxmoxUser));
 
       plan.target.vmId = targetVmId;
 
-      const importResult = await this.importer.importVM(
+      const importResult = await this.proxmoxImporter.importVM(
         {
           node: this.config.proxmoxNode,
           vmId: targetVmId,
@@ -262,8 +268,224 @@ export class MigrationOrchestrator {
   }
 
   /**
-   * Dry run: plan the migration without executing it.
-   * Validates connectivity and returns the migration plan.
+   * Migrate a VM from Proxmox VE to VMware vSphere.
+   *
+   * Pipeline:
+   *   1. Read VM config from Proxmox API
+   *   2. Power off VM (if running)
+   *   3. Convert disk (raw/qcow2 -> vmdk) on Proxmox
+   *   4. Resolve vSphere defaults (folder, host, datastore)
+   *   5. Upload vmdk to ESXi + convert with vmkfstools
+   *   6. Create VM on vSphere + swap disk
+   *   7. Clean up staging files
+   */
+  async migrateProxmoxToVMware(vmId: number): Promise<MigrationPlan> {
+    const proxmoxUser = this.config.proxmoxUser ?? "root";
+    const esxiUser = this.config.esxiUser ?? "root";
+    const workDir = this.config.workDir ?? "/tmp/vclaw-migration";
+    const report = this.config.onProgress ?? (() => {});
+
+    const plan: MigrationPlan = {
+      id: `mig-${Date.now()}`,
+      source: {
+        provider: "proxmox",
+        vmId: String(vmId),
+        vmName: "",
+        host: this.config.proxmoxHost,
+      },
+      target: {
+        provider: "vmware",
+        node: this.config.esxiHost,
+        host: this.config.esxiHost,
+        storage: "",
+      },
+      vmConfig: {} as MigrationVMConfig,
+      status: "pending",
+      steps: [],
+      startedAt: new Date().toISOString(),
+    };
+
+    const step = (name: string): MigrationStep => {
+      const s: MigrationStep = { name, status: "pending", startedAt: new Date().toISOString() };
+      plan.steps.push(s);
+      return s;
+    };
+
+    const complete = (s: MigrationStep, detail?: string) => {
+      s.status = "completed";
+      s.completedAt = new Date().toISOString();
+      if (detail) s.detail = detail;
+    };
+
+    const fail = (s: MigrationStep, error: string) => {
+      s.status = "failed";
+      s.error = error;
+      s.completedAt = new Date().toISOString();
+    };
+
+    try {
+      // ── Step 1: Export VM config from Proxmox ────────────
+      const s1 = step("export_config");
+      plan.status = "exporting";
+      report("export_config", `Reading VM ${vmId} config from Proxmox`);
+
+      const exportResult = await this.proxmoxExporter.exportVM(
+        this.config.proxmoxNode,
+        vmId,
+        this.config.proxmoxHost,
+        proxmoxUser
+      );
+      plan.vmConfig = exportResult.vmConfig;
+      plan.source.vmName = exportResult.vmConfig.name;
+      complete(s1, `Exported config for "${exportResult.vmConfig.name}"`);
+
+      if (exportResult.vmConfig.disks.length === 0) {
+        throw new Error("VM has no disks to migrate");
+      }
+
+      // ── Step 2: Power off source VM ─────────────────────
+      const s2 = step("power_off");
+      report("power_off", `Powering off Proxmox VM ${vmId}`);
+
+      try {
+        await this.config.proxmoxClient.stopVM(this.config.proxmoxNode, vmId);
+        await new Promise((r) => setTimeout(r, 3000));
+        complete(s2, "VM stopped");
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("already") || msg.includes("stopped") || msg.includes("not running")) {
+          complete(s2, "VM already stopped");
+        } else {
+          complete(s2, `Stop attempted: ${msg}`);
+        }
+      }
+
+      // ── Step 3: Convert disk to vmdk on Proxmox ─────────
+      const primaryDisk = exportResult.vmConfig.disks[0];
+      const stagedVmdk = `${workDir}/${plan.id}.vmdk`;
+
+      const s3 = step("convert_disk");
+      plan.status = "converting";
+      report("convert_disk", `Converting ${primaryDisk.sourceFormat} to vmdk`);
+
+      await this.config.sshExec(
+        this.config.proxmoxHost,
+        proxmoxUser,
+        `mkdir -p ${workDir}`,
+        10_000
+      );
+
+      await this.proxmoxExporter.convertDiskToVmdk(
+        this.config.proxmoxHost,
+        proxmoxUser,
+        primaryDisk.sourcePath,
+        stagedVmdk,
+        primaryDisk.sourceFormat,
+        600_000
+      );
+      complete(s3, `Converted ${primaryDisk.sourcePath} -> ${stagedVmdk}`);
+
+      // ── Step 4: Resolve vSphere defaults ────────────────
+      const s4 = step("resolve_target");
+      report("resolve_target", "Resolving vSphere folder, host, and datastore");
+
+      const defaults = await this.vmwareImporter.resolveDefaults();
+      plan.target.storage = defaults.datastoreName;
+      complete(s4, `Target: ${defaults.datastoreName} on ${defaults.hostId}`);
+
+      // ── Step 5+6: Upload vmdk + create VM on vSphere ────
+      const s5 = step("import_vm");
+      plan.status = "importing";
+      report("import_vm", `Uploading vmdk to ESXi and creating VM on vSphere`);
+
+      const importResult = await this.vmwareImporter.importVM(
+        {
+          config: exportResult.vmConfig,
+          vmdkPath: stagedVmdk,
+          esxiHost: this.config.esxiHost,
+          esxiUser,
+          datastoreId: defaults.datastoreId,
+          datastoreName: defaults.datastoreName,
+          hostId: defaults.hostId,
+          folderId: defaults.folderId,
+          networkId: defaults.networkId,
+        },
+        this.config.proxmoxHost,
+        proxmoxUser
+      );
+      complete(s5, `Created vSphere VM ${importResult.vmId} on ${importResult.datastoreName}`);
+
+      // ── Step 7: Cleanup staging files ───────────────────
+      const s6 = step("cleanup");
+      report("cleanup", "Cleaning up staging files");
+
+      await this.converter.cleanup(this.config.proxmoxHost, proxmoxUser, stagedVmdk);
+      complete(s6);
+
+      // ── Done ────────────────────────────────────────────
+      plan.status = "completed";
+      plan.completedAt = new Date().toISOString();
+      report("done", `Migration complete! Proxmox VM ${vmId} is now vSphere VM ${importResult.vmId}`);
+
+      return plan;
+    } catch (err) {
+      plan.status = "failed";
+      plan.error = err instanceof Error ? err.message : String(err);
+      plan.completedAt = new Date().toISOString();
+
+      const lastStep = plan.steps[plan.steps.length - 1];
+      if (lastStep && lastStep.status !== "completed") {
+        fail(lastStep, plan.error);
+      }
+
+      throw err;
+    }
+  }
+
+  /**
+   * Dry run: plan a Proxmox -> VMware migration without executing it.
+   */
+  async planProxmoxToVMware(vmId: number): Promise<MigrationPlan> {
+    const proxmoxUser = this.config.proxmoxUser ?? "root";
+
+    const exportResult = await this.proxmoxExporter.exportVM(
+      this.config.proxmoxNode,
+      vmId,
+      this.config.proxmoxHost,
+      proxmoxUser
+    );
+
+    const defaults = await this.vmwareImporter.resolveDefaults();
+
+    return {
+      id: `plan-${Date.now()}`,
+      source: {
+        provider: "proxmox",
+        vmId: String(vmId),
+        vmName: exportResult.vmConfig.name,
+        host: this.config.proxmoxHost,
+      },
+      target: {
+        provider: "vmware",
+        node: this.config.esxiHost,
+        host: this.config.esxiHost,
+        storage: defaults.datastoreName,
+      },
+      vmConfig: exportResult.vmConfig,
+      status: "pending",
+      steps: [
+        { name: "export_config", status: "pending" },
+        { name: "power_off", status: "pending" },
+        { name: "convert_disk", status: "pending" },
+        { name: "resolve_target", status: "pending" },
+        { name: "import_vm", status: "pending" },
+        { name: "cleanup", status: "pending" },
+      ],
+    };
+  }
+
+  /**
+   * Dry run: plan a VMware -> Proxmox migration without executing it.
    */
   async planMigration(vmId: string): Promise<MigrationPlan> {
     const esxiUser = this.config.esxiUser ?? "root";
@@ -271,12 +493,12 @@ export class MigrationOrchestrator {
     const proxmoxUser = this.config.proxmoxUser ?? "root";
 
     // Read VM config
-    const exportResult = await this.exporter.exportVM(vmId, this.config.esxiHost, esxiUser);
+    const exportResult = await this.vmwareExporter.exportVM(vmId, this.config.esxiHost, esxiUser);
 
     // Get next VMID
     const targetVmId =
       this.config.targetVmId ??
-      (await this.importer.getNextVMID(this.config.proxmoxHost, proxmoxUser));
+      (await this.proxmoxImporter.getNextVMID(this.config.proxmoxHost, proxmoxUser));
 
     return {
       id: `plan-${Date.now()}`,

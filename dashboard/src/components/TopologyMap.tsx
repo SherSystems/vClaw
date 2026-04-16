@@ -30,7 +30,11 @@ function topoBarColor(pct: number): string {
 }
 
 function providerColor(type: string): string {
-  return type === "vmware" ? "#4B91E2" : "var(--teal)";
+  switch (type) {
+    case "vmware": return "#4B91E2";
+    case "aws": return "#FF9900";
+    default: return "var(--teal)";
+  }
 }
 
 /** Map raw IP-based ESXi host names to friendly display names */
@@ -246,7 +250,7 @@ function ProviderSection({
         let circleFill = "var(--bg-card)";
         let circleStroke = "var(--border)";
         if (isRunning) {
-          circleFill = providerType === "vmware" ? "rgba(75,145,226,0.12)" : "var(--teal-muted)";
+          circleFill = providerType === "vmware" ? "rgba(75,145,226,0.12)" : providerType === "aws" ? "rgba(255,153,0,0.12)" : "var(--teal-muted)";
           circleStroke = accent;
         } else if (isStopped) {
           circleFill = "var(--red-muted)";

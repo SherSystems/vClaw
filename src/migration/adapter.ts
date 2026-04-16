@@ -151,6 +151,32 @@ export class MigrationAdapter implements InfraAdapter {
       // ── AWS Migration Tools ────────────────────────────────
       ...(this.config.awsClient ? [
         {
+          name: "plan_migration_vmware_to_aws",
+          description:
+            "Dry-run planning for VMware → AWS migration. " +
+            "Reads VM config, analyzes workload, and shows recommended EC2 instance type, " +
+            "cost estimate, risks, and migration steps without making changes.",
+          tier: "read" as const,
+          adapter: "migration",
+          params: [
+            { name: "vm_id", type: "string", required: true, description: "VMware VM identifier (e.g. vm-1234)" },
+          ],
+          returns: "WorkloadAnalysis with plan, cost estimate, and risks",
+        },
+        {
+          name: "plan_migration_aws_to_vmware",
+          description:
+            "Dry-run planning for AWS → VMware migration. " +
+            "Reads EC2 instance config, analyzes workload, and shows recommended VM config, " +
+            "risks, and migration steps without making changes.",
+          tier: "read" as const,
+          adapter: "migration",
+          params: [
+            { name: "instance_id", type: "string", required: true, description: "EC2 instance ID (e.g. i-0abc123)" },
+          ],
+          returns: "WorkloadAnalysis with plan and risks",
+        },
+        {
           name: "migrate_vmware_to_aws",
           description:
             "Migrate a VM from VMware vSphere to AWS EC2. " +
@@ -210,6 +236,10 @@ export class MigrationAdapter implements InfraAdapter {
         return this.executeProxmoxToVMware(params);
       case "plan_migration_proxmox_to_vmware":
         return this.executePlanProxmoxToVMware(params);
+      case "plan_migration_vmware_to_aws":
+        return this.executePlanVMwareToAWS(params);
+      case "plan_migration_aws_to_vmware":
+        return this.executePlanAWSToVMware(params);
       case "migrate_vmware_to_aws":
         return this.executeVMwareToAWS(params);
       case "migrate_aws_to_vmware":
@@ -303,6 +333,115 @@ export class MigrationAdapter implements InfraAdapter {
         success: false,
         error: err instanceof Error ? err.message : String(err),
       };
+    }
+  }
+
+  private async executePlanVMwareToAWS(params: Record<string, unknown>): Promise<ToolCallResult> {
+    const vmId = params.vm_id as string;
+    if (!vmId) return { success: false, error: "vm_id is required" };
+
+    try {
+      // Get VM config and run workload analysis
+      const vmInfo = await this.config.vsphereClient.getVM(vmId);
+      const vmConfig = {
+        name: vmInfo.name,
+        cpuCount: vmInfo.cpu.count,
+        coresPerSocket: vmInfo.cpu.cores_per_socket,
+        memoryMiB: vmInfo.memory.size_MiB,
+        guestOS: vmInfo.guest_OS,
+        disks: Object.values(vmInfo.disks ?? {}).map((d: any) => ({
+          label: d.label || "disk",
+          capacityBytes: d.capacity || 0,
+          sourcePath: "",
+          sourceFormat: "vmdk" as const,
+          targetFormat: "vmdk" as const,
+        })),
+        nics: Object.values(vmInfo.nics ?? {}).map((n: any) => ({
+          label: n.label || "nic",
+          macAddress: n.mac_address || "",
+          networkName: n.backing?.network_name || "",
+          adapterType: n.type || "vmxnet3",
+        })),
+        firmware: (vmInfo.boot?.type === "EFI" ? "efi" : "bios") as "efi" | "bios",
+      };
+
+      const analysis = WorkloadAnalyzer.analyzeVMwareForAWS(vmConfig);
+
+      return {
+        success: true,
+        data: {
+          plan: {
+            id: `plan-${Date.now()}`,
+            source: { provider: "vmware", vmId, vmName: vmInfo.name, host: this.config.esxiHost },
+            target: { provider: "aws", node: "aws", host: "aws", storage: "s3", instanceType: analysis.target.recommended.instanceType },
+            vmConfig,
+            status: "pending",
+            steps: [
+              { name: "export_config", status: "pending" },
+              { name: "power_off", status: "pending" },
+              { name: "transfer_disk", status: "pending" },
+              { name: "upload_to_s3", status: "pending" },
+              { name: "import_ami", status: "pending" },
+              { name: "launch_instance", status: "pending" },
+              { name: "cleanup", status: "pending" },
+            ],
+          },
+          analysis,
+        },
+      };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  private async executePlanAWSToVMware(params: Record<string, unknown>): Promise<ToolCallResult> {
+    const instanceId = params.instance_id as string;
+    if (!instanceId) return { success: false, error: "instance_id is required" };
+    if (!this.config.awsClient) return { success: false, error: "AWS not configured" };
+
+    try {
+      const instance = await this.config.awsClient.getInstance(instanceId);
+      const volumeIds = instance.blockDeviceMappings?.map(b => b.ebs?.volumeId).filter((v): v is string => !!v) ?? [];
+      const volumes = volumeIds.length > 0 ? await this.config.awsClient.listVolumes() : [];
+      const volumeMap = new Map(volumes.map(v => [v.volumeId, v.size]));
+      const ebsVolumes = instance.blockDeviceMappings?.map(b => ({
+        sizeGB: (b.ebs?.volumeId ? volumeMap.get(b.ebs.volumeId) : undefined) ?? 8,
+      })) ?? [{ sizeGB: 8 }];
+
+      const analysis = WorkloadAnalyzer.analyzeAWSForVMware(instance.instanceType, ebsVolumes, instance.platform);
+
+      return {
+        success: true,
+        data: {
+          plan: {
+            id: `plan-${Date.now()}`,
+            source: { provider: "aws", vmId: instanceId, vmName: instance.name, host: "aws", instanceId },
+            target: { provider: "vmware", node: this.config.esxiHost, host: this.config.esxiHost, storage: "" },
+            vmConfig: {
+              name: instance.name,
+              cpuCount: analysis.target.recommended.cpuCount ?? 2,
+              coresPerSocket: 1,
+              memoryMiB: analysis.target.recommended.memoryMiB ?? 4096,
+              guestOS: analysis.target.recommended.guestOS ?? "otherLinux64Guest",
+              disks: [],
+              nics: [],
+              firmware: "bios" as const,
+            },
+            status: "pending",
+            steps: [
+              { name: "create_ami", status: "pending" },
+              { name: "export_to_s3", status: "pending" },
+              { name: "download_disk", status: "pending" },
+              { name: "resolve_target", status: "pending" },
+              { name: "import_vm", status: "pending" },
+              { name: "cleanup", status: "pending" },
+            ],
+          },
+          analysis,
+        },
+      };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
     }
   }
 

@@ -841,9 +841,9 @@ export class DashboardServer {
         this.json(res, { error: "Migration not configured" }, 503);
         return;
       }
-      const provider = url.searchParams.get("provider") as "vmware" | "proxmox";
-      if (!provider || !["vmware", "proxmox"].includes(provider)) {
-        this.json(res, { error: "Invalid provider (vmware or proxmox)" }, 400);
+      const provider = url.searchParams.get("provider") as "vmware" | "proxmox" | "aws";
+      if (!provider || !["vmware", "proxmox", "aws"].includes(provider)) {
+        this.json(res, { error: "Invalid provider (vmware, proxmox, or aws)" }, 400);
         return;
       }
 
@@ -885,9 +885,19 @@ export class DashboardServer {
         return;
       }
 
-      const toolName = direction === "vmware_to_proxmox"
-        ? "plan_migration_vmware_to_proxmox"
-        : "plan_migration_proxmox_to_vmware";
+      const planToolMap: Record<string, string> = {
+        vmware_to_proxmox: "plan_migration_vmware_to_proxmox",
+        proxmox_to_vmware: "plan_migration_proxmox_to_vmware",
+        vmware_to_aws: "plan_migration_vmware_to_aws",
+        aws_to_vmware: "plan_migration_aws_to_vmware",
+        proxmox_to_aws: "plan_migration_proxmox_to_aws",
+        aws_to_proxmox: "plan_migration_aws_to_proxmox",
+      };
+      const toolName = planToolMap[direction];
+      if (!toolName) {
+        this.json(res, { error: `Unsupported migration direction: ${direction}` }, 400);
+        return;
+      }
 
       const result = await this.migrationAdapter.execute(toolName, { vm_id: vmId });
       if (!result.success) {
@@ -918,9 +928,19 @@ export class DashboardServer {
         return;
       }
 
-      const toolName = direction === "vmware_to_proxmox"
-        ? "migrate_vmware_to_proxmox"
-        : "migrate_proxmox_to_vmware";
+      const execToolMap: Record<string, string> = {
+        vmware_to_proxmox: "migrate_vmware_to_proxmox",
+        proxmox_to_vmware: "migrate_proxmox_to_vmware",
+        vmware_to_aws: "migrate_vmware_to_aws",
+        aws_to_vmware: "migrate_aws_to_vmware",
+        proxmox_to_aws: "migrate_proxmox_to_aws",
+        aws_to_proxmox: "migrate_aws_to_proxmox",
+      };
+      const toolName = execToolMap[direction];
+      if (!toolName) {
+        this.json(res, { error: `Unsupported migration direction: ${direction}` }, 400);
+        return;
+      }
 
       // Emit migration_started event
       this.broadcast({

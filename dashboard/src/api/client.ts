@@ -80,7 +80,7 @@ export const cancelChaos = () =>
   request<{ ok: boolean; run_id: string }>("/api/chaos/cancel");
 
 // Migration
-export const fetchMigrationVMs = (provider: "vmware" | "proxmox") =>
+export const fetchMigrationVMs = (provider: "vmware" | "proxmox" | "aws") =>
   request<{ vms: import("../types").MigrationVM[] }>(`/api/migration/vms?provider=${provider}`);
 
 export const planMigration = (direction: import("../types").MigrationDirection, vmId: string | number) =>

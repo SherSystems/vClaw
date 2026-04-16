@@ -8,12 +8,14 @@ import type {
   ToolDefinition,
   ToolCallResult,
   ClusterState,
+  NodeInfo,
   VMInfo,
   StorageInfo,
 } from "../types.js";
 
 import { AWSClient } from "./client.js";
 import type { EC2InstanceState } from "./types.js";
+import { WorkloadAnalyzer } from "../../migration/workload-analyzer.js";
 
 // ── Config ──────────────────────────────────────────────────
 
@@ -276,17 +278,72 @@ export class AWSAdapter implements InfraAdapter {
       this.client.listVolumes(),
     ]);
 
-    // Map EC2 instances -> VMInfo
-    const vms: VMInfo[] = rawInstances.map((inst) => ({
-      id: inst.instanceId,
-      name: inst.name || inst.instanceId,
-      node: inst.availabilityZone,
-      status: this.mapInstanceState(inst.state),
-      cpu_cores: 0,  // Not available from instance summary
-      ram_mb: 0,     // Not available from instance summary
-      disk_gb: 0,
-      ip_address: inst.publicIp ?? inst.privateIp,
-      os: inst.platform,
+    // Build volume size lookup for disk_gb
+    const volumeSizeMap = new Map(rawVolumes.map((v) => [v.volumeId, v.size]));
+
+    // Map EC2 instances -> VMInfo with CPU/RAM from instance type specs
+    const vms: VMInfo[] = rawInstances
+      .filter((inst) => inst.state !== "terminated")
+      .map((inst) => {
+        const specs = WorkloadAnalyzer.getInstanceTypeSpecs(inst.instanceType);
+        // Sum EBS volumes attached to this instance for disk_gb
+        const attachedVolumes = rawVolumes.filter((v) =>
+          v.attachments.some((a) => a.instanceId === inst.instanceId)
+        );
+        const diskGb = attachedVolumes.reduce((sum, v) => sum + v.size, 0);
+
+        return {
+          id: inst.instanceId,
+          name: inst.name || inst.instanceId,
+          node: inst.availabilityZone,
+          status: this.mapInstanceState(inst.state),
+          cpu_cores: specs?.vCPU ?? 0,
+          ram_mb: specs ? Math.round(specs.memoryMiB) : 0,
+          disk_gb: diskGb,
+          ip_address: inst.publicIp ?? inst.privateIp,
+          os: inst.platform || inst.instanceType,
+          uptime_s: inst.state === "running" && inst.launchTime
+            ? Math.floor((Date.now() - new Date(inst.launchTime).getTime()) / 1000)
+            : 0,
+        };
+      });
+
+    // Build availability zone "nodes" — aggregate CPU/RAM from running instances
+    const azMap = new Map<string, { vms: typeof vms; totalCpu: number; totalRam: number; totalDisk: number }>();
+    for (const vm of vms) {
+      const az = vm.node;
+      if (!azMap.has(az)) {
+        azMap.set(az, { vms: [], totalCpu: 0, totalRam: 0, totalDisk: 0 });
+      }
+      const entry = azMap.get(az)!;
+      entry.vms.push(vm);
+      if (vm.status === "running") {
+        entry.totalCpu += vm.cpu_cores;
+        entry.totalRam += vm.ram_mb;
+      }
+      entry.totalDisk += vm.disk_gb;
+    }
+
+    // Also add AZs from volumes that might not have instances
+    for (const vol of rawVolumes) {
+      if (!azMap.has(vol.availabilityZone)) {
+        azMap.set(vol.availabilityZone, { vms: [], totalCpu: 0, totalRam: 0, totalDisk: 0 });
+      }
+      azMap.get(vol.availabilityZone)!.totalDisk += vol.size;
+    }
+
+    const nodes: NodeInfo[] = Array.from(azMap.entries()).map(([az, data]) => ({
+      id: az,
+      name: az,
+      status: "online" as const,
+      cpu_cores: data.totalCpu,
+      cpu_usage_pct: data.totalCpu > 0 ? 50 : 0, // AWS doesn't expose host CPU — use placeholder
+      ram_total_mb: data.totalRam,
+      ram_used_mb: Math.round(data.totalRam * 0.6), // Estimate — CloudWatch would give real data
+      disk_total_gb: data.totalDisk,
+      disk_used_gb: Math.round(data.totalDisk * 0.5), // Estimate
+      disk_usage_pct: data.totalDisk > 0 ? 50 : 0,
+      uptime_s: 0, // AZs don't have uptime
     }));
 
     // Map EBS volumes -> StorageInfo
@@ -295,16 +352,16 @@ export class AWSAdapter implements InfraAdapter {
       node: vol.availabilityZone,
       type: vol.volumeType,
       total_gb: vol.size,
-      used_gb: 0,  // EBS doesn't expose used space at the API level
+      used_gb: 0,
       available_gb: vol.size,
       content: vol.attachments.map((att) => att.instanceId).filter(Boolean),
     }));
 
     return {
       adapter: ADAPTER_NAME,
-      nodes: [],  // AWS doesn't have user-visible "nodes"
+      nodes,
       vms,
-      containers: [],  // AWS EC2 doesn't have containers
+      containers: [],
       storage,
       timestamp: new Date().toISOString(),
     };

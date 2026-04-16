@@ -12,6 +12,8 @@ import { ToolRegistry } from "./providers/registry.js";
 import { ProxmoxAdapter } from "./providers/proxmox/adapter.js";
 import { VMwareAdapter } from "./providers/vmware/adapter.js";
 import { SystemAdapter } from "./providers/system/adapter.js";
+import { TopologyStore } from "./topology/store.js";
+import { TopologyAdapter } from "./topology/adapter.js";
 import { AgentCore } from "./agent/core.js";
 import { EventBus } from "./agent/events.js";
 import { vClawCLI } from "./frontends/cli.js";
@@ -95,6 +97,27 @@ async function main() {
   registry.registerAdapter(system);
 
   // Create migration adapter if both providers are configured
+  // SSH exec function — used by migration and topology adapters
+  const sshExec = (host: string, user: string, command: string, timeoutMs = 30_000): Promise<SSHExecResult> => {
+    return new Promise((resolve) => {
+      const args = [
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "UserKnownHostsFile=/dev/null",
+        "-o", `ConnectTimeout=${Math.ceil(timeoutMs / 1000)}`,
+        `${user}@${host}`,
+        command,
+      ];
+      const proc = spawn("ssh", args, { timeout: timeoutMs });
+      let stdout = "";
+      let stderr = "";
+      proc.stdout.on("data", (data) => { stdout += data.toString(); });
+      proc.stderr.on("data", (data) => { stderr += data.toString(); });
+      proc.on("close", (code) => { resolve({ stdout, stderr, exitCode: code ?? 1 }); });
+      proc.on("error", (err) => { resolve({ stdout, stderr: err.message, exitCode: 1 }); });
+    });
+  };
+
+  // Create migration adapter if both providers are configured
   let migrationAdapter: MigrationAdapter | undefined;
   if (
     config.proxmox.tokenId && config.proxmox.tokenSecret &&
@@ -117,25 +140,6 @@ async function main() {
       allowSelfSignedCerts: config.proxmox.allowSelfSignedCerts,
     });
     await migProxmox.connect();
-
-    const sshExec = (host: string, user: string, command: string, timeoutMs = 30_000): Promise<SSHExecResult> => {
-      return new Promise((resolve) => {
-        const args = [
-          "-o", "StrictHostKeyChecking=no",
-          "-o", "UserKnownHostsFile=/dev/null",
-          "-o", `ConnectTimeout=${Math.ceil(timeoutMs / 1000)}`,
-          `${user}@${host}`,
-          command,
-        ];
-        const proc = spawn("ssh", args, { timeout: timeoutMs });
-        let stdout = "";
-        let stderr = "";
-        proc.stdout.on("data", (data) => { stdout += data.toString(); });
-        proc.stderr.on("data", (data) => { stderr += data.toString(); });
-        proc.on("close", (code) => { resolve({ stdout, stderr, exitCode: code ?? 1 }); });
-        proc.on("error", (err) => { resolve({ stdout, stderr: err.message, exitCode: 1 }); });
-      });
-    };
 
     // Create AWS client for migration if configured
     let awsClient: AWSClient | undefined;
@@ -165,6 +169,15 @@ async function main() {
     });
     await migrationAdapter.connect();
   }
+
+  // Register topology adapter (always — uses SQLite for persistence)
+  const topologyStore = new TopologyStore();
+  const topologyAdapter = new TopologyAdapter({
+    store: topologyStore,
+    sshExec,
+    registry,
+  });
+  registry.registerAdapter(topologyAdapter);
 
   // Connect all adapters
   await registry.connectAll();

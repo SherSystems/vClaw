@@ -26,6 +26,14 @@ const STEP_LABELS: Record<string, string> = {
   import_vm: "Import VM",
   create_vm: "Create VM",
   cleanup: "Cleanup",
+  // AWS steps
+  upload_to_s3: "Upload to S3",
+  import_ami: "Import as AMI",
+  launch_instance: "Launch EC2 Instance",
+  create_ami: "Create AMI",
+  export_to_s3: "Export to S3",
+  download_disk: "Download Disk",
+  stage_setup: "Setup Staging",
 };
 
 function formatBytes(bytes: number): string {
@@ -53,7 +61,7 @@ export default function Migrations() {
   const [direction, setDirection] = useState<MigrationDirection>("vmware_to_proxmox");
   const [vms, setVMs] = useState<MigrationVM[]>([]);
   const [selectedVM, setSelectedVM] = useState("");
-  const [plan, setPlan] = useState<MigrationPlan | null>(null);
+  const [plan, setPlan] = useState<(MigrationPlan & { analysis?: any }) | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [executionTimer, setExecutionTimer] = useState("00:00");
@@ -315,9 +323,78 @@ export default function Migrations() {
               </div>
               <div className="mig-route-node">
                 <span className="mig-route-provider">{plan.target?.provider?.toUpperCase()}</span>
-                <span className="mig-route-detail">{plan.target?.storage || plan.target?.node}</span>
+                <span className="mig-route-detail">
+                  {plan.target?.instanceType || plan.target?.storage || plan.target?.node}
+                </span>
               </div>
             </div>
+
+            {/* AWS Workload Analysis */}
+            {plan.analysis && (
+              <div className="mig-analysis">
+                <div className="mig-plan-title" style={{ marginTop: 16 }}>Workload Analysis</div>
+                <div className="mig-plan-summary">
+                  <div className="mig-plan-row">
+                    {plan.analysis.target?.recommended?.instanceType && (
+                      <div className="mig-plan-cell">
+                        <span className="mig-plan-label">EC2 Type</span>
+                        <span className="mig-plan-value" style={{ color: "#FF9900" }}>
+                          {plan.analysis.target.recommended.instanceType}
+                        </span>
+                      </div>
+                    )}
+                    {plan.analysis.costEstimate && (
+                      <div className="mig-plan-cell">
+                        <span className="mig-plan-label">Est. Cost</span>
+                        <span className="mig-plan-value" style={{ color: "var(--teal)" }}>
+                          ${plan.analysis.costEstimate.monthlyUSD?.toFixed(2)}/mo
+                        </span>
+                      </div>
+                    )}
+                    {plan.analysis.storage && (
+                      <div className="mig-plan-cell">
+                        <span className="mig-plan-label">Storage</span>
+                        <span className="mig-plan-value">
+                          {plan.analysis.storage.estimatedTargetGB?.toFixed(1)} GB EBS
+                        </span>
+                      </div>
+                    )}
+                    {plan.analysis.migrationTimeEstimateMinutes != null && (
+                      <div className="mig-plan-cell">
+                        <span className="mig-plan-label">Est. Time</span>
+                        <span className="mig-plan-value">
+                          ~{plan.analysis.migrationTimeEstimateMinutes} min
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {plan.analysis.risks?.length > 0 && (
+                  <div style={{ marginTop: 8 }}>
+                    <span className="mig-plan-label">Risks</span>
+                    <div style={{ marginTop: 4 }}>
+                      {plan.analysis.risks.map((risk: string, i: number) => (
+                        <div key={i} style={{ fontSize: 12, color: "#f59e0b", padding: "2px 0" }}>
+                          ⚠ {risk}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {plan.analysis.target?.alternatives?.length > 0 && (
+                  <div style={{ marginTop: 8 }}>
+                    <span className="mig-plan-label">Alternatives</span>
+                    <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                      {plan.analysis.target.alternatives.map((alt: any, i: number) => (
+                        <span key={i} className="mig-step-chip" style={{ fontSize: 11 }}>
+                          {alt.instanceType} (${alt.estimatedMonthlyCost?.toFixed(0)}/mo)
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 

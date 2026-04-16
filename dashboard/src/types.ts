@@ -312,7 +312,12 @@ export interface MigrationPlan {
     host: string;
     storage: string;
     vmId?: number;
+    instanceType?: string;
+    subnetId?: string;
+    securityGroupIds?: string[];
+    amiId?: string;
   };
+  analysis?: any;
   vmConfig: {
     name: string;
     cpuCount: number;

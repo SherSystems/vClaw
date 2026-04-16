@@ -209,6 +209,59 @@ export class MigrationAdapter implements InfraAdapter {
           returns: "MigrationPlan with vSphere VM details",
         },
         {
+          name: "plan_migration_proxmox_to_aws",
+          description:
+            "Dry-run planning for Proxmox → AWS migration. " +
+            "Reads VM config, analyzes workload, and shows recommended EC2 instance type, " +
+            "cost estimate, risks, and migration steps without making changes.",
+          tier: "read" as const,
+          adapter: "migration",
+          params: [
+            { name: "vm_id", type: "number", required: true, description: "Proxmox VMID (e.g. 112)" },
+          ],
+          returns: "WorkloadAnalysis with plan, cost estimate, and risks",
+        },
+        {
+          name: "plan_migration_aws_to_proxmox",
+          description:
+            "Dry-run planning for AWS → Proxmox migration. " +
+            "Reads EC2 instance config, analyzes workload, and shows recommended VM config.",
+          tier: "read" as const,
+          adapter: "migration",
+          params: [
+            { name: "instance_id", type: "string", required: true, description: "EC2 instance ID (e.g. i-0abc123)" },
+          ],
+          returns: "WorkloadAnalysis with plan and risks",
+        },
+        {
+          name: "migrate_proxmox_to_aws",
+          description:
+            "Migrate a VM from Proxmox VE to AWS EC2. " +
+            "Exports VM config, converts disk to VMDK, uploads to S3, " +
+            "imports as AMI, and launches an EC2 instance.",
+          tier: "risky_write" as const,
+          adapter: "migration",
+          params: [
+            { name: "vm_id", type: "number", required: true, description: "Proxmox VMID (e.g. 112)" },
+            { name: "instance_type", type: "string", required: false, description: "EC2 instance type (auto-selected if omitted)" },
+            { name: "subnet_id", type: "string", required: false, description: "AWS subnet ID" },
+            { name: "security_group_ids", type: "string", required: false, description: "Comma-separated AWS security group IDs" },
+          ],
+          returns: "MigrationPlan with AMI ID and EC2 instance details",
+        },
+        {
+          name: "migrate_aws_to_proxmox",
+          description:
+            "Migrate an EC2 instance from AWS to Proxmox VE. " +
+            "Creates AMI, exports to S3, downloads disk, converts to qcow2, imports into Proxmox.",
+          tier: "risky_write" as const,
+          adapter: "migration",
+          params: [
+            { name: "instance_id", type: "string", required: true, description: "EC2 instance ID (e.g. i-0abc123)" },
+          ],
+          returns: "MigrationPlan with Proxmox VM details",
+        },
+        {
           name: "analyze_workload",
           description:
             "Analyze a VM/instance and recommend configuration for migration to another platform. " +
@@ -244,6 +297,14 @@ export class MigrationAdapter implements InfraAdapter {
         return this.executeVMwareToAWS(params);
       case "migrate_aws_to_vmware":
         return this.executeAWSToVMware(params);
+      case "plan_migration_proxmox_to_aws":
+        return this.executePlanProxmoxToAWS(params);
+      case "plan_migration_aws_to_proxmox":
+        return this.executePlanAWSToProxmox(params);
+      case "migrate_proxmox_to_aws":
+        return this.executeProxmoxToAWS(params);
+      case "migrate_aws_to_proxmox":
+        return this.executeAWSToProxmox(params);
       case "analyze_workload":
         return this.executeAnalyzeWorkload(params);
       default:
@@ -582,6 +643,244 @@ export class MigrationAdapter implements InfraAdapter {
     }
   }
 
+  private async executePlanProxmoxToAWS(params: Record<string, unknown>): Promise<ToolCallResult> {
+    const vmId = params.vm_id as number;
+    if (vmId === undefined || vmId === null) return { success: false, error: "vm_id is required" };
+
+    try {
+      const proxmoxUser = this.config.proxmoxUser ?? "root";
+      const { ProxmoxExporter } = await import("./proxmox-exporter.js");
+      const exporter = new ProxmoxExporter(this.config.proxmoxClient, this.config.sshExec);
+      const exportResult = await exporter.exportVM(
+        this.config.proxmoxNode, vmId, this.config.proxmoxHost, proxmoxUser
+      );
+
+      const analysis = WorkloadAnalyzer.analyzeVMwareForAWS(exportResult.vmConfig);
+
+      return {
+        success: true,
+        data: {
+          plan: {
+            id: `plan-${Date.now()}`,
+            source: { provider: "proxmox", vmId: String(vmId), vmName: exportResult.vmConfig.name, host: this.config.proxmoxHost },
+            target: { provider: "aws", node: "aws", host: "aws", storage: "s3", instanceType: analysis.target.recommended.instanceType },
+            vmConfig: exportResult.vmConfig,
+            status: "pending",
+            steps: [
+              { name: "export_config", status: "pending" },
+              { name: "power_off", status: "pending" },
+              { name: "convert_disk", status: "pending" },
+              { name: "upload_to_s3", status: "pending" },
+              { name: "import_ami", status: "pending" },
+              { name: "launch_instance", status: "pending" },
+              { name: "cleanup", status: "pending" },
+            ],
+          },
+          analysis,
+        },
+      };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  private async executePlanAWSToProxmox(params: Record<string, unknown>): Promise<ToolCallResult> {
+    const instanceId = params.instance_id as string;
+    if (!instanceId) return { success: false, error: "instance_id is required" };
+    if (!this.config.awsClient) return { success: false, error: "AWS not configured" };
+
+    try {
+      const instance = await this.config.awsClient.getInstance(instanceId);
+      const volumeIds = instance.blockDeviceMappings?.map(b => b.ebs?.volumeId).filter((v): v is string => !!v) ?? [];
+      const volumes = volumeIds.length > 0 ? await this.config.awsClient.listVolumes() : [];
+      const volumeMap = new Map(volumes.map(v => [v.volumeId, v.size]));
+      const ebsVolumes = instance.blockDeviceMappings?.map(b => ({
+        sizeGB: (b.ebs?.volumeId ? volumeMap.get(b.ebs.volumeId) : undefined) ?? 8,
+      })) ?? [{ sizeGB: 8 }];
+
+      const analysis = WorkloadAnalyzer.analyzeAWSForVMware(instance.instanceType, ebsVolumes, instance.platform);
+
+      return {
+        success: true,
+        data: {
+          plan: {
+            id: `plan-${Date.now()}`,
+            source: { provider: "aws", vmId: instanceId, vmName: instance.name, host: "aws", instanceId },
+            target: { provider: "proxmox", node: this.config.proxmoxNode, host: this.config.proxmoxHost, storage: this.config.proxmoxStorage || "local-lvm" },
+            vmConfig: {
+              name: instance.name,
+              cpuCount: analysis.target.recommended.cpuCount ?? 2,
+              coresPerSocket: 1,
+              memoryMiB: analysis.target.recommended.memoryMiB ?? 4096,
+              guestOS: analysis.target.recommended.guestOS ?? "otherLinux64Guest",
+              disks: [],
+              nics: [],
+              firmware: "bios" as const,
+            },
+            status: "pending",
+            steps: [
+              { name: "create_ami", status: "pending" },
+              { name: "export_to_s3", status: "pending" },
+              { name: "download_disk", status: "pending" },
+              { name: "convert_disk", status: "pending" },
+              { name: "import_vm", status: "pending" },
+              { name: "cleanup", status: "pending" },
+            ],
+          },
+          analysis,
+        },
+      };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  private async executeProxmoxToAWS(params: Record<string, unknown>): Promise<ToolCallResult> {
+    const vmId = params.vm_id as number;
+    if (vmId === undefined || vmId === null) return { success: false, error: "vm_id is required" };
+    if (!this.config.awsClient) return { success: false, error: "AWS not configured" };
+    if (!this.config.awsS3Bucket) return { success: false, error: "AWS S3 migration bucket not configured" };
+
+    try {
+      const proxmoxUser = this.config.proxmoxUser ?? "root";
+      const workDir = "/tmp/vclaw-migration";
+      const stageDir = `${workDir}/pve-aws-${Date.now()}`;
+
+      // Export from Proxmox
+      const { ProxmoxExporter } = await import("./proxmox-exporter.js");
+      const exporter = new ProxmoxExporter(this.config.proxmoxClient, this.config.sshExec);
+      const exportResult = await exporter.exportVM(this.config.proxmoxNode, vmId, this.config.proxmoxHost, proxmoxUser);
+
+      // Stop VM
+      try { await this.config.proxmoxClient.stopVM(this.config.proxmoxNode, vmId); } catch { /* may be stopped */ }
+      await new Promise(r => setTimeout(r, 3000));
+
+      // Convert disk to vmdk (AWS Import supports vmdk)
+      await this.config.sshExec(this.config.proxmoxHost, proxmoxUser, `mkdir -p ${stageDir}`, 10_000);
+      const primaryDisk = exportResult.vmConfig.disks[0];
+      const stagedVmdk = `${stageDir}/disk.vmdk`;
+
+      await exporter.convertDiskToVmdk(
+        this.config.proxmoxHost, proxmoxUser,
+        primaryDisk.sourcePath, stagedVmdk,
+        primaryDisk.sourceFormat, 600_000
+      );
+
+      // Upload to S3 and import
+      const importer = new AWSImporter(
+        this.config.awsClient,
+        this.config.awsS3Bucket,
+        this.config.awsS3Prefix ?? "vclaw-migration/",
+        this.config.sshExec,
+      );
+
+      const importResult = await importer.importVM(
+        {
+          vmConfig: exportResult.vmConfig,
+          diskPath: stagedVmdk,
+          diskFormat: "vmdk",
+          instanceType: params.instance_type as string | undefined,
+          subnetId: params.subnet_id as string | undefined,
+          securityGroupIds: params.security_group_ids
+            ? (params.security_group_ids as string).split(",").map(s => s.trim())
+            : undefined,
+        },
+        this.config.proxmoxHost,
+        proxmoxUser,
+      );
+
+      // Cleanup
+      await this.config.sshExec(this.config.proxmoxHost, proxmoxUser, `rm -rf ${JSON.stringify(stageDir)}`, 10_000);
+
+      return {
+        success: true,
+        data: {
+          source: { provider: "proxmox", vmId: String(vmId), vmName: exportResult.vmConfig.name },
+          target: { provider: "aws", ...importResult },
+          vmConfig: exportResult.vmConfig,
+        },
+      };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  private async executeAWSToProxmox(params: Record<string, unknown>): Promise<ToolCallResult> {
+    const instanceId = params.instance_id as string;
+    if (!instanceId) return { success: false, error: "instance_id is required" };
+    if (!this.config.awsClient) return { success: false, error: "AWS not configured" };
+    if (!this.config.awsS3Bucket) return { success: false, error: "AWS S3 migration bucket not configured" };
+
+    try {
+      const proxmoxUser = this.config.proxmoxUser ?? "root";
+      const workDir = "/tmp/vclaw-migration";
+      const stageDir = `${workDir}/aws-pve-${Date.now()}`;
+
+      // Export from AWS
+      const awsExporter = new AWSExporter(
+        this.config.awsClient,
+        this.config.awsS3Bucket,
+        this.config.awsS3Prefix ?? "vclaw-migration/",
+      );
+      const exportResult = await awsExporter.exportInstance(instanceId);
+
+      // Download from S3 to staging
+      await this.config.sshExec(this.config.proxmoxHost, proxmoxUser, `mkdir -p ${stageDir}`, 10_000);
+      const localVmdk = `${stageDir}/disk.vmdk`;
+      await this.config.sshExec(
+        this.config.proxmoxHost, proxmoxUser,
+        `aws s3 cp s3://${exportResult.s3Bucket}/${exportResult.s3Key} ${localVmdk} --no-progress`,
+        7200_000,
+      );
+
+      // Convert vmdk to qcow2
+      const stagedQcow2 = `${stageDir}/disk.qcow2`;
+      const { DiskConverter } = await import("./disk-converter.js");
+      const converter = new DiskConverter(this.config.sshExec);
+      await converter.convert({
+        sshExec: this.config.sshExec,
+        host: this.config.proxmoxHost,
+        user: proxmoxUser,
+        sourcePath: localVmdk,
+        targetPath: stagedQcow2,
+        sourceFormat: "vmdk",
+        targetFormat: "qcow2",
+        timeoutMs: 600_000,
+      });
+
+      // Import into Proxmox
+      const { ProxmoxImporter } = await import("./proxmox-importer.js");
+      const proxmoxImporter = new ProxmoxImporter(this.config.proxmoxClient, this.config.sshExec);
+      const targetVmId = await proxmoxImporter.getNextVMID(this.config.proxmoxHost, proxmoxUser);
+
+      const importResult = await proxmoxImporter.importVM(
+        {
+          node: this.config.proxmoxNode,
+          vmId: targetVmId,
+          storage: this.config.proxmoxStorage || "local-lvm",
+          config: exportResult.vmConfig,
+          diskPath: stagedQcow2,
+        },
+        this.config.proxmoxHost,
+        proxmoxUser,
+      );
+
+      // Cleanup
+      await this.config.sshExec(this.config.proxmoxHost, proxmoxUser, `rm -rf ${JSON.stringify(stageDir)}`, 10_000);
+
+      return {
+        success: true,
+        data: {
+          source: { provider: "aws", instanceId, vmName: exportResult.vmConfig.name },
+          target: { provider: "proxmox", vmId: importResult.vmId, node: importResult.node },
+          vmConfig: exportResult.vmConfig,
+        },
+      };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
   private async executeAnalyzeWorkload(params: Record<string, unknown>): Promise<ToolCallResult> {
     const sourceProvider = params.source_provider as string;
     const vmId = params.vm_id as string;
@@ -620,7 +919,18 @@ export class MigrationAdapter implements InfraAdapter {
         return { success: true, data: analysis };
       }
 
-      if (sourceProvider === "aws" && targetProvider === "vmware") {
+      if (sourceProvider === "proxmox" && targetProvider === "aws") {
+        const proxmoxUser = this.config.proxmoxUser ?? "root";
+        const { ProxmoxExporter } = await import("./proxmox-exporter.js");
+        const exporter = new ProxmoxExporter(this.config.proxmoxClient, this.config.sshExec);
+        const exportResult = await exporter.exportVM(
+          this.config.proxmoxNode, Number(vmId), this.config.proxmoxHost, proxmoxUser
+        );
+        const analysis = WorkloadAnalyzer.analyzeVMwareForAWS(exportResult.vmConfig);
+        return { success: true, data: analysis };
+      }
+
+      if (sourceProvider === "aws" && (targetProvider === "vmware" || targetProvider === "proxmox")) {
         if (!this.config.awsClient) return { success: false, error: "AWS not configured" };
         const instance = await this.config.awsClient.getInstance(vmId);
         // Look up actual volume sizes from EBS

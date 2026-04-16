@@ -284,7 +284,7 @@ export interface Toast {
 }
 
 // Migration types
-export type MigrationDirection = "vmware_to_proxmox" | "proxmox_to_vmware";
+export type MigrationDirection = "vmware_to_proxmox" | "proxmox_to_vmware" | "vmware_to_aws" | "aws_to_vmware" | "proxmox_to_aws" | "aws_to_proxmox";
 export type MigrationStatus = "pending" | "exporting" | "converting" | "transferring" | "importing" | "completed" | "failed";
 
 export interface MigrationStep {
@@ -301,13 +301,13 @@ export interface MigrationPlan {
   direction: MigrationDirection;
   status: MigrationStatus;
   source: {
-    provider: "vmware" | "proxmox";
+    provider: "vmware" | "proxmox" | "aws";
     vmId: string;
     vmName: string;
     host: string;
   };
   target: {
-    provider: "vmware" | "proxmox";
+    provider: "vmware" | "proxmox" | "aws";
     node: string;
     host: string;
     storage: string;

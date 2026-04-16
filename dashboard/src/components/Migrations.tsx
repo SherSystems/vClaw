@@ -9,8 +9,12 @@ import {
 import type { MigrationVM, MigrationPlan, MigrationDirection } from "../types";
 
 const DIRECTIONS: { id: MigrationDirection; label: string; from: string; to: string }[] = [
-  { id: "vmware_to_proxmox", label: "VMware -> Proxmox", from: "vmware", to: "proxmox" },
-  { id: "proxmox_to_vmware", label: "Proxmox -> VMware", from: "proxmox", to: "vmware" },
+  { id: "vmware_to_proxmox", label: "VMware \u2192 Proxmox", from: "vmware", to: "proxmox" },
+  { id: "proxmox_to_vmware", label: "Proxmox \u2192 VMware", from: "proxmox", to: "vmware" },
+  { id: "vmware_to_aws", label: "VMware \u2192 AWS", from: "vmware", to: "aws" },
+  { id: "aws_to_vmware", label: "AWS \u2192 VMware", from: "aws", to: "vmware" },
+  { id: "proxmox_to_aws", label: "Proxmox \u2192 AWS", from: "proxmox", to: "aws" },
+  { id: "aws_to_proxmox", label: "AWS \u2192 Proxmox", from: "aws", to: "proxmox" },
 ];
 
 const STEP_LABELS: Record<string, string> = {
@@ -57,7 +61,9 @@ export default function Migrations() {
   const [logEntries, setLogEntries] = useState<{ time: string; msg: string }[]>([]);
   const logEndRef = useRef<HTMLDivElement | null>(null);
 
-  const sourceProvider = DIRECTIONS.find((d) => d.id === direction)!.from as "vmware" | "proxmox";
+  const dirEntry = DIRECTIONS.find((d) => d.id === direction)!;
+  const sourceProvider = dirEntry.from as "vmware" | "proxmox" | "aws";
+  const targetProvider = dirEntry.to as "vmware" | "proxmox" | "aws";
 
   // Load VMs for selected direction
   useEffect(() => {
@@ -151,7 +157,7 @@ export default function Migrations() {
   const handleExecute = async () => {
     if (!selectedVM || !plan) return;
     const ok = window.confirm(
-      `This will migrate "${plan.vmConfig?.name || selectedVM}" from ${sourceProvider} to ${sourceProvider === "vmware" ? "Proxmox" : "VMware"}. The source VM will be powered off. Continue?`
+      `This will migrate "${plan.vmConfig?.name || selectedVM}" from ${sourceProvider.toUpperCase()} to ${targetProvider.toUpperCase()}. The source VM will be powered off. Continue?`
     );
     if (!ok) return;
 

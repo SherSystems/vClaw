@@ -905,8 +905,11 @@ export class DashboardServer {
         return;
       }
 
-      const plan = result.data as MigrationPlan;
-      this.json(res, { ...plan, direction });
+      const data = result.data as any;
+      // AWS plan tools return { plan, analysis }, others return the plan directly
+      const plan = data.plan || data;
+      const analysis = data.analysis || null;
+      this.json(res, { ...plan, direction, analysis });
     } catch (err) {
       console.error("[DashboardServer] Migration plan error:", err);
       this.json(res, { error: "Failed to create migration plan" }, 500);

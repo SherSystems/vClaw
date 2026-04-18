@@ -63,6 +63,14 @@ const AWSConfigSchema = z.object({
   vmImportRoleArn: z.string().default(""),
 });
 
+const AzureConfigSchema = z.object({
+  tenantId: z.string().default(""),
+  clientId: z.string().default(""),
+  clientSecret: z.string().default(""),
+  subscriptionId: z.string().default(""),
+  defaultLocation: z.string().default("eastus"),
+});
+
 const AutopilotConfigSchema = z.object({
   pollIntervalMs: z.coerce.number().default(30000),
   enabled: z
@@ -77,6 +85,7 @@ export const ConfigSchema = z.object({
   system: SystemConfigSchema.default({ sshStrictHostKeyCheck: "true" }),
   ai: AIConfigSchema,
   aws: AWSConfigSchema.default({}),
+  azure: AzureConfigSchema.default({}),
   dashboard: DashboardConfigSchema,
   migration: MigrationConfigSchema.default({}),
   autopilot: AutopilotConfigSchema,
@@ -119,6 +128,13 @@ export function getConfig(): Config {
       s3MigrationBucket: process.env.AWS_S3_MIGRATION_BUCKET,
       s3MigrationPrefix: process.env.AWS_S3_MIGRATION_PREFIX,
       vmImportRoleArn: process.env.AWS_VM_IMPORT_ROLE_ARN,
+    },
+    azure: {
+      tenantId: process.env.AZURE_TENANT_ID,
+      clientId: process.env.AZURE_CLIENT_ID,
+      clientSecret: process.env.AZURE_CLIENT_SECRET,
+      subscriptionId: process.env.AZURE_SUBSCRIPTION_ID,
+      defaultLocation: process.env.AZURE_DEFAULT_LOCATION,
     },
     dashboard: {
       port: process.env.DASHBOARD_PORT,

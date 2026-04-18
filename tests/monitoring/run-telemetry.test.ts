@@ -104,7 +104,10 @@ describe("RunTelemetryCollector", () => {
     const bus = new EventBus();
     collector = new RunTelemetryCollector(bus, dbPath);
 
-    const ts = new Date("2026-03-31T12:00:00.000Z").toISOString();
+    vi.useFakeTimers();
+    const now = new Date("2026-03-31T12:00:00.000Z");
+    vi.setSystemTime(now);
+    const ts = now.toISOString();
 
     bus.emit({
       type: AgentEventType.RunStarted,

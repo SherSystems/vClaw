@@ -27,6 +27,28 @@ import type { DataPoint as AnomalyDataPoint } from "../../monitoring/anomaly.js"
 import { metricStore } from "../../monitoring/metric-store.js";
 import type { RunTelemetryCollector } from "../../monitoring/run-telemetry.js";
 
+const STATIC_MIME: Record<string, string> = {
+  ".js": "application/javascript",
+  ".mjs": "application/javascript",
+  ".css": "text/css",
+  ".html": "text/html",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".ico": "image/x-icon",
+  ".woff2": "font/woff2",
+  ".woff": "font/woff",
+  ".ttf": "font/ttf",
+  ".otf": "font/otf",
+  ".eot": "application/vnd.ms-fontobject",
+  ".json": "application/json",
+  ".map": "application/json",
+  ".txt": "text/plain",
+};
+
 // ── SSE Client Tracking ────────────────────────────────────
 
 interface SSEClient {
@@ -242,7 +264,10 @@ export class DashboardServer {
           } else if (path.startsWith("/api/incidents/") && path.endsWith("/timeline")) {
             const incidentId = path.replace("/api/incidents/", "").replace("/timeline", "");
             this.handleIncidentTimeline(res, incidentId);
-          } else if (this.useReact && path.startsWith("/assets/")) {
+          } else if (this.isPathTraversalAttempt(path)) {
+            res.writeHead(404, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "Not found" }));
+          } else if (this.isReactStaticAssetPath(path)) {
             this.serveStaticFile(res, path);
           } else if (this.useReact && !path.startsWith("/api/")) {
             // SPA fallback — serve index.html for client-side routing
@@ -261,8 +286,37 @@ export class DashboardServer {
 
   // ── Route Handlers ──────────────────────────────────────
 
-  private reactDistDir = join(import.meta.dirname || __dirname, "../../../dashboard/dist");
+  private reactDistDir = join(import.meta.dirname || __dirname, "../../../dashboard-v2/dist");
   private useReact = existsSync(join(this.reactDistDir, "index.html"));
+
+  private isPathTraversalAttempt(requestPath: string): boolean {
+    let decodedPath: string;
+    try {
+      decodedPath = decodeURIComponent(requestPath);
+    } catch {
+      return false;
+    }
+    return decodedPath.includes("\0") || decodedPath.includes("..");
+  }
+
+  private isReactStaticAssetPath(requestPath: string): boolean {
+    if (!this.useReact || requestPath.startsWith("/api/")) return false;
+
+    let decodedPath: string;
+    try {
+      decodedPath = decodeURIComponent(requestPath);
+    } catch {
+      return false;
+    }
+
+    if (decodedPath.includes("\0") || decodedPath.includes("..")) return false;
+
+    const ext = extname(decodedPath).toLowerCase();
+    if (!STATIC_MIME[ext]) return false;
+
+    const fullPath = join(this.reactDistDir, decodedPath);
+    return existsSync(fullPath);
+  }
 
   private serveHTML(res: ServerResponse): void {
     if (this.useReact) {
@@ -279,21 +333,28 @@ export class DashboardServer {
   }
 
   private serveStaticFile(res: ServerResponse, filePath: string): void {
-    const MIME: Record<string, string> = {
-      ".js": "application/javascript",
-      ".css": "text/css",
-      ".html": "text/html",
-      ".svg": "image/svg+xml",
-      ".png": "image/png",
-      ".jpg": "image/jpeg",
-      ".woff2": "font/woff2",
-      ".woff": "font/woff",
-      ".json": "application/json",
-    };
-    const ext = extname(filePath);
-    const contentType = MIME[ext] || "application/octet-stream";
+    let decodedPath: string;
     try {
-      const fullPath = join(this.reactDistDir, filePath);
+      decodedPath = decodeURIComponent(filePath);
+    } catch {
+      res.writeHead(404); res.end("Not found");
+      return;
+    }
+
+    if (decodedPath.includes("\0") || decodedPath.includes("..")) {
+      res.writeHead(404); res.end("Not found");
+      return;
+    }
+
+    const ext = extname(decodedPath).toLowerCase();
+    const contentType = STATIC_MIME[ext];
+    if (!contentType) {
+      res.writeHead(404); res.end("Not found");
+      return;
+    }
+
+    try {
+      const fullPath = join(this.reactDistDir, decodedPath);
       if (!existsSync(fullPath)) {
         res.writeHead(404); res.end("Not found");
         return;
@@ -855,9 +916,9 @@ export class DashboardServer {
         this.json(res, { error: "Migration not configured" }, 503);
         return;
       }
-      const provider = url.searchParams.get("provider") as "vmware" | "proxmox" | "aws";
-      if (!provider || !["vmware", "proxmox", "aws"].includes(provider)) {
-        this.json(res, { error: "Invalid provider (vmware, proxmox, or aws)" }, 400);
+      const provider = url.searchParams.get("provider") as "vmware" | "proxmox" | "aws" | "azure";
+      if (!provider || !["vmware", "proxmox", "aws", "azure"].includes(provider)) {
+        this.json(res, { error: "Invalid provider (vmware, proxmox, aws, or azure)" }, 400);
         return;
       }
 

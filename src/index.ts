@@ -28,6 +28,7 @@ import { VSphereClient } from "./providers/vmware/client.js";
 import { ProxmoxClient } from "./providers/proxmox/client.js";
 import { AWSAdapter } from "./providers/aws/adapter.js";
 import { AWSClient } from "./providers/aws/client.js";
+import { AzureAdapter } from "./providers/azure/adapter.js";
 import { spawn } from "node:child_process";
 import type { SSHExecResult } from "./migration/types.js";
 import { join } from "path";
@@ -88,6 +89,23 @@ async function main() {
       sessionToken: config.aws.sessionToken || undefined,
     });
     registry.registerAdapter(aws);
+  }
+
+  // Register Azure adapter
+  if (
+    config.azure.tenantId &&
+    config.azure.clientId &&
+    config.azure.clientSecret &&
+    config.azure.subscriptionId
+  ) {
+    const azure = new AzureAdapter({
+      tenantId: config.azure.tenantId,
+      clientId: config.azure.clientId,
+      clientSecret: config.azure.clientSecret,
+      subscriptionId: config.azure.subscriptionId,
+      defaultLocation: config.azure.defaultLocation,
+    });
+    registry.registerAdapter(azure);
   }
 
   // Register system adapter

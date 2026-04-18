@@ -144,6 +144,12 @@ npm run dev:mcp
 ## Documentation
 
 - [Quickstart Guide](docs/quickstart.md) (Proxmox + VMware + Azure setup paths, first command, governance walkthrough)
+- [Provider Guides Index](docs/providers/README.md) (Azure, Proxmox, VMware, AWS, Kubernetes scaffold)
+- [Azure Provider Guide](docs/providers/azure.md) (reference template for provider docs)
+- [Proxmox Provider Guide](docs/providers/proxmox.md) (31 tools across VM/CT lifecycle, storage, tasks, and firewall)
+- [VMware Provider Guide](docs/providers/vmware.md) (26 tools with explicit REST vs SOAP caveats)
+- [AWS Provider Guide](docs/providers/aws.md) (16 tools for EC2, EBS, VPC, AMI workflows)
+- [Kubernetes Provider Guide](docs/providers/kubernetes.md) (current scaffold behavior and planned integration points)
 - [Provider Authoring Guide](docs/provider-authoring-guide.md) (implementing and registering new adapters)
 - [CHANGELOG](CHANGELOG.md) (including 0.2.0 draft release notes)
 
@@ -181,8 +187,9 @@ vClaw runs an autonomous agent loop:
 Manage multiple infrastructure platforms from a single agent:
 
 - **Proxmox VE**: 30+ tools covering VMs, containers, nodes, storage, snapshots, firewall rules, migrations, and cluster management
-- **VMware vSphere**: 27 tools for VMs, hosts, datastores, snapshots, guest operations, and resource pools
-- **Azure**: 17 tools across ARM Compute, Network, and Resources (VMs, disks, vnets, subnets, NSGs, images)
+- **VMware vSphere**: 26 tools for VMs, hosts, datastores, guest operations, resource pools, and snapshot endpoints (SOAP caveat documented)
+- **Azure**: 16 tools across ARM Compute, Network, and Resources (VMs, disks, vnets, subnets, NSGs, images)
+- **AWS**: 16 tools across EC2 lifecycle, EBS snapshots, AMI workflows, VPCs, subnets, and security groups
 - **System**: SSH and local execution for package management, script execution, and configuration
 - **Kubernetes (scaffold)**: `ProviderAdapter` skeleton with documented planned `kubectl`/API integration points
 - **Cross-Provider Migration**: Migration flows across VMware, Proxmox, and AWS with disk conversion plus optional S3-based transfer paths

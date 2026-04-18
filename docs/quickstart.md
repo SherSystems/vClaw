@@ -5,6 +5,8 @@ This quickstart walks through:
 - Proxmox setup (minimal homelab path)
 - VMware vSphere setup
 - Azure setup (service principal path)
+- AWS setup (access key path)
+- Kubernetes status (current scaffold behavior)
 - Vault configuration for credential storage
 - First natural-language command
 - How the 5-tier safety governance works
@@ -15,7 +17,8 @@ This quickstart walks through:
 - Access to at least one provider:
   - Proxmox VE API token, or
   - VMware vSphere credentials, or
-  - Azure service principal credentials
+  - Azure service principal credentials, or
+  - AWS access key credentials
 - AI provider key (`anthropic` or `openai`)
 
 ## 2. Install and bootstrap
@@ -26,6 +29,15 @@ cd vclaw
 npm install
 cp .env.example .env
 ```
+
+Provider reference guides:
+
+- `docs/providers/README.md` (index)
+- `docs/providers/proxmox.md`
+- `docs/providers/vmware.md`
+- `docs/providers/azure.md`
+- `docs/providers/aws.md`
+- `docs/providers/kubernetes.md`
 
 ## 3A. Proxmox minimal config
 
@@ -86,6 +98,29 @@ AZURE_DEFAULT_LOCATION=eastus
 ```
 
 `src/index.ts` auto-registers Azure when `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, and `AZURE_SUBSCRIPTION_ID` are set.
+
+## 3D. AWS config
+
+Edit `.env`:
+
+```env
+AWS_ACCESS_KEY_ID=AKIA...
+AWS_SECRET_ACCESS_KEY=...
+AWS_REGION=us-east-1
+AWS_SESSION_TOKEN=
+```
+
+`src/index.ts` auto-registers AWS when `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` are set.
+
+## 3E. Kubernetes status
+
+Kubernetes support is currently scaffold-only:
+
+- `KubernetesAdapter` exists in `src/providers/kubernetes/adapter.ts`
+- `getTools()` currently returns no tools
+- adapter is not currently registered in `src/index.ts`
+
+Use `docs/providers/kubernetes.md` as the source-of-truth status page until first-class support ships.
 
 ## 4. AI provider config
 

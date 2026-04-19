@@ -1,12 +1,12 @@
 import { useStore } from "../store";
-import { useEffect, useState, useRef, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import {
   fetchMigrationVMs,
   planMigration,
   executeMigration,
   fetchMigrationHistory,
 } from "../api/client";
-import type { MigrationVM, MigrationPlan, MigrationDirection } from "../types";
+import type { MigrationVM, MigrationPlan, MigrationDirection, MigrationLiveRun } from "../types";
 
 type MigrationProvider = "vmware" | "proxmox" | "aws" | "azure";
 type RouteExecutionSupport = "full" | "plan_only";
@@ -66,6 +66,19 @@ const STEP_LABELS: Record<string, string> = {
   stage_setup: "Setup Staging",
 };
 
+const LIVE_STAGE_LABELS: Record<string, string> = {
+  upload: "Uploading to S3",
+  upload_to_s3: "Uploading to S3",
+  convert: "Converting to AMI",
+  convert_disk: "Converting to AMI",
+  import_ami: "Converting to AMI",
+  register: "Registering image",
+  register_image: "Registering image",
+  create_ami: "Registering image",
+  launch: "Launching EC2",
+  launch_instance: "Launching EC2",
+};
+
 function formatBytes(bytes: number): string {
   if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(0)} MB`;
   return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
@@ -80,13 +93,63 @@ function formatDuration(startedAt?: string, completedAt?: string): string {
   return `${Math.floor(sec / 60)}m ${sec % 60}s`;
 }
 
+function formatTimer(ms: number): string {
+  const sec = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (h > 0) return `${h}h ${m}m ${s}s`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+function stageLabel(stage?: string): string {
+  if (!stage) return "Preparing migration";
+  const key = stage.trim().toLowerCase().replace(/ /g, "_");
+  if (LIVE_STAGE_LABELS[key]) return LIVE_STAGE_LABELS[key];
+  if (STEP_LABELS[key]) return STEP_LABELS[key];
+  return stage.replace(/_/g, " ");
+}
+
+function runElapsedMs(run: MigrationLiveRun, nowMs: number): number {
+  const start = new Date(run.startedAt).getTime();
+  if (!Number.isFinite(start)) return 0;
+  const end = run.completedAt ? new Date(run.completedAt).getTime() : nowMs;
+  return Math.max(0, end - start);
+}
+
+function runEta(run: MigrationLiveRun, nowMs: number): string {
+  if (run.status !== "running") return "--";
+  const elapsed = runElapsedMs(run, nowMs);
+
+  let basisPct = run.etaSample?.progressPct;
+  let basisElapsed = run.etaSample?.elapsedMs;
+
+  if ((!basisPct || !basisElapsed) && run.progressPct > 0) {
+    basisPct = Math.min(run.progressPct, 20);
+    basisElapsed = Math.round((elapsed * basisPct) / run.progressPct);
+  }
+
+  if (!basisPct || !basisElapsed || basisPct <= 0) return "--";
+  const total = (basisElapsed / basisPct) * 100;
+  const remaining = Math.max(0, total - elapsed);
+  return formatTimer(remaining);
+}
+
+function migrationStatusLabel(run: MigrationLiveRun): string {
+  if (run.status === "completed") return "SUCCESS";
+  if (run.status === "failed") return "FAILED";
+  return "RUNNING";
+}
+
 export default function Migrations() {
-  const activeMigration = useStore((s) => s.activeMigration);
-  const setActiveMigration = useStore((s) => s.setActiveMigration);
-  const completeMigration = useStore((s) => s.completeMigration);
   const migrationHistory = useStore((s) => s.migrationHistory);
   const setMigrationHistory = useStore((s) => s.setMigrationHistory);
-  const events = useStore((s) => s.events);
+  const migrationRuns = useStore((s) => s.migrationRuns);
+  const migrationRunOrder = useStore((s) => s.migrationRunOrder);
+  const beginMigrationRun = useStore((s) => s.beginMigrationRun);
+  const registerMigrationRun = useStore((s) => s.registerMigrationRun);
+  const markMigrationRunFailed = useStore((s) => s.markMigrationRunFailed);
   const multiCluster = useStore((s) => s.multiCluster);
 
   const [routeId, setRouteId] = useState<string>("vmware_to_proxmox");
@@ -95,10 +158,7 @@ export default function Migrations() {
   const [plan, setPlan] = useState<(MigrationPlan & { analysis?: any }) | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [executionTimer, setExecutionTimer] = useState("00:00");
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [logEntries, setLogEntries] = useState<{ time: string; msg: string }[]>([]);
-  const logEndRef = useRef<HTMLDivElement | null>(null);
+  const [nowTick, setNowTick] = useState(() => Date.now());
 
   const availableRoutes = useMemo(() => {
     const connected = new Set<MigrationProvider>();
@@ -170,62 +230,11 @@ export default function Migrations() {
       .catch(() => {});
   }, [setMigrationHistory]);
 
-  // Timer for active migration
+  // Clock tick for elapsed/eta rendering
   useEffect(() => {
-    if (activeMigration && !["completed", "failed"].includes(activeMigration.status)) {
-      const startTime = activeMigration.startedAt
-        ? new Date(activeMigration.startedAt).getTime()
-        : Date.now();
-      timerRef.current = setInterval(() => {
-        const sec = Math.floor((Date.now() - startTime) / 1000);
-        const m = String(Math.floor(sec / 60)).padStart(2, "0");
-        const s = String(sec % 60).padStart(2, "0");
-        setExecutionTimer(`${m}:${s}`);
-      }, 1000);
-    } else if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-    };
-  }, [activeMigration]);
-
-  // Handle migration SSE events
-  useEffect(() => {
-    if (!events.length) return;
-    const latest = events[events.length - 1];
-    const ts = new Date(latest.timestamp).toLocaleTimeString();
-    const d = latest.data as Record<string, unknown>;
-
-    switch (latest.type) {
-      case "migration_started":
-        setLogEntries((prev) => [...prev, { time: ts, msg: `Migration started: ${d.vm_name || d.vm_id}` }]);
-        break;
-      case "migration_step":
-        setLogEntries((prev) => [...prev, { time: ts, msg: `${d.step}: ${d.detail || d.status}` }]);
-        break;
-      case "migration_completed": {
-        setLogEntries((prev) => [...prev, { time: ts, msg: "Migration completed successfully" }]);
-        if (activeMigration) {
-          const completed = { ...activeMigration, status: "completed" as const, completedAt: new Date().toISOString() };
-          completeMigration(completed);
-        }
-        break;
-      }
-      case "migration_failed":
-        setLogEntries((prev) => [...prev, { time: ts, msg: `Migration failed: ${d.error || "unknown"}` }]);
-        break;
-    }
-  }, [events, activeMigration, completeMigration]);
-
-  // Auto-scroll log
-  useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [logEntries]);
+    const timer = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   const handlePlan = async () => {
     if (!selectedVM) return;
@@ -250,28 +259,38 @@ export default function Migrations() {
 
     setLoading(true);
     setError(null);
-    setLogEntries([{ time: new Date().toLocaleTimeString(), msg: "Starting migration..." }]);
+    const localRunId = beginMigrationRun({
+      direction: selectedDirection,
+      vmId: selectedVM,
+      vmName: plan.vmConfig?.name || plan.source?.vmName || selectedVM,
+    });
 
     try {
       const result = await executeMigration(selectedDirection, selectedVM);
-      setActiveMigration(result);
-      if (result.status === "completed") {
-        completeMigration(result);
-        setLogEntries((prev) => [...prev, { time: new Date().toLocaleTimeString(), msg: "Migration completed" }]);
-      } else if (result.status === "failed") {
+      registerMigrationRun(result, {
+        localRunId,
+        direction: selectedDirection,
+        vmId: selectedVM,
+        vmName: plan.vmConfig?.name || plan.source?.vmName || selectedVM,
+      });
+
+      if (result.status === "failed") {
         setError(result.error || "Migration failed");
-        setLogEntries((prev) => [...prev, { time: new Date().toLocaleTimeString(), msg: `Failed: ${result.error}` }]);
       }
       setPlan(null);
       setSelectedVM("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Migration failed");
+      const message = err instanceof Error ? err.message : "Migration failed";
+      setError(message);
+      markMigrationRunFailed(localRunId, message);
     } finally {
       setLoading(false);
     }
   };
-
-  const isRunning = activeMigration && !["completed", "failed"].includes(activeMigration.status);
+  const displayedRuns = useMemo(
+    () => migrationRunOrder.map((runId) => migrationRuns[runId]).filter((run): run is MigrationLiveRun => run != null),
+    [migrationRunOrder, migrationRuns],
+  );
 
   return (
     <>
@@ -295,7 +314,7 @@ export default function Migrations() {
                 setPlan(null);
                 setError(null);
               }}
-              disabled={!!isRunning}
+              disabled={loading}
             >
               {availableRoutes.map((routeOption) => (
                 <option key={routeOption.id} value={routeOption.id}>
@@ -315,7 +334,7 @@ export default function Migrations() {
                 setSelectedVM(e.target.value);
                 setPlan(null);
               }}
-              disabled={!!isRunning}
+              disabled={loading}
             >
               <option value="">Select VM...</option>
               {vms.map((vm) => (
@@ -328,7 +347,7 @@ export default function Migrations() {
 
           <button
             className="btn-mig-plan"
-            disabled={!selectedVM || loading || !!isRunning}
+            disabled={!selectedVM || loading}
             onClick={handlePlan}
           >
             {loading && !plan ? "Planning..." : "Plan"}
@@ -336,7 +355,7 @@ export default function Migrations() {
 
           <button
             className="btn-mig-execute"
-            disabled={!plan || loading || !!isRunning || executeDisabledReason != null}
+            disabled={!plan || loading || executeDisabledReason != null}
             title={executeDisabledReason ?? "Execute migration"}
             onClick={handleExecute}
           >
@@ -493,42 +512,78 @@ export default function Migrations() {
           </div>
         )}
 
-        {/* Active Migration Execution */}
-        {(activeMigration || logEntries.length > 0) && (
-          <div className="mig-execution">
-            <div className="mig-exec-header">
-              <span className={`mig-exec-status ${activeMigration?.status || "completed"}`}>
-                {activeMigration?.status?.toUpperCase() || "COMPLETED"}
-              </span>
-              {isRunning && <span className="mig-exec-timer">{executionTimer}</span>}
-            </div>
-
-            {activeMigration?.steps && (
-              <div className="mig-exec-steps">
-                {activeMigration.steps.map((step) => (
-                  <div
-                    key={step.name}
-                    className={`mig-exec-step ${step.status}`}
-                  >
-                    <span className="mig-exec-step-icon">
-                      {step.status === "completed" ? "\u2713" : step.status === "failed" ? "\u2717" : step.status === "pending" ? "\u25CB" : "\u25CF"}
+        {/* Live Migration Progress */}
+        {displayedRuns.length > 0 && (
+          <div className="mig-progress-list" aria-live="polite">
+            {displayedRuns.map((run) => {
+              const elapsedMs = runElapsedMs(run, nowTick);
+              const progressPct = Math.max(0, Math.min(100, run.progressPct));
+              return (
+                <div key={run.id} className={`mig-progress-item ${run.status}`}>
+                  <div className="mig-progress-head">
+                    <div className="mig-progress-title">
+                      {run.vmName || run.vmId || run.migrationId}
+                    </div>
+                    <span className={`mig-progress-status ${run.status}`}>
+                      {migrationStatusLabel(run)}
                     </span>
-                    <span>{STEP_LABELS[step.name] || step.name}</span>
-                    {step.detail && <span className="mig-exec-step-detail">{step.detail}</span>}
                   </div>
-                ))}
-              </div>
-            )}
 
-            <div className="mig-exec-log">
-              {logEntries.map((entry, i) => (
-                <div key={i} className="mig-log-entry">
-                  <span className="mig-log-time">{entry.time}</span>
-                  <span>{entry.msg}</span>
+                  <div className="mig-progress-stage">{stageLabel(run.stage)}</div>
+
+                  <div
+                    className="mig-progress-bar"
+                    role="progressbar"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.round(progressPct)}
+                    aria-label={`Migration progress for ${run.vmName || run.migrationId}`}
+                  >
+                    <div className={`mig-progress-fill ${run.status}`} style={{ width: `${progressPct}%` }} />
+                  </div>
+
+                  <div className="mig-progress-meta">
+                    <span>{Math.round(progressPct)}%</span>
+                    <span>Elapsed {formatTimer(elapsedMs)}</span>
+                    <span>ETA {runEta(run, nowTick)}</span>
+                  </div>
+
+                  {run.message && (
+                    <div className="mig-progress-message">{run.message}</div>
+                  )}
+
+                  {run.status === "completed" && (run.amiId || run.instanceId || run.targetVmId) && (
+                    <div className="mig-progress-links">
+                      {run.amiId && (
+                        <a
+                          href={`https://console.aws.amazon.com/ec2/home?#ImageDetails:imageId=${encodeURIComponent(run.amiId)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          AMI {run.amiId}
+                        </a>
+                      )}
+                      {run.instanceId && (
+                        <a
+                          href={`https://console.aws.amazon.com/ec2/home?#InstanceDetails:instanceId=${encodeURIComponent(run.instanceId)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          EC2 {run.instanceId}
+                        </a>
+                      )}
+                      {!run.amiId && !run.instanceId && run.targetVmId && (
+                        <span>Target VM {run.targetVmId}</span>
+                      )}
+                    </div>
+                  )}
+
+                  {run.status === "failed" && run.error && (
+                    <div className="mig-progress-error">{run.error}</div>
+                  )}
                 </div>
-              ))}
-              <div ref={logEndRef} />
-            </div>
+              );
+            })}
           </div>
         )}
       </div>

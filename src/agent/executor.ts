@@ -17,6 +17,43 @@ import type { ToolRegistry } from "../tools/registry.js";
 import type { EventBus } from "./events.js";
 import type { SandboxManager } from "../security/sandbox.js";
 
+export type ExecutorTerminalErrorType =
+  | "tool_failure"
+  | "timeout"
+  | "exception"
+  | "limit_violation";
+
+export interface ExecutorRetryContext {
+  action: string;
+  attempt: number;
+  maxAttempts: number;
+  terminalErrorType: ExecutorTerminalErrorType;
+}
+
+export interface ExecutorRetryPolicy {
+  maxRetries: number;
+  baseBackoffMs: number;
+  maxBackoffMs: number;
+  jitterRatio: number;
+  retryOnTimeout: boolean;
+  retryableErrorPatterns: RegExp[];
+  retryableErrorFilter?: (error: string, context: ExecutorRetryContext) => boolean;
+}
+
+export interface ExecutorCallLimitPolicy {
+  maxToolCallsPerRun: number;
+  maxToolCallsPerPlan: number;
+}
+
+export interface ExecutorOptions {
+  reliability?: {
+    retry?: Partial<ExecutorRetryPolicy>;
+    limits?: Partial<ExecutorCallLimitPolicy>;
+  };
+  sleep?: (ms: number) => Promise<void>;
+  random?: () => number;
+}
+
 export interface GovernanceEngineRef {
   evaluate(
     action: string,
@@ -41,17 +78,80 @@ export interface GovernanceEngineRef {
   };
 }
 
+const DEFAULT_RETRYABLE_ERROR_PATTERNS: RegExp[] = [
+  /timeout/i,
+  /timed out/i,
+  /temporar/i,
+  /rate.?limit/i,
+  /\b429\b/,
+  /\b503\b/,
+  /econnreset/i,
+  /econnrefused/i,
+  /etimedout/i,
+  /enetunreach/i,
+  /ehostunreach/i,
+];
+
+const DEFAULT_RETRY_POLICY: ExecutorRetryPolicy = {
+  maxRetries: 2,
+  baseBackoffMs: 250,
+  maxBackoffMs: 4_000,
+  jitterRatio: 0.2,
+  retryOnTimeout: true,
+  retryableErrorPatterns: DEFAULT_RETRYABLE_ERROR_PATTERNS,
+};
+
+const DEFAULT_CALL_LIMIT_POLICY: ExecutorCallLimitPolicy = {
+  maxToolCallsPerRun: 200,
+  maxToolCallsPerPlan: 100,
+};
+
+type ToolResult = { success: boolean; data?: unknown; error?: string };
+
+type ToolExecutionOutcome =
+  | {
+      kind: "result";
+      toolResult: ToolResult;
+      attempts: number;
+      terminalErrorType?: ExecutorTerminalErrorType;
+    }
+  | {
+      kind: "timeout";
+      error: string;
+      attempts: number;
+      terminalErrorType: "timeout";
+    }
+  | {
+      kind: "exception";
+      error: string;
+      attempts: number;
+      terminalErrorType: "exception";
+    }
+  | {
+      kind: "limit_violation";
+      error: string;
+      attempts: number;
+      terminalErrorType: "limit_violation";
+    };
+
 export class Executor {
   private toolRegistry: ToolRegistry;
   private governance: GovernanceEngineRef;
   private eventBus: EventBus;
   private sandbox?: SandboxManager;
+  private readonly retryPolicy: ExecutorRetryPolicy;
+  private readonly callLimits: ExecutorCallLimitPolicy;
+  private readonly sleep: (ms: number) => Promise<void>;
+  private readonly random: () => number;
+  private readonly runCallCounts = new Map<string, number>();
+  private readonly planCallCounts = new Map<string, number>();
 
   constructor(
     toolRegistry: ToolRegistry,
     governance: GovernanceEngineRef,
     eventBus: EventBus,
     sandbox?: SandboxManager,
+    options?: ExecutorOptions,
   ) {
     this.toolRegistry = toolRegistry;
     this.governance = governance;
@@ -60,6 +160,43 @@ export class Executor {
       this.sandbox = sandbox;
       this.sandbox.setExecutor((tool, params) => this.toolRegistry.execute(tool, params));
     }
+
+    const retryPolicy = options?.reliability?.retry;
+    const limitPolicy = options?.reliability?.limits;
+
+    this.retryPolicy = {
+      maxRetries: this.normalizeInteger(retryPolicy?.maxRetries, DEFAULT_RETRY_POLICY.maxRetries, 0),
+      baseBackoffMs: this.normalizeInteger(
+        retryPolicy?.baseBackoffMs,
+        DEFAULT_RETRY_POLICY.baseBackoffMs,
+        0,
+      ),
+      maxBackoffMs: this.normalizeInteger(
+        retryPolicy?.maxBackoffMs,
+        DEFAULT_RETRY_POLICY.maxBackoffMs,
+        0,
+      ),
+      jitterRatio: this.normalizeFloat(retryPolicy?.jitterRatio, DEFAULT_RETRY_POLICY.jitterRatio, 0, 1),
+      retryOnTimeout: retryPolicy?.retryOnTimeout ?? DEFAULT_RETRY_POLICY.retryOnTimeout,
+      retryableErrorPatterns: retryPolicy?.retryableErrorPatterns ?? DEFAULT_RETRY_POLICY.retryableErrorPatterns,
+      retryableErrorFilter: retryPolicy?.retryableErrorFilter,
+    };
+
+    this.callLimits = {
+      maxToolCallsPerRun: this.normalizeInteger(
+        limitPolicy?.maxToolCallsPerRun,
+        DEFAULT_CALL_LIMIT_POLICY.maxToolCallsPerRun,
+        1,
+      ),
+      maxToolCallsPerPlan: this.normalizeInteger(
+        limitPolicy?.maxToolCallsPerPlan,
+        DEFAULT_CALL_LIMIT_POLICY.maxToolCallsPerPlan,
+        1,
+      ),
+    };
+
+    this.sleep = options?.sleep ?? this.defaultSleep;
+    this.random = options?.random ?? Math.random;
   }
 
   /**
@@ -208,43 +345,40 @@ export class Executor {
       // State capture is best-effort; continue execution
     }
 
-    // Execute the tool (via sandbox if available, otherwise direct)
-    let toolResult: { success: boolean; data?: unknown; error?: string };
-    try {
-      const outcome = await this.executeToolWithTimeout(
-        step.action,
-        step.params,
-        rollbackRequired ? rollbackTimeoutMs : undefined,
-      );
+    // Execute the tool with retry/limit policies.
+    const execution = await this.executeToolWithPolicies(
+      step,
+      planId,
+      runId,
+      rollbackRequired ? rollbackTimeoutMs : undefined,
+    );
 
-      if (outcome.timed_out) {
-        const result = this.buildFailedResult(
-          startTime,
-          `Tool execution timed out after ${rollbackTimeoutMs}ms`,
-          stateBefore,
-        );
-        this.governance.circuitBreaker.track(false);
-        this.emitStepFailed(step, result, planId, runId);
-        this.logAudit(step, mode, "failed", result, planId);
-        this.emitRollbackTrigger(
-          step,
-          result.error || "Tool execution timed out",
-          "timeout",
-          rollbackRequired,
-          rollbackTimeoutMs,
-          planId,
-          runId,
-        );
-        return result;
-      }
+    if (execution.kind === "limit_violation") {
+      const result = this.buildFailedResult(startTime, execution.error, stateBefore);
+      this.emitStepFailed(step, result, planId, runId);
+      this.logAudit(step, mode, "blocked", result, planId, execution.error);
+      return result;
+    }
 
-      toolResult = outcome.tool_result;
-    } catch (err) {
-      const result = this.buildFailedResult(
-        startTime,
-        `Tool execution threw: ${err instanceof Error ? err.message : String(err)}`,
-        stateBefore,
+    if (execution.kind === "timeout") {
+      const result = this.buildFailedResult(startTime, execution.error, stateBefore);
+      this.governance.circuitBreaker.track(false);
+      this.emitStepFailed(step, result, planId, runId);
+      this.logAudit(step, mode, "failed", result, planId);
+      this.emitRollbackTrigger(
+        step,
+        result.error || "Tool execution timed out",
+        "timeout",
+        rollbackRequired,
+        rollbackTimeoutMs,
+        planId,
+        runId,
       );
+      return result;
+    }
+
+    if (execution.kind === "exception") {
+      const result = this.buildFailedResult(startTime, execution.error, stateBefore);
       this.governance.circuitBreaker.track(false);
       this.emitStepFailed(step, result, planId, runId);
       this.logAudit(step, mode, "failed", result, planId);
@@ -259,6 +393,10 @@ export class Executor {
       );
       return result;
     }
+
+    const toolResult = execution.toolResult;
+    const terminalErrorType = execution.terminalErrorType ?? "tool_failure";
+    const attemptCount = execution.attempts;
 
     // Capture state after execution
     let stateAfter: Record<string, unknown> | undefined;
@@ -290,7 +428,11 @@ export class Executor {
     } else {
       const result: StepResult = {
         success: false,
-        error: toolResult.error || "Tool returned failure with no error message",
+        error: this.formatTerminalFailure(
+          toolResult.error || "Tool returned failure with no error message",
+          attemptCount,
+          terminalErrorType,
+        ),
         data: toolResult.data,
         duration_ms: durationMs,
         state_before: stateBefore,
@@ -387,6 +529,302 @@ export class Executor {
 
     return winner;
   }
+
+  private async executeToolWithPolicies(
+    step: PlanStep,
+    planId?: string,
+    runId?: string,
+    timeoutMs?: number,
+  ): Promise<ToolExecutionOutcome> {
+    const maxAttempts = this.retryPolicy.maxRetries + 1;
+    let attempts = 0;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const reservation = this.reserveToolCall(planId, runId);
+      if (!reservation.allowed) {
+        const scope = reservation.scope === "run" ? "run" : "plan/thread";
+        const error = `Tool-call limit exceeded for ${scope} scope (limit=${reservation.limit}, attempted_call=${reservation.attemptedCall}).`;
+        this.emitToolLimitViolation(step, reservation, planId, runId);
+        return {
+          kind: "limit_violation",
+          error,
+          attempts,
+          terminalErrorType: "limit_violation",
+        };
+      }
+
+      attempts++;
+      const outcome = await this.executeAttempt(step, timeoutMs);
+      if (outcome.kind === "result" && outcome.toolResult.success) {
+        return { kind: "result", toolResult: outcome.toolResult, attempts };
+      }
+
+      const shouldRetry = this.shouldRetryFailure(outcome, step.action, attempt, maxAttempts);
+      if (!shouldRetry || attempt >= maxAttempts) {
+        if (outcome.kind === "result") {
+          return {
+            kind: "result",
+            toolResult: outcome.toolResult,
+            attempts,
+            terminalErrorType: "tool_failure",
+          };
+        }
+        if (outcome.kind === "timeout") {
+          return {
+            kind: "timeout",
+            error: this.formatTerminalFailure(outcome.error, attempts, "timeout"),
+            attempts,
+            terminalErrorType: "timeout",
+          };
+        }
+        return {
+          kind: "exception",
+          error: this.formatTerminalFailure(outcome.error, attempts, "exception"),
+          attempts,
+          terminalErrorType: "exception",
+        };
+      }
+
+      const backoffMs = this.computeBackoffMs(attempt);
+      this.emitRetryAttempt(step, outcome, attempt, maxAttempts, backoffMs, planId, runId);
+      if (backoffMs > 0) {
+        await this.sleep(backoffMs);
+      }
+    }
+
+    return {
+      kind: "exception",
+      error: this.formatTerminalFailure(
+        "Retry loop exited unexpectedly",
+        attempts,
+        "exception",
+      ),
+      attempts,
+      terminalErrorType: "exception",
+    };
+  }
+
+  private async executeAttempt(
+    step: PlanStep,
+    timeoutMs?: number,
+  ): Promise<
+    | { kind: "result"; toolResult: ToolResult }
+    | { kind: "timeout"; error: string; terminalErrorType: "timeout" }
+    | { kind: "exception"; error: string; terminalErrorType: "exception" }
+  > {
+    try {
+      const outcome = await this.executeToolWithTimeout(
+        step.action,
+        step.params,
+        timeoutMs,
+      );
+
+      if (outcome.timed_out) {
+        return {
+          kind: "timeout",
+          error: outcome.tool_result.error,
+          terminalErrorType: "timeout",
+        };
+      }
+
+      return {
+        kind: "result",
+        toolResult: outcome.tool_result,
+      };
+    } catch (err) {
+      return {
+        kind: "exception",
+        error: `Tool execution threw: ${err instanceof Error ? err.message : String(err)}`,
+        terminalErrorType: "exception",
+      };
+    }
+  }
+
+  private shouldRetryFailure(
+    outcome:
+      | { kind: "result"; toolResult: ToolResult }
+      | { kind: "timeout"; error: string; terminalErrorType: "timeout" }
+      | { kind: "exception"; error: string; terminalErrorType: "exception" },
+    action: string,
+    attempt: number,
+    maxAttempts: number,
+  ): boolean {
+    if (outcome.kind === "timeout" && !this.retryPolicy.retryOnTimeout) {
+      return false;
+    }
+
+    const error = outcome.kind === "result"
+      ? outcome.toolResult.error || "Tool returned failure with no error message"
+      : outcome.error;
+
+    const terminalErrorType: ExecutorTerminalErrorType = outcome.kind === "result"
+      ? "tool_failure"
+      : outcome.terminalErrorType;
+
+    const context: ExecutorRetryContext = {
+      action,
+      attempt,
+      maxAttempts,
+      terminalErrorType,
+    };
+
+    if (this.retryPolicy.retryableErrorFilter) {
+      return this.retryPolicy.retryableErrorFilter(error, context);
+    }
+
+    return this.retryPolicy.retryableErrorPatterns.some((pattern) => pattern.test(error));
+  }
+
+  private formatTerminalFailure(
+    error: string,
+    attempts: number,
+    terminalErrorType: ExecutorTerminalErrorType,
+  ): string {
+    return `Tool execution failed after ${attempts} attempt(s) (terminal_error_type=${terminalErrorType}): ${error}`;
+  }
+
+  private computeBackoffMs(attempt: number): number {
+    const exponential = this.retryPolicy.baseBackoffMs * (2 ** Math.max(0, attempt - 1));
+    const capped = Math.min(exponential, this.retryPolicy.maxBackoffMs);
+    const jitterWindow = capped * this.retryPolicy.jitterRatio;
+    const jitter = jitterWindow > 0
+      ? ((this.random() * 2) - 1) * jitterWindow
+      : 0;
+    return Math.max(0, Math.round(capped + jitter));
+  }
+
+  private reserveToolCall(
+    planId?: string,
+    runId?: string,
+  ):
+    | { allowed: true }
+    | {
+      allowed: false;
+      scope: "run" | "plan";
+      limit: number;
+      attemptedCall: number;
+    } {
+    const runKey = runId || null;
+    let previousRunCount = 0;
+    if (runKey) {
+      previousRunCount = this.runCallCounts.get(runKey) ?? 0;
+      if (previousRunCount >= this.callLimits.maxToolCallsPerRun) {
+        return {
+          allowed: false,
+          scope: "run",
+          limit: this.callLimits.maxToolCallsPerRun,
+          attemptedCall: previousRunCount + 1,
+        };
+      }
+      this.runCallCounts.set(runKey, previousRunCount + 1);
+    }
+
+    const planKey = planId ?? `thread:${runId ?? "default"}`;
+    const previousPlanCount = this.planCallCounts.get(planKey) ?? 0;
+    if (previousPlanCount >= this.callLimits.maxToolCallsPerPlan) {
+      if (runKey) {
+        if (previousRunCount === 0) {
+          this.runCallCounts.delete(runKey);
+        } else {
+          this.runCallCounts.set(runKey, previousRunCount);
+        }
+      }
+      return {
+        allowed: false,
+        scope: "plan",
+        limit: this.callLimits.maxToolCallsPerPlan,
+        attemptedCall: previousPlanCount + 1,
+      };
+    }
+
+    this.planCallCounts.set(planKey, previousPlanCount + 1);
+    return { allowed: true };
+  }
+
+  private emitRetryAttempt(
+    step: PlanStep,
+    outcome:
+      | { kind: "result"; toolResult: ToolResult }
+      | { kind: "timeout"; error: string; terminalErrorType: "timeout" }
+      | { kind: "exception"; error: string; terminalErrorType: "exception" },
+    attempt: number,
+    maxAttempts: number,
+    backoffMs: number,
+    planId?: string,
+    runId?: string,
+  ): void {
+    const error = outcome.kind === "result"
+      ? outcome.toolResult.error || "Tool returned failure with no error message"
+      : outcome.error;
+    const terminalErrorType = outcome.kind === "result"
+      ? "tool_failure"
+      : outcome.terminalErrorType;
+
+    this.eventBus.emit({
+      type: AgentEventType.MetricRecorded,
+      timestamp: new Date().toISOString(),
+      data: {
+        metric: "executor_tool_retry_attempt",
+        step_id: step.id,
+        action: step.action,
+        attempt,
+        max_attempts: maxAttempts,
+        backoff_ms: backoffMs,
+        terminal_error_type: terminalErrorType,
+        error,
+        plan_id: planId,
+        run_id: runId,
+      },
+    });
+  }
+
+  private emitToolLimitViolation(
+    step: PlanStep,
+    reservation: {
+      allowed: false;
+      scope: "run" | "plan";
+      limit: number;
+      attemptedCall: number;
+    },
+    planId?: string,
+    runId?: string,
+  ): void {
+    this.eventBus.emit({
+      type: AgentEventType.MetricRecorded,
+      timestamp: new Date().toISOString(),
+      data: {
+        metric: "executor_tool_call_limit_violation",
+        step_id: step.id,
+        action: step.action,
+        scope: reservation.scope,
+        limit: reservation.limit,
+        attempted_call: reservation.attemptedCall,
+        plan_id: planId,
+        run_id: runId,
+      },
+    });
+  }
+
+  private normalizeInteger(value: number | undefined, fallback: number, min: number): number {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return fallback;
+    }
+    return Math.max(min, Math.floor(value));
+  }
+
+  private normalizeFloat(value: number | undefined, fallback: number, min: number, max: number): number {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return fallback;
+    }
+    return Math.min(max, Math.max(min, value));
+  }
+
+  private readonly defaultSleep = async (ms: number): Promise<void> => {
+    if (ms <= 0) return;
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, ms);
+    });
+  };
 
   private emitRollbackTrigger(
     step: PlanStep,

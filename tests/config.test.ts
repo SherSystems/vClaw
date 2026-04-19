@@ -31,6 +31,9 @@ describe("getConfig", () => {
     expect(config.dashboard.port).toBe(3000);
     expect(config.autopilot.enabled).toBe(false);
     expect(config.autopilot.pollIntervalMs).toBe(30000);
+    expect(config.executor.maxRetries).toBe(2);
+    expect(config.executor.maxToolCallsPerRun).toBe(200);
+    expect(config.executor.maxToolCallsPerPlan).toBe(100);
   });
 
   it("reads PROXMOX_HOST from env", async () => {
@@ -162,6 +165,15 @@ describe("getConfig", () => {
         },
         dashboard: { port: 3000 },
         autopilot: { pollIntervalMs: 30000, enabled: false },
+        executor: {
+          maxRetries: 2,
+          retryBaseBackoffMs: 250,
+          retryMaxBackoffMs: 4000,
+          retryJitterRatio: 0.2,
+          retryOnTimeout: true,
+          maxToolCallsPerRun: 200,
+          maxToolCallsPerPlan: 100,
+        },
       },
       mockVault as never,
     );

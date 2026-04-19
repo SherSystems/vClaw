@@ -179,6 +179,16 @@ export interface ImportTaskInfo {
   statusMessage?: string;
   progress?: string;
   snapshotId?: string;
+  imageId?: string;
+  description?: string;
+}
+
+export interface ImportSnapshotTaskInfo {
+  importTaskId: string;
+  status: string;
+  statusMessage?: string;
+  progress?: string;
+  snapshotId?: string;
   description?: string;
 }
 

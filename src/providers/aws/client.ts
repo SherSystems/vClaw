@@ -25,6 +25,9 @@ import {
   DescribeSecurityGroupsCommand,
   ImportImageCommand,
   DescribeImportImageTasksCommand,
+  ImportSnapshotCommand,
+  DescribeImportSnapshotTasksCommand,
+  RegisterImageCommand,
   ExportImageCommand,
   DescribeExportImageTasksCommand,
   CreateTagsCommand,
@@ -60,6 +63,7 @@ import type {
   SecurityGroupInfo,
   SecurityGroupRule,
   ImportTaskInfo,
+  ImportSnapshotTaskInfo,
   ExportTaskInfo,
   BlockDeviceMapping,
   SecurityGroupReference,
@@ -394,7 +398,7 @@ export class AWSClient {
         Description: params.description,
         DiskContainers: [
           {
-            Format: params.format,
+            Format: params.format.toUpperCase(),
             UserBucket: {
               S3Bucket: params.s3Bucket,
               S3Key: params.s3Key,
@@ -406,6 +410,31 @@ export class AWSClient {
 
     if (!resp.ImportTaskId) {
       throw new Error("Failed to import image — no importTaskId returned");
+    }
+    return resp.ImportTaskId;
+  }
+
+  async importSnapshot(params: {
+    s3Bucket: string;
+    s3Key: string;
+    format: string;
+    description?: string;
+  }): Promise<string> {
+    const resp = await this.ec2.send(
+      new ImportSnapshotCommand({
+        Description: params.description,
+        DiskContainer: {
+          Format: params.format.toUpperCase(),
+          UserBucket: {
+            S3Bucket: params.s3Bucket,
+            S3Key: params.s3Key,
+          },
+        },
+      })
+    );
+
+    if (!resp.ImportTaskId) {
+      throw new Error("Failed to import snapshot — no importTaskId returned");
     }
     return resp.ImportTaskId;
   }
@@ -423,8 +452,62 @@ export class AWSClient {
       statusMessage: task.StatusMessage,
       progress: task.Progress,
       snapshotId: task.SnapshotDetails?.[0]?.SnapshotId,
+      imageId: task.ImageId,
       description: task.Description,
     }));
+  }
+
+  async describeImportSnapshotTasks(taskIds?: string[]): Promise<ImportSnapshotTaskInfo[]> {
+    const resp = await this.ec2.send(
+      new DescribeImportSnapshotTasksCommand({
+        ImportTaskIds: taskIds,
+      })
+    );
+
+    return (resp.ImportSnapshotTasks ?? []).map((task) => ({
+      importTaskId: task.ImportTaskId ?? "",
+      status: task.SnapshotTaskDetail?.Status ?? "",
+      statusMessage: task.SnapshotTaskDetail?.StatusMessage,
+      progress: task.SnapshotTaskDetail?.Progress,
+      snapshotId: task.SnapshotTaskDetail?.SnapshotId,
+      description: task.Description,
+    }));
+  }
+
+  async registerImageFromSnapshot(params: {
+    snapshotId: string;
+    name: string;
+    description?: string;
+    architecture?: "i386" | "x86_64" | "arm64" | "x86_64_mac" | "arm64_mac";
+    rootDeviceName?: string;
+    virtualizationType?: "hvm" | "paravirtual";
+    enaSupport?: boolean;
+    bootMode?: "legacy-bios" | "uefi" | "uefi-preferred";
+  }): Promise<string> {
+    const imageResp = await this.ec2.send(
+      new RegisterImageCommand({
+        Name: params.name,
+        Description: params.description,
+        Architecture: params.architecture ?? "x86_64",
+        RootDeviceName: params.rootDeviceName ?? "/dev/sda1",
+        VirtualizationType: params.virtualizationType ?? "hvm",
+        EnaSupport: params.enaSupport ?? true,
+        BootMode: params.bootMode ?? "uefi-preferred",
+        BlockDeviceMappings: [
+          {
+            DeviceName: params.rootDeviceName ?? "/dev/sda1",
+            Ebs: {
+              SnapshotId: params.snapshotId,
+              DeleteOnTermination: true,
+            },
+          },
+        ],
+      })
+    );
+    if (!imageResp.ImageId) {
+      throw new Error("Failed to register image — no imageId returned");
+    }
+    return imageResp.ImageId;
   }
 
   async exportImage(
@@ -468,6 +551,34 @@ export class AWSClient {
 
   // ── S3 ─────────────────────────────────────────────────────
 
+  async uploadStreamToS3(
+    body: Readable,
+    bucket: string,
+    key: string,
+    totalBytes?: number,
+    onProgress?: (loaded: number, total: number) => void
+  ): Promise<void> {
+    const upload = new Upload({
+      client: this.s3,
+      params: {
+        Bucket: bucket,
+        Key: key,
+        Body: body,
+      },
+      queueSize: 8,
+      partSize: 64 * 1024 * 1024, // 64 MiB parts
+    });
+
+    if (onProgress) {
+      upload.on("httpUploadProgress", (progress) => {
+        const loaded = progress.loaded ?? 0;
+        onProgress(loaded, totalBytes ?? loaded);
+      });
+    }
+
+    await upload.done();
+  }
+
   async uploadToS3(
     localPath: string,
     bucket: string,
@@ -476,25 +587,7 @@ export class AWSClient {
   ): Promise<void> {
     const fileSize = (await stat(localPath)).size;
     const body = createReadStream(localPath);
-
-    const upload = new Upload({
-      client: this.s3,
-      params: {
-        Bucket: bucket,
-        Key: key,
-        Body: body,
-      },
-      queueSize: 4,
-      partSize: 10 * 1024 * 1024, // 10 MiB parts
-    });
-
-    if (onProgress) {
-      upload.on("httpUploadProgress", (progress) => {
-        onProgress(progress.loaded ?? 0, fileSize);
-      });
-    }
-
-    await upload.done();
+    await this.uploadStreamToS3(body, bucket, key, fileSize, onProgress);
   }
 
   async downloadFromS3(

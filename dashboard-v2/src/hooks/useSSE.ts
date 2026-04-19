@@ -15,6 +15,7 @@ const EVENT_TYPES = [
   "chaos_completed", "chaos_failed",
   "health_check",
   "migration_started", "migration_step", "migration_completed", "migration_failed",
+  "migration_progress", "MigrationProgress", "MigrationCompleted", "MigrationFailed",
 ] as const;
 
 type StoreSnapshot = ReturnType<typeof useStore.getState>;
@@ -42,6 +43,10 @@ export function parseAgentSseMessage(raw: string): AgentEvent | null {
 
 export function applySseEvent(event: AgentEvent, s: StoreSnapshot) {
   const d = event.data;
+  const normalizedMigrationType = event.type
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/-/g, "_")
+    .toLowerCase();
 
   // Add to event stream
   s.addEvent(event);
@@ -215,6 +220,7 @@ export function applySseEvent(event: AgentEvent, s: StoreSnapshot) {
       break;
 
     case "migration_started":
+      s.applyMigrationEvent(event.type, d, event.timestamp);
       s.addToast({
         type: "info",
         title: "Migration Started",
@@ -223,10 +229,17 @@ export function applySseEvent(event: AgentEvent, s: StoreSnapshot) {
       break;
 
     case "migration_step":
-      // Step updates are handled by the Migrations component via events
+      s.applyMigrationEvent(event.type, d, event.timestamp);
+      break;
+
+    case "migration_progress":
+    case "MigrationProgress":
+      s.applyMigrationEvent(event.type, d, event.timestamp);
       break;
 
     case "migration_completed":
+    case "MigrationCompleted":
+      s.applyMigrationEvent(event.type, d, event.timestamp);
       s.addToast({
         type: "success",
         title: "Migration Complete",
@@ -237,11 +250,18 @@ export function applySseEvent(event: AgentEvent, s: StoreSnapshot) {
       break;
 
     case "migration_failed":
+    case "MigrationFailed":
+      s.applyMigrationEvent(event.type, d, event.timestamp);
       s.addToast({
         type: "error",
         title: "Migration Failed",
         message: (d.error as string) || "Migration failed",
       });
+      break;
+    default:
+      if (normalizedMigrationType === "migration_progress") {
+        s.applyMigrationEvent(event.type, d, event.timestamp);
+      }
       break;
   }
 }
@@ -270,16 +290,20 @@ export function useSSE() {
 
       for (const type of EVENT_TYPES) {
         es.addEventListener(type, (e) => {
-          const parsed = safeParseSseData((e as MessageEvent).data);
-          if (!parsed || typeof parsed !== "object") return;
-          applySseEvent(
-            {
-              type,
-              timestamp: new Date().toISOString(),
-              data: parsed as Record<string, unknown>,
-            },
-            useStore.getState(),
-          );
+          const raw = (e as MessageEvent).data;
+          const parsedEvent = parseAgentSseMessage(raw);
+          if (parsedEvent) {
+            applySseEvent(parsedEvent, useStore.getState());
+            return;
+          }
+
+          const parsedData = safeParseSseData(raw);
+          if (!parsedData || typeof parsedData !== "object") return;
+          applySseEvent({
+            type,
+            timestamp: new Date().toISOString(),
+            data: parsedData as Record<string, unknown>,
+          }, useStore.getState());
         });
       }
     }

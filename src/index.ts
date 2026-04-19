@@ -230,6 +230,21 @@ async function main() {
       apiKey: config.ai.apiKey,
       model: config.ai.model,
     },
+    executorOptions: {
+      reliability: {
+        retry: {
+          maxRetries: config.executor.maxRetries,
+          baseBackoffMs: config.executor.retryBaseBackoffMs,
+          maxBackoffMs: config.executor.retryMaxBackoffMs,
+          jitterRatio: config.executor.retryJitterRatio,
+          retryOnTimeout: config.executor.retryOnTimeout,
+        },
+        limits: {
+          maxToolCallsPerRun: config.executor.maxToolCallsPerRun,
+          maxToolCallsPerPlan: config.executor.maxToolCallsPerPlan,
+        },
+      },
+    },
   });
 
   // Handle shutdown
@@ -492,6 +507,13 @@ Environment (General):
   DASHBOARD_PORT                Dashboard port (default: 3000)
   AUTOPILOT_ENABLED             Enable autopilot (default: false)
   AUTOPILOT_POLL_INTERVAL_MS    Poll interval in ms (default: 30000)
+  EXECUTOR_MAX_RETRIES          Tool retry count (default: 2)
+  EXECUTOR_RETRY_BASE_BACKOFF_MS  Retry base delay ms (default: 250)
+  EXECUTOR_RETRY_MAX_BACKOFF_MS   Retry max delay ms (default: 4000)
+  EXECUTOR_RETRY_JITTER_RATIO     Retry jitter ratio 0..1 (default: 0.2)
+  EXECUTOR_RETRY_ON_TIMEOUT       Retry timed-out tool calls (default: true)
+  EXECUTOR_MAX_TOOL_CALLS_PER_RUN   Max tool calls per run (default: 200)
+  EXECUTOR_MAX_TOOL_CALLS_PER_PLAN  Max tool calls per plan/thread (default: 100)
 `);
       }
       break;

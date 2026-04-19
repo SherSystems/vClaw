@@ -213,6 +213,40 @@ describe("Planner", () => {
     );
   });
 
+  it("surfaces field-level schema errors for malformed step payloads", async () => {
+    callLLMMock.mockResolvedValue(
+      JSON.stringify({
+        steps: [
+          {
+            id: "s1",
+            action: 42,
+            params: {},
+            description: "Invalid step payload",
+            depends_on: "s0",
+          },
+        ],
+        reasoning: "invalid shape",
+        resource_estimate: { ram_mb: 1, disk_gb: 1, cpu_cores: 1, vms_created: 0, containers_created: 0 },
+      }),
+    );
+
+    await expect(planner.plan(makeGoal(), makeContext())).rejects.toThrow(
+      "Invalid LLM plan response schema: steps[0].action: Expected string, received number; steps[0].depends_on: Expected array, received string",
+    );
+  });
+
+  it("surfaces missing required top-level fields", async () => {
+    callLLMMock.mockResolvedValue(
+      JSON.stringify({
+        resource_estimate: { ram_mb: 1, disk_gb: 1, cpu_cores: 1, vms_created: 0, containers_created: 0 },
+      }),
+    );
+
+    await expect(planner.plan(makeGoal(), makeContext())).rejects.toThrow(
+      "Invalid LLM plan response schema: steps: Required; reasoning: Required",
+    );
+  });
+
   it("replans with incremented revision and previous plan linkage", async () => {
     callLLMMock.mockResolvedValue(
       JSON.stringify({

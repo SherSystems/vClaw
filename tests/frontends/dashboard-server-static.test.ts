@@ -123,7 +123,7 @@ const MIGRATION_DIRECTION_ROUTE_CASES: MigrationDirectionRouteCase[] = [
     direction: "azure_to_proxmox",
     vmId: "/subscriptions/sub/resourceGroups/rg-demo/providers/Microsoft.Compute/virtualMachines/api-1",
     idParam: "vm_id",
-    executable: false,
+    executable: true,
   },
   { direction: "aws_to_azure", vmId: "i-1234567890abcdef0", idParam: "instance_id", executable: false },
   {

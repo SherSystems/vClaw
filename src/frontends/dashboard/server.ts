@@ -1088,7 +1088,6 @@ export class DashboardServer {
       "vmware_to_azure",
       "aws_to_azure",
       "azure_to_vmware",
-      "azure_to_proxmox",
       "azure_to_aws",
     ]);
 

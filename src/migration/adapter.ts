@@ -1551,7 +1551,253 @@ export class MigrationAdapter implements InfraAdapter {
   }
 
   private async executeAzureToProxmox(params: Record<string, unknown>): Promise<ToolCallResult> {
-    return this.executeAzureExecutionScaffold("azure_to_proxmox", () => this.executePlanAzureToProxmox(params));
+    const vmId = params.vm_id as string;
+    if (!vmId) return { success: false, error: "vm_id is required" };
+    if (!this.config.azureClient) return { success: false, error: "Azure not configured" };
+
+    const azureClient = this.config.azureClient;
+    const proxmoxUser = this.config.proxmoxUser ?? "root";
+    const proxmoxStorage = this.config.proxmoxStorage ?? "local-lvm";
+    const workDir = "/tmp/vclaw-migration";
+    const stageDir = `${workDir}/azure-pve-${Date.now()}`;
+    const stagedVhdPath = `${stageDir}/disk.vhd`;
+    const stagedQcow2Path = `${stageDir}/disk.qcow2`;
+
+    const startedAt = new Date().toISOString();
+    const executionSteps: Array<{ name: string; status: "pending" | "completed" | "failed"; detail?: string; error?: string }> = [
+      { name: "capture_image", status: "pending" },
+      { name: "export_disk", status: "pending" },
+      { name: "download_disk", status: "pending" },
+      { name: "convert_disk", status: "pending" },
+      { name: "import_vm", status: "pending" },
+      { name: "cleanup", status: "pending" },
+    ];
+
+    const markStepComplete = (name: string, detail?: string) => {
+      const step = executionSteps.find((entry) => entry.name === name);
+      if (!step) return;
+      step.status = "completed";
+      if (detail) step.detail = detail;
+    };
+
+    const markStepFailed = (name: string, error: string) => {
+      const step = executionSteps.find((entry) => entry.name === name);
+      if (!step) return;
+      step.status = "failed";
+      step.error = error;
+    };
+
+    const markPendingCleanupSteps = (name: string, detail: string) => {
+      let reached = false;
+      for (const step of executionSteps) {
+        if (step.name === name) reached = true;
+        if (reached && step.status === "pending") {
+          step.status = "completed";
+          step.detail = detail;
+        }
+      }
+    };
+
+    let snapshotName = "";
+    let snapshotResourceGroup = "";
+    let snapshotSasUrl = "";
+    let createdSnapshot = false;
+    let snapshotAccessGranted = false;
+    let targetVmId: number | null = null;
+
+    try {
+      const azureSource = await this.getAzureSourceVM(vmId);
+      const osDiskId = azureSource.vm.osDiskId ?? azureSource.vmConfig.disks[0]?.sourcePath;
+      if (!osDiskId) {
+        throw new Error(`Azure VM ${azureSource.vm.name} has no attached OS disk`);
+      }
+
+      const osDiskRef = this.parseAzureDiskReference(osDiskId);
+      if (!osDiskRef) {
+        throw new Error("Unable to parse OS disk resource group/name from Azure disk id");
+      }
+      snapshotResourceGroup = osDiskRef.resourceGroup;
+      snapshotName = this.sanitizeAzureName(
+        `${azureSource.vm.name}-osdisk-snap-${Date.now()}`,
+        `azure-${Date.now()}-osdisk-snap`,
+        80,
+      );
+
+      const snapshot = await azureClient.createSnapshot({
+        resourceGroup: snapshotResourceGroup,
+        name: snapshotName,
+        sourceDiskId: osDiskId,
+        location: azureSource.vm.location,
+      });
+      createdSnapshot = true;
+      snapshotName = snapshot.name || snapshotName;
+      markStepComplete("capture_image", `Created snapshot ${snapshotName} from OS disk`);
+
+      snapshotSasUrl = await azureClient.grantSnapshotReadAccess(snapshotResourceGroup, snapshotName, 2 * 60 * 60);
+      snapshotAccessGranted = true;
+      markStepComplete("export_disk", "Granted read-only SAS access for snapshot export");
+
+      await this.config.sshExec(this.config.proxmoxHost, proxmoxUser, `mkdir -p ${stageDir}`, 10_000);
+      const downloadResult = await this.config.sshExec(
+        this.config.proxmoxHost,
+        proxmoxUser,
+        `curl --fail --location --retry 3 --retry-delay 2 --output ${JSON.stringify(stagedVhdPath)} ${JSON.stringify(snapshotSasUrl)}`,
+        7_200_000,
+      );
+      if (downloadResult.exitCode !== 0) {
+        throw new Error(`Failed to download Azure snapshot VHD: ${downloadResult.stderr || downloadResult.stdout}`);
+      }
+      markStepComplete("download_disk", `Downloaded Azure VHD to ${stagedVhdPath}`);
+
+      const converter = new DiskConverter(this.config.sshExec);
+      await converter.convert({
+        sshExec: this.config.sshExec,
+        host: this.config.proxmoxHost,
+        user: proxmoxUser,
+        sourcePath: stagedVhdPath,
+        targetPath: stagedQcow2Path,
+        sourceFormat: "vhd",
+        targetFormat: "qcow2",
+        timeoutMs: 7_200_000,
+      });
+      markStepComplete("convert_disk", `Converted VHD to ${stagedQcow2Path}`);
+
+      const { ProxmoxImporter } = await import("./proxmox-importer.js");
+      const proxmoxImporter = new ProxmoxImporter(this.config.proxmoxClient, this.config.sshExec);
+      targetVmId = await proxmoxImporter.getNextVMID(this.config.proxmoxHost, proxmoxUser);
+      const importResult = await proxmoxImporter.importVM(
+        {
+          node: this.config.proxmoxNode,
+          vmId: targetVmId,
+          storage: proxmoxStorage,
+          config: azureSource.vmConfig,
+          diskPath: stagedQcow2Path,
+        },
+        this.config.proxmoxHost,
+        proxmoxUser,
+      );
+      markStepComplete("import_vm", `Imported VM into Proxmox as VM ${importResult.vmId}`);
+
+      const cleanupWarnings: string[] = [];
+      if (snapshotAccessGranted) {
+        try {
+          await azureClient.revokeSnapshotAccess(snapshotResourceGroup, snapshotName);
+          snapshotAccessGranted = false;
+        } catch (cleanupErr) {
+          cleanupWarnings.push(
+            `revoke snapshot access ${snapshotName}: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`,
+          );
+        }
+      }
+      if (createdSnapshot) {
+        try {
+          await azureClient.deleteSnapshot(snapshotResourceGroup, snapshotName);
+          createdSnapshot = false;
+        } catch (cleanupErr) {
+          cleanupWarnings.push(
+            `delete snapshot ${snapshotName}: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`,
+          );
+        }
+      }
+      try {
+        await this.config.sshExec(this.config.proxmoxHost, proxmoxUser, `rm -rf ${JSON.stringify(stageDir)}`, 10_000);
+      } catch (cleanupErr) {
+        cleanupWarnings.push(
+          `remove Proxmox staging directory ${stageDir}: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`,
+        );
+      }
+      markStepComplete(
+        "cleanup",
+        cleanupWarnings.length > 0
+          ? `Cleanup completed with warnings: ${cleanupWarnings.join("; ")}`
+          : "Revoked snapshot access, deleted snapshot, and removed staging files",
+      );
+
+      return {
+        success: true,
+        data: {
+          id: `mig-${Date.now()}`,
+          source: {
+            provider: "azure",
+            vmId,
+            vmName: azureSource.vm.name,
+            host: "azure",
+            resourceGroup: azureSource.resourceGroup,
+          },
+          target: {
+            provider: "proxmox",
+            node: this.config.proxmoxNode,
+            host: this.config.proxmoxHost,
+            storage: proxmoxStorage,
+            vmId: targetVmId,
+          },
+          vmConfig: azureSource.vmConfig,
+          status: "completed",
+          steps: executionSteps,
+          startedAt,
+          completedAt: new Date().toISOString(),
+          metadata: {
+            snapshotName,
+            snapshotResourceGroup,
+            snapshotSasHost: snapshotSasUrl.split("?")[0],
+          },
+        },
+      };
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      const firstPendingStep = executionSteps.find((entry) => entry.status === "pending");
+      if (firstPendingStep) {
+        markStepFailed(firstPendingStep.name, errorMessage);
+        markPendingCleanupSteps(firstPendingStep.name, "Not executed due to earlier failure");
+      }
+
+      const cleanupFailures: string[] = [];
+      if (snapshotAccessGranted && snapshotResourceGroup && snapshotName) {
+        try {
+          await azureClient.revokeSnapshotAccess(snapshotResourceGroup, snapshotName);
+          snapshotAccessGranted = false;
+        } catch (cleanupErr) {
+          cleanupFailures.push(
+            `revoke snapshot access ${snapshotName}: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`,
+          );
+        }
+      }
+      if (createdSnapshot && snapshotResourceGroup && snapshotName) {
+        try {
+          await azureClient.deleteSnapshot(snapshotResourceGroup, snapshotName);
+          createdSnapshot = false;
+        } catch (cleanupErr) {
+          cleanupFailures.push(
+            `delete snapshot ${snapshotName}: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`,
+          );
+        }
+      }
+      try {
+        await this.config.sshExec(this.config.proxmoxHost, proxmoxUser, `rm -rf ${JSON.stringify(stageDir)}`, 10_000);
+      } catch (cleanupErr) {
+        cleanupFailures.push(
+          `remove Proxmox staging directory ${stageDir}: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`,
+        );
+      }
+
+      if (targetVmId !== null && executionSteps.find((step) => step.name === "import_vm")?.status !== "completed") {
+        try {
+          await this.config.proxmoxClient.deleteVM(this.config.proxmoxNode, targetVmId, true);
+        } catch (cleanupErr) {
+          cleanupFailures.push(
+            `delete partially-created Proxmox VM ${targetVmId}: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`,
+          );
+        }
+      }
+
+      const cleanupSuffix = cleanupFailures.length > 0
+        ? ` Cleanup warnings: ${cleanupFailures.join("; ")}`
+        : "";
+      return {
+        success: false,
+        error: `${errorMessage}${cleanupSuffix}`,
+      };
+    }
   }
 
   private async executeAzureToAWS(params: Record<string, unknown>): Promise<ToolCallResult> {
@@ -1738,8 +1984,19 @@ export class MigrationAdapter implements InfraAdapter {
     return null;
   }
 
+  private parseAzureDiskReference(diskId: string): { resourceGroup: string; diskName: string } | null {
+    const armMatch = diskId.match(
+      /\/resourceGroups\/([^/]+)\/providers\/Microsoft\.Compute\/disks\/([^/]+)/i,
+    );
+    if (!armMatch) return null;
+    return {
+      resourceGroup: decodeURIComponent(armMatch[1]),
+      diskName: decodeURIComponent(armMatch[2]),
+    };
+  }
+
   private async getAzureSourceVM(vmId: string): Promise<{
-    vm: { id: string; name: string; vmSize: string; osType?: "Linux" | "Windows" };
+    vm: { id: string; name: string; vmSize: string; location: string; osType?: "Linux" | "Windows"; osDiskId?: string };
     vmId: string;
     resourceGroup: string;
     vmConfig: {
@@ -1808,7 +2065,9 @@ export class MigrationAdapter implements InfraAdapter {
         id: vm.id,
         name: vm.name,
         vmSize: vm.vmSize,
+        location: vm.location,
         osType: vm.osType,
+        osDiskId: vm.osDiskId,
       },
       vmId,
       resourceGroup: ref.resourceGroup,

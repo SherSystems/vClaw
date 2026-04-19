@@ -33,7 +33,6 @@ const PLAN_ONLY_DIRECTIONS = new Set([
   "vmware_to_azure",
   "aws_to_azure",
   "azure_to_vmware",
-  "azure_to_proxmox",
   "azure_to_aws",
 ]);
 
@@ -86,7 +85,6 @@ describeLive("Live migration matrix (env-gated)", () => {
     "vmware_to_azure",
     "aws_to_azure",
     "azure_to_vmware",
-    "azure_to_proxmox",
     "azure_to_aws",
   ])(
     "returns explicit execute messaging for current Azure-involved direction %s",

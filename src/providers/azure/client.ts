@@ -461,6 +461,34 @@ export class AzureClient {
     };
   }
 
+  async grantSnapshotReadAccess(
+    resourceGroup: string,
+    snapshotName: string,
+    durationSeconds = 7200,
+  ): Promise<string> {
+    const result = await this.compute.snapshots.beginGrantAccessAndWait(
+      resourceGroup,
+      snapshotName,
+      {
+        access: "Read",
+        durationInSeconds: durationSeconds,
+      },
+    );
+    const accessSAS = result.accessSAS;
+    if (!accessSAS) {
+      throw new Error(`Azure snapshot access grant returned no SAS URL for ${snapshotName}`);
+    }
+    return accessSAS;
+  }
+
+  async revokeSnapshotAccess(resourceGroup: string, snapshotName: string): Promise<void> {
+    await this.compute.snapshots.beginRevokeAccessAndWait(resourceGroup, snapshotName);
+  }
+
+  async deleteSnapshot(resourceGroup: string, snapshotName: string): Promise<void> {
+    await this.compute.snapshots.beginDeleteAndWait(resourceGroup, snapshotName);
+  }
+
   // ── Images ─────────────────────────────────────────────────
 
   async listImages(resourceGroup?: string): Promise<AzureImageInfo[]> {

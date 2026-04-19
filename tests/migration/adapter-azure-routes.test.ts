@@ -396,4 +396,98 @@ describe("MigrationAdapter Azure direction routes", () => {
       }),
     );
   });
+
+  it("executes azure_to_proxmox migration with snapshot SAS export path", async () => {
+    const vmArmId = "/subscriptions/sub-1234/resourceGroups/vclaw-qa/providers/Microsoft.Compute/virtualMachines/Migration-TestVM";
+    const diskArmId = "/subscriptions/sub-1234/resourceGroups/vclaw-disks/providers/Microsoft.Compute/disks/migration-testvm-osdisk";
+
+    const sshExec = vi.fn(async (_host: string, _user: string, cmd: string) => {
+      if (cmd.includes("pvesh get /cluster/nextid")) {
+        return { stdout: "\"205\"\n", stderr: "", exitCode: 0 };
+      }
+      if (cmd.startsWith("qm importdisk")) {
+        return { stdout: "Successfully imported disk as 'unused0:local-lvm:vm-205-disk-0'\n", stderr: "", exitCode: 0 };
+      }
+      return { stdout: "", stderr: "", exitCode: 0 };
+    });
+
+    const azureClient = {
+      defaultLocation: "eastus",
+      getVM: vi.fn(async () => ({
+        id: vmArmId,
+        name: "Migration-TestVM",
+        resourceGroup: "vclaw-qa",
+        location: "eastus",
+        vmSize: "Standard_B2s",
+        powerState: "running",
+        provisioningState: "Succeeded",
+        networkInterfaceIds: [],
+        osDiskId: diskArmId,
+        dataDiskIds: [],
+        tags: {},
+        osType: "Linux",
+      })),
+      listDisks: vi.fn(async () => [
+        {
+          id: diskArmId,
+          name: "migration-testvm-osdisk",
+          resourceGroup: "vclaw-disks",
+          location: "eastus",
+          sizeGB: 64,
+          diskState: "Attached",
+          encrypted: false,
+          attachedVmId: vmArmId,
+        },
+      ]),
+      createSnapshot: vi.fn(async () => ({
+        id: "/subscriptions/sub-1234/resourceGroups/vclaw-disks/providers/Microsoft.Compute/snapshots/migration-testvm-snap",
+        name: "migration-testvm-snap",
+        resourceGroup: "vclaw-disks",
+        location: "eastus",
+        sizeGB: 64,
+        sourceDiskId: diskArmId,
+        provisioningState: "Succeeded",
+        encrypted: false,
+      })),
+      grantSnapshotReadAccess: vi.fn(async () => "https://storage.example/snap.vhd?sv=mock"),
+      revokeSnapshotAccess: vi.fn(async () => undefined),
+      deleteSnapshot: vi.fn(async () => undefined),
+    } as any;
+
+    const proxmoxClient = {
+      createVM: vi.fn(async () => "UPID:create"),
+      updateVMConfig: vi.fn(async () => undefined),
+      deleteVM: vi.fn(async () => "UPID:delete"),
+    } as any;
+
+    const adapter = createAdapter({
+      azureClient,
+      proxmoxClient,
+      sshExec: sshExec as any,
+      proxmoxStorage: "local-lvm",
+    });
+
+    const result = await adapter.execute("migrate_azure_to_proxmox", { vm_id: "vclaw-qa/Migration-TestVM" });
+
+    expect(result.success, String(result.error)).toBe(true);
+    expect(azureClient.createSnapshot).toHaveBeenCalled();
+    expect(azureClient.grantSnapshotReadAccess).toHaveBeenCalled();
+    expect(azureClient.revokeSnapshotAccess).toHaveBeenCalled();
+    expect(azureClient.deleteSnapshot).toHaveBeenCalled();
+    expect(sshExec).toHaveBeenCalledWith(
+      "192.168.86.50",
+      "root",
+      expect.stringContaining("curl --fail --location"),
+      7_200_000,
+    );
+    expect(proxmoxClient.createVM).toHaveBeenCalled();
+    expect(proxmoxClient.updateVMConfig).toHaveBeenCalled();
+    expect(result.data).toEqual(
+      expect.objectContaining({
+        status: "completed",
+        source: expect.objectContaining({ provider: "azure", vmId: "vclaw-qa/Migration-TestVM" }),
+        target: expect.objectContaining({ provider: "proxmox", vmId: 205 }),
+      }),
+    );
+  });
 });

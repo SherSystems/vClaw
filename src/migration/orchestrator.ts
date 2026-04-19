@@ -133,7 +133,7 @@ export class MigrationOrchestrator {
       complete(s1, `Exported config for "${exportResult.vmConfig.name}"`);
 
       if (exportResult.vmConfig.disks.length === 0) {
-        throw new Error("VM has no disks to migrate");
+        throw new Error("Source VM has no attached disks. Nothing to migrate.");
       }
 
       // ── Step 2: Power off source VM ─────────────────────
@@ -340,7 +340,7 @@ export class MigrationOrchestrator {
       complete(s1, `Exported config for "${exportResult.vmConfig.name}"`);
 
       if (exportResult.vmConfig.disks.length === 0) {
-        throw new Error("VM has no disks to migrate");
+        throw new Error("Source VM has no attached disks. Nothing to migrate.");
       }
 
       // ── Step 2: Power off source VM ─────────────────────

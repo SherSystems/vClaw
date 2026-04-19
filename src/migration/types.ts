@@ -17,15 +17,16 @@ export type DiskFormat = "vmdk" | "qcow2" | "raw" | "vdi" | "vhdx" | "vhd" | "ov
 export interface MigrationPlan {
   id: string;
   source: {
-    provider: "vmware" | "proxmox" | "aws";
+    provider: "vmware" | "proxmox" | "aws" | "azure";
     vmId: string;
     vmName: string;
     host: string;
     instanceId?: string; // AWS EC2 instance ID
     amiId?: string; // AWS AMI ID
+    resourceGroup?: string; // Azure resource group
   };
   target: {
-    provider: "vmware" | "proxmox" | "aws";
+    provider: "vmware" | "proxmox" | "aws" | "azure";
     node: string;
     host: string;
     storage: string;
@@ -34,6 +35,8 @@ export interface MigrationPlan {
     subnetId?: string; // AWS subnet
     securityGroupIds?: string[]; // AWS security groups
     amiId?: string; // AWS AMI (created during import)
+    vmSize?: string; // Azure VM size
+    resourceGroup?: string; // Azure resource group
   };
   vmConfig: MigrationVMConfig;
   status: MigrationStatus;

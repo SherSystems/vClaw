@@ -135,9 +135,10 @@ describe("VMwareExporter", () => {
 
   describe("transferDisk", () => {
     it("should SCP vmdk files from ESXi to target directory", async () => {
-      // mkdir + scp
+      // mkdir + canonicalize + scp
       (mockSshExec as ReturnType<typeof vi.fn>)
         .mockResolvedValueOnce(ok()) // mkdir
+        .mockResolvedValueOnce(ok("/vmfs/volumes/5f0f8f2c-12345678/vm")) // readlink -f
         .mockResolvedValueOnce(ok()); // scp
 
       const resultPath = await exporter.transferDisk(
@@ -160,18 +161,52 @@ describe("VMwareExporter", () => {
         10_000
       );
 
+      // canonical path resolution call on ESXi
+      expect(mockSshExec).toHaveBeenNthCalledWith(
+        2,
+        "192.168.86.37",
+        "root",
+        expect.stringContaining("readlink -f"),
+        10_000
+      );
+
       // scp call should use glob pattern for descriptor + flat vmdk
-      const scpCall = (mockSshExec as ReturnType<typeof vi.fn>).mock.calls[1];
+      const scpCall = (mockSshExec as ReturnType<typeof vi.fn>).mock.calls[2];
       expect(scpCall[0]).toBe("192.168.86.50");
       expect(scpCall[2]).toContain("scp");
       expect(scpCall[2]).toContain("root@192.168.86.37:");
+      expect(scpCall[2]).toContain("/vmfs/volumes/5f0f8f2c-12345678/vm/vm*.vmdk");
       expect(scpCall[2]).toContain("vm*.vmdk");
       expect(scpCall[2]).toContain("StrictHostKeyChecking=no");
+    });
+
+    it("should fall back to original VM directory when canonical path lookup fails", async () => {
+      (mockSshExec as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce(ok()) // mkdir
+        .mockResolvedValueOnce({
+          stdout: "",
+          stderr: "readlink: not found",
+          exitCode: 1,
+        }) // readlink -f
+        .mockResolvedValueOnce(ok()); // scp
+
+      await exporter.transferDisk(
+        "192.168.86.37",
+        "root",
+        "/vmfs/volumes/datastore1 (1)/vm/vm.vmdk",
+        "192.168.86.50",
+        "root",
+        "/tmp/staging"
+      );
+
+      const scpCall = (mockSshExec as ReturnType<typeof vi.fn>).mock.calls[2];
+      expect(scpCall[2]).toContain("/vmfs/volumes/datastore1 (1)/vm/vm*.vmdk");
     });
 
     it("should throw on transfer failure", async () => {
       (mockSshExec as ReturnType<typeof vi.fn>)
         .mockResolvedValueOnce(ok()) // mkdir
+        .mockResolvedValueOnce(ok("/vmfs/volumes/datastore1/vm")) // readlink -f
         .mockResolvedValueOnce({
           stdout: "",
           stderr: "Connection refused",

@@ -12,6 +12,7 @@ import type {
 import type { VSphereClient } from "../providers/vmware/client.js";
 import type { ProxmoxClient } from "../providers/proxmox/client.js";
 import type { AWSClient } from "../providers/aws/client.js";
+import type { AzureClient } from "../providers/azure/client.js";
 import type { SSHExecFn } from "./types.js";
 import { MigrationOrchestrator } from "./orchestrator.js";
 import { WorkloadAnalyzer } from "./workload-analyzer.js";
@@ -32,7 +33,25 @@ export interface MigrationAdapterConfig {
   awsClient?: AWSClient;
   awsS3Bucket?: string;
   awsS3Prefix?: string;
+  // Azure (optional — enables Azure migration planning/execution tools)
+  azureClient?: AzureClient;
 }
+
+const AZURE_VM_SIZE_CATALOG: Array<{ name: string; vCPU: number; memoryMiB: number }> = [
+  { name: "Standard_B1s", vCPU: 1, memoryMiB: 1024 },
+  { name: "Standard_B1ms", vCPU: 1, memoryMiB: 2048 },
+  { name: "Standard_B2s", vCPU: 2, memoryMiB: 4096 },
+  { name: "Standard_B2ms", vCPU: 2, memoryMiB: 8192 },
+  { name: "Standard_B4ms", vCPU: 4, memoryMiB: 16384 },
+  { name: "Standard_D2s_v5", vCPU: 2, memoryMiB: 8192 },
+  { name: "Standard_D4s_v5", vCPU: 4, memoryMiB: 16384 },
+  { name: "Standard_D8s_v5", vCPU: 8, memoryMiB: 32768 },
+  { name: "Standard_D16s_v5", vCPU: 16, memoryMiB: 65536 },
+  { name: "Standard_E2s_v5", vCPU: 2, memoryMiB: 16384 },
+  { name: "Standard_E4s_v5", vCPU: 4, memoryMiB: 32768 },
+  { name: "Standard_F2s_v2", vCPU: 2, memoryMiB: 4096 },
+  { name: "Standard_F4s_v2", vCPU: 4, memoryMiB: 8192 },
+];
 
 export class MigrationAdapter implements InfraAdapter {
   name = "migration";
@@ -276,6 +295,141 @@ export class MigrationAdapter implements InfraAdapter {
           returns: "WorkloadAnalysis with recommendations, cost estimates, and risks",
         },
       ] as ToolDefinition[] : []),
+      // ── Azure Migration Tools ─────────────────────────────
+      ...(this.config.azureClient ? [
+        {
+          name: "plan_migration_vmware_to_azure",
+          description:
+            "Dry-run planning for VMware → Azure migration. " +
+            "Reads VM config and returns an Azure target recommendation with migration steps.",
+          tier: "read" as const,
+          adapter: "migration",
+          params: [
+            { name: "vm_id", type: "string", required: true, description: "VMware VM identifier (e.g. vm-1234)" },
+          ],
+          returns: "WorkloadAnalysis with Azure target recommendations and migration steps",
+        },
+        {
+          name: "plan_migration_azure_to_vmware",
+          description:
+            "Dry-run planning for Azure → VMware migration. " +
+            "Reads Azure VM config and returns a VMware target recommendation with migration steps.",
+          tier: "read" as const,
+          adapter: "migration",
+          params: [
+            { name: "vm_id", type: "string", required: true, description: "Azure VM ARM id (or resourceGroup/vmName)" },
+          ],
+          returns: "WorkloadAnalysis with VMware target recommendations and migration steps",
+        },
+        {
+          name: "plan_migration_proxmox_to_azure",
+          description:
+            "Dry-run planning for Proxmox → Azure migration. " +
+            "Reads VM config and returns an Azure target recommendation with migration steps.",
+          tier: "read" as const,
+          adapter: "migration",
+          params: [
+            { name: "vm_id", type: "number", required: true, description: "Proxmox VMID (e.g. 112)" },
+          ],
+          returns: "WorkloadAnalysis with Azure target recommendations and migration steps",
+        },
+        {
+          name: "plan_migration_azure_to_proxmox",
+          description:
+            "Dry-run planning for Azure → Proxmox migration. " +
+            "Reads Azure VM config and returns a Proxmox target recommendation with migration steps.",
+          tier: "read" as const,
+          adapter: "migration",
+          params: [
+            { name: "vm_id", type: "string", required: true, description: "Azure VM ARM id (or resourceGroup/vmName)" },
+          ],
+          returns: "WorkloadAnalysis with Proxmox target recommendations and migration steps",
+        },
+        {
+          name: "plan_migration_aws_to_azure",
+          description:
+            "Dry-run planning for AWS → Azure migration. " +
+            "Reads EC2 instance config and returns an Azure target recommendation with migration steps.",
+          tier: "read" as const,
+          adapter: "migration",
+          params: [
+            { name: "instance_id", type: "string", required: true, description: "EC2 instance ID (e.g. i-0abc123)" },
+          ],
+          returns: "WorkloadAnalysis with Azure target recommendations and migration steps",
+        },
+        {
+          name: "plan_migration_azure_to_aws",
+          description:
+            "Dry-run planning for Azure → AWS migration. " +
+            "Reads Azure VM config and returns an AWS target recommendation with migration steps.",
+          tier: "read" as const,
+          adapter: "migration",
+          params: [
+            { name: "vm_id", type: "string", required: true, description: "Azure VM ARM id (or resourceGroup/vmName)" },
+          ],
+          returns: "WorkloadAnalysis with AWS target recommendations and migration steps",
+        },
+        {
+          name: "migrate_vmware_to_azure",
+          description: "Execute VMware → Azure migration run (backend execution path).",
+          tier: "risky_write" as const,
+          adapter: "migration",
+          params: [
+            { name: "vm_id", type: "string", required: true, description: "VMware VM identifier (e.g. vm-1234)" },
+          ],
+          returns: "MigrationPlan with run status and step details",
+        },
+        {
+          name: "migrate_azure_to_vmware",
+          description: "Execute Azure → VMware migration run (backend execution path).",
+          tier: "risky_write" as const,
+          adapter: "migration",
+          params: [
+            { name: "vm_id", type: "string", required: true, description: "Azure VM ARM id (or resourceGroup/vmName)" },
+          ],
+          returns: "MigrationPlan with run status and step details",
+        },
+        {
+          name: "migrate_proxmox_to_azure",
+          description: "Execute Proxmox → Azure migration run (backend execution path).",
+          tier: "risky_write" as const,
+          adapter: "migration",
+          params: [
+            { name: "vm_id", type: "number", required: true, description: "Proxmox VMID (e.g. 112)" },
+          ],
+          returns: "MigrationPlan with run status and step details",
+        },
+        {
+          name: "migrate_azure_to_proxmox",
+          description: "Execute Azure → Proxmox migration run (backend execution path).",
+          tier: "risky_write" as const,
+          adapter: "migration",
+          params: [
+            { name: "vm_id", type: "string", required: true, description: "Azure VM ARM id (or resourceGroup/vmName)" },
+          ],
+          returns: "MigrationPlan with run status and step details",
+        },
+        {
+          name: "migrate_aws_to_azure",
+          description: "Execute AWS → Azure migration run (backend execution path).",
+          tier: "risky_write" as const,
+          adapter: "migration",
+          params: [
+            { name: "instance_id", type: "string", required: true, description: "EC2 instance ID (e.g. i-0abc123)" },
+          ],
+          returns: "MigrationPlan with run status and step details",
+        },
+        {
+          name: "migrate_azure_to_aws",
+          description: "Execute Azure → AWS migration run (backend execution path).",
+          tier: "risky_write" as const,
+          adapter: "migration",
+          params: [
+            { name: "vm_id", type: "string", required: true, description: "Azure VM ARM id (or resourceGroup/vmName)" },
+          ],
+          returns: "MigrationPlan with run status and step details",
+        },
+      ] as ToolDefinition[] : []),
     ];
   }
 
@@ -305,6 +459,30 @@ export class MigrationAdapter implements InfraAdapter {
         return this.executeProxmoxToAWS(params);
       case "migrate_aws_to_proxmox":
         return this.executeAWSToProxmox(params);
+      case "plan_migration_vmware_to_azure":
+        return this.executePlanVMwareToAzure(params);
+      case "plan_migration_azure_to_vmware":
+        return this.executePlanAzureToVMware(params);
+      case "plan_migration_proxmox_to_azure":
+        return this.executePlanProxmoxToAzure(params);
+      case "plan_migration_azure_to_proxmox":
+        return this.executePlanAzureToProxmox(params);
+      case "plan_migration_aws_to_azure":
+        return this.executePlanAWSToAzure(params);
+      case "plan_migration_azure_to_aws":
+        return this.executePlanAzureToAWS(params);
+      case "migrate_vmware_to_azure":
+        return this.executeVMwareToAzure(params);
+      case "migrate_azure_to_vmware":
+        return this.executeAzureToVMware(params);
+      case "migrate_proxmox_to_azure":
+        return this.executeProxmoxToAzure(params);
+      case "migrate_azure_to_proxmox":
+        return this.executeAzureToProxmox(params);
+      case "migrate_aws_to_azure":
+        return this.executeAWSToAzure(params);
+      case "migrate_azure_to_aws":
+        return this.executeAzureToAWS(params);
       case "analyze_workload":
         return this.executeAnalyzeWorkload(params);
       default:
@@ -456,7 +634,7 @@ export class MigrationAdapter implements InfraAdapter {
   }
 
   private async executePlanAWSToVMware(params: Record<string, unknown>): Promise<ToolCallResult> {
-    const instanceId = params.instance_id as string;
+    const instanceId = (params.instance_id as string) ?? (params.vm_id as string);
     if (!instanceId) return { success: false, error: "instance_id is required" };
     if (!this.config.awsClient) return { success: false, error: "AWS not configured" };
 
@@ -523,13 +701,22 @@ export class MigrationAdapter implements InfraAdapter {
       const { VMwareExporter } = await import("./vmware-exporter.js");
       const exporter = new VMwareExporter(this.config.vsphereClient, this.config.sshExec);
       const exportResult = await exporter.exportVM(vmId, this.config.esxiHost, esxiUser);
+      const primaryDisk = exportResult.vmConfig.disks[0];
+
+      if (!primaryDisk) {
+        return { success: false, error: "Source VM has no attached disks. Nothing to migrate." };
+      }
+
+      if (typeof primaryDisk.sourcePath !== "string" || primaryDisk.sourcePath.trim().length === 0) {
+        return { success: false, error: "Source VM primary disk is missing source path. Nothing to migrate." };
+      }
 
       // Power off source VM
       try { await this.config.vsphereClient.vmPowerOff(vmId); } catch { /* may already be off */ }
       await new Promise(r => setTimeout(r, 3000));
 
       // Transfer disk to staging host (Proxmox)
-      const vmdkFsPath = exporter.datastorePathToFs(exportResult.vmConfig.disks[0].sourcePath);
+      const vmdkFsPath = exporter.datastorePathToFs(primaryDisk.sourcePath);
       const stageDir = `${workDir}/aws-mig-${Date.now()}`;
       await this.config.sshExec(this.config.proxmoxHost, proxmoxUser, `mkdir -p ${stageDir}`, 10_000);
       const stagedVmdk = await exporter.transferDisk(
@@ -578,7 +765,7 @@ export class MigrationAdapter implements InfraAdapter {
   }
 
   private async executeAWSToVMware(params: Record<string, unknown>): Promise<ToolCallResult> {
-    const instanceId = params.instance_id as string;
+    const instanceId = (params.instance_id as string) ?? (params.vm_id as string);
     if (!instanceId) return { success: false, error: "instance_id is required" };
     if (!this.config.awsClient) return { success: false, error: "AWS not configured" };
     if (!this.config.awsS3Bucket) return { success: false, error: "AWS S3 migration bucket not configured" };
@@ -685,7 +872,7 @@ export class MigrationAdapter implements InfraAdapter {
   }
 
   private async executePlanAWSToProxmox(params: Record<string, unknown>): Promise<ToolCallResult> {
-    const instanceId = params.instance_id as string;
+    const instanceId = (params.instance_id as string) ?? (params.vm_id as string);
     if (!instanceId) return { success: false, error: "instance_id is required" };
     if (!this.config.awsClient) return { success: false, error: "AWS not configured" };
 
@@ -806,7 +993,7 @@ export class MigrationAdapter implements InfraAdapter {
   }
 
   private async executeAWSToProxmox(params: Record<string, unknown>): Promise<ToolCallResult> {
-    const instanceId = params.instance_id as string;
+    const instanceId = (params.instance_id as string) ?? (params.vm_id as string);
     if (!instanceId) return { success: false, error: "instance_id is required" };
     if (!this.config.awsClient) return { success: false, error: "AWS not configured" };
     if (!this.config.awsS3Bucket) return { success: false, error: "AWS S3 migration bucket not configured" };
@@ -879,6 +1066,509 @@ export class MigrationAdapter implements InfraAdapter {
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : String(err) };
     }
+  }
+
+  private async executePlanVMwareToAzure(params: Record<string, unknown>): Promise<ToolCallResult> {
+    const vmId = params.vm_id as string;
+    if (!vmId) return { success: false, error: "vm_id is required" };
+    if (!this.config.azureClient) return { success: false, error: "Azure not configured" };
+
+    try {
+      const vmInfo = await this.config.vsphereClient.getVM(vmId);
+      const vmConfig = this.mapVMwareInfoToVMConfig(vmInfo);
+      const analysis = this.buildAzureTargetAnalysis(vmConfig);
+      const plan = this.buildAzureTargetPlan("vmware", vmId, vmInfo.name, this.config.esxiHost, vmConfig, analysis);
+      return { success: true, data: { plan, analysis } };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  private async executePlanProxmoxToAzure(params: Record<string, unknown>): Promise<ToolCallResult> {
+    const vmId = params.vm_id as number;
+    if (vmId === undefined || vmId === null) return { success: false, error: "vm_id is required" };
+    if (!this.config.azureClient) return { success: false, error: "Azure not configured" };
+
+    try {
+      const proxmoxUser = this.config.proxmoxUser ?? "root";
+      const { ProxmoxExporter } = await import("./proxmox-exporter.js");
+      const exporter = new ProxmoxExporter(this.config.proxmoxClient, this.config.sshExec);
+      const exportResult = await exporter.exportVM(
+        this.config.proxmoxNode, vmId, this.config.proxmoxHost, proxmoxUser,
+      );
+      const analysis = this.buildAzureTargetAnalysis(exportResult.vmConfig);
+      const plan = this.buildAzureTargetPlan(
+        "proxmox",
+        String(vmId),
+        exportResult.vmConfig.name,
+        this.config.proxmoxHost,
+        exportResult.vmConfig,
+        analysis,
+      );
+      return { success: true, data: { plan, analysis } };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  private async executePlanAWSToAzure(params: Record<string, unknown>): Promise<ToolCallResult> {
+    const instanceId = (params.instance_id as string) ?? (params.vm_id as string);
+    if (!instanceId) return { success: false, error: "instance_id is required" };
+    if (!this.config.awsClient) return { success: false, error: "AWS not configured" };
+    if (!this.config.azureClient) return { success: false, error: "Azure not configured" };
+
+    try {
+      const instance = await this.config.awsClient.getInstance(instanceId);
+      const volumeIds = instance.blockDeviceMappings?.map((b) => b.ebs?.volumeId).filter((v): v is string => !!v) ?? [];
+      const volumes = volumeIds.length > 0 ? await this.config.awsClient.listVolumes() : [];
+      const volumeMap = new Map(volumes.map((v) => [v.volumeId, v.size]));
+      const totalDiskGB = volumeIds.reduce((sum, volumeId) => sum + (volumeMap.get(volumeId) ?? 8), 0) || 8;
+      const vmConfig = this.mapAWSInstanceToVMConfig(instance.name, instance.instanceType, totalDiskGB, instance.platform);
+      const analysis = this.buildAzureTargetAnalysis(vmConfig);
+      const plan = this.buildAzureTargetPlan("aws", instanceId, instance.name, "aws", vmConfig, analysis);
+      return { success: true, data: { plan, analysis } };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  private async executePlanAzureToVMware(params: Record<string, unknown>): Promise<ToolCallResult> {
+    const vmId = params.vm_id as string;
+    if (!vmId) return { success: false, error: "vm_id is required" };
+    if (!this.config.azureClient) return { success: false, error: "Azure not configured" };
+
+    try {
+      const azureSource = await this.getAzureSourceVM(vmId);
+      const ebsVolumes = azureSource.totalDiskGB > 0 ? [{ sizeGB: azureSource.totalDiskGB }] : [{ sizeGB: 8 }];
+      const analysis = WorkloadAnalyzer.analyzeAWSForVMware(
+        "azure-custom",
+        ebsVolumes,
+        azureSource.vm.osType === "Windows" ? "windows" : "linux",
+      );
+      const plan = this.buildAzureSourcePlan(
+        "vmware",
+        azureSource,
+        analysis.target.recommended.cpuCount ?? azureSource.vmConfig.cpuCount,
+        analysis.target.recommended.memoryMiB ?? azureSource.vmConfig.memoryMiB,
+      );
+      return { success: true, data: { plan, analysis } };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  private async executePlanAzureToProxmox(params: Record<string, unknown>): Promise<ToolCallResult> {
+    const vmId = params.vm_id as string;
+    if (!vmId) return { success: false, error: "vm_id is required" };
+    if (!this.config.azureClient) return { success: false, error: "Azure not configured" };
+
+    try {
+      const azureSource = await this.getAzureSourceVM(vmId);
+      const ebsVolumes = azureSource.totalDiskGB > 0 ? [{ sizeGB: azureSource.totalDiskGB }] : [{ sizeGB: 8 }];
+      const analysis = WorkloadAnalyzer.analyzeAWSForVMware(
+        "azure-custom",
+        ebsVolumes,
+        azureSource.vm.osType === "Windows" ? "windows" : "linux",
+      );
+      const plan = this.buildAzureSourcePlan(
+        "proxmox",
+        azureSource,
+        analysis.target.recommended.cpuCount ?? azureSource.vmConfig.cpuCount,
+        analysis.target.recommended.memoryMiB ?? azureSource.vmConfig.memoryMiB,
+      );
+      return { success: true, data: { plan, analysis } };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  private async executePlanAzureToAWS(params: Record<string, unknown>): Promise<ToolCallResult> {
+    const vmId = params.vm_id as string;
+    if (!vmId) return { success: false, error: "vm_id is required" };
+    if (!this.config.azureClient) return { success: false, error: "Azure not configured" };
+
+    try {
+      const azureSource = await this.getAzureSourceVM(vmId);
+      const analysis = WorkloadAnalyzer.analyzeVMwareForAWS(azureSource.vmConfig);
+      const plan = {
+        id: `plan-${Date.now()}`,
+        source: {
+          provider: "azure",
+          vmId,
+          vmName: azureSource.vm.name,
+          host: "azure",
+          resourceGroup: azureSource.resourceGroup,
+        },
+        target: {
+          provider: "aws",
+          node: "aws",
+          host: "aws",
+          storage: "s3",
+          instanceType: analysis.target.recommended.instanceType,
+        },
+        vmConfig: azureSource.vmConfig,
+        status: "pending",
+        steps: [
+          { name: "capture_image", status: "pending" },
+          { name: "export_disk", status: "pending" },
+          { name: "upload_to_s3", status: "pending" },
+          { name: "import_ami", status: "pending" },
+          { name: "launch_instance", status: "pending" },
+          { name: "cleanup", status: "pending" },
+        ],
+      };
+      return { success: true, data: { plan, analysis } };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  private async executeVMwareToAzure(params: Record<string, unknown>): Promise<ToolCallResult> {
+    return this.executeAzureExecutionScaffold("vmware_to_azure", () => this.executePlanVMwareToAzure(params));
+  }
+
+  private async executeProxmoxToAzure(params: Record<string, unknown>): Promise<ToolCallResult> {
+    return this.executeAzureExecutionScaffold("proxmox_to_azure", () => this.executePlanProxmoxToAzure(params));
+  }
+
+  private async executeAWSToAzure(params: Record<string, unknown>): Promise<ToolCallResult> {
+    return this.executeAzureExecutionScaffold("aws_to_azure", () => this.executePlanAWSToAzure(params));
+  }
+
+  private async executeAzureToVMware(params: Record<string, unknown>): Promise<ToolCallResult> {
+    return this.executeAzureExecutionScaffold("azure_to_vmware", () => this.executePlanAzureToVMware(params));
+  }
+
+  private async executeAzureToProxmox(params: Record<string, unknown>): Promise<ToolCallResult> {
+    return this.executeAzureExecutionScaffold("azure_to_proxmox", () => this.executePlanAzureToProxmox(params));
+  }
+
+  private async executeAzureToAWS(params: Record<string, unknown>): Promise<ToolCallResult> {
+    return this.executeAzureExecutionScaffold("azure_to_aws", () => this.executePlanAzureToAWS(params));
+  }
+
+  private async executeAzureExecutionScaffold(
+    direction: string,
+    planBuilder: () => Promise<ToolCallResult>,
+  ): Promise<ToolCallResult> {
+    const planResult = await planBuilder();
+    if (!planResult.success) return planResult;
+    return {
+      success: false,
+      error:
+        `Execution pipeline for ${direction} has not been implemented yet. ` +
+        "Use the plan endpoint for validation and sizing until disk transfer/import is completed.",
+    };
+  }
+
+  private buildAzureTargetAnalysis(vmConfig: {
+    cpuCount: number;
+    memoryMiB: number;
+    disks: Array<{ capacityBytes: number }>;
+  }): {
+    target: { recommended: { vmSize: string; location: string } };
+    estimate: { monthlyUSD: number; diskGB: number };
+    risks: string[];
+  } {
+    const recommendation = this.pickAzureVMSize(vmConfig.cpuCount, vmConfig.memoryMiB);
+    const diskGB = Math.max(1, Math.ceil(
+      vmConfig.disks.reduce((sum, disk) => sum + (disk.capacityBytes || 0), 0) / (1024 ** 3),
+    ));
+    // Lightweight estimate used for planning UX only.
+    const monthlyUSD = Number(((recommendation.vCPU * 10) + (recommendation.memoryMiB / 1024 * 3)).toFixed(2));
+    return {
+      target: {
+        recommended: {
+          vmSize: recommendation.name,
+          location: this.config.azureClient?.defaultLocation ?? "eastus",
+        },
+      },
+      estimate: { monthlyUSD, diskGB },
+      risks: [
+        "Cross-cloud image export/import bandwidth can increase total migration time.",
+        "Guest drivers and network adapters may need post-cutover validation.",
+      ],
+    };
+  }
+
+  private pickAzureVMSize(cpuCount: number, memoryMiB: number): { name: string; vCPU: number; memoryMiB: number } {
+    const sorted = [...AZURE_VM_SIZE_CATALOG].sort((a, b) => (a.vCPU * a.memoryMiB) - (b.vCPU * b.memoryMiB));
+    for (const candidate of sorted) {
+      if (candidate.vCPU >= Math.max(1, cpuCount) && candidate.memoryMiB >= Math.max(1024, memoryMiB)) {
+        return candidate;
+      }
+    }
+    return sorted[sorted.length - 1];
+  }
+
+  private buildAzureTargetPlan(
+    sourceProvider: "vmware" | "proxmox" | "aws",
+    sourceId: string,
+    sourceName: string,
+    sourceHost: string,
+    vmConfig: {
+      name: string;
+      cpuCount: number;
+      coresPerSocket: number;
+      memoryMiB: number;
+      guestOS: string;
+      disks: Array<{ label: string; capacityBytes: number; sourcePath: string; sourceFormat: "vmdk" | "qcow2" | "raw" | "vdi" | "vhdx" | "vhd" | "ova"; targetFormat: "vmdk" | "qcow2" | "raw" | "vdi" | "vhdx" | "vhd" | "ova" }>;
+      nics: Array<{ label: string; macAddress: string; networkName: string; adapterType: string }>;
+      firmware: "bios" | "efi";
+    },
+    analysis: { target: { recommended: { vmSize: string; location: string } } },
+  ): Record<string, unknown> {
+    return {
+      id: `plan-${Date.now()}`,
+      source: {
+        provider: sourceProvider,
+        vmId: sourceId,
+        vmName: sourceName,
+        host: sourceHost,
+      },
+      target: {
+        provider: "azure",
+        node: analysis.target.recommended.location,
+        host: "azure",
+        storage: "managed-disk",
+        vmSize: analysis.target.recommended.vmSize,
+      },
+      vmConfig,
+      status: "pending",
+      steps: [
+        { name: "export_config", status: "pending" },
+        { name: "power_off", status: "pending" },
+        { name: "export_disk", status: "pending" },
+        { name: "upload_to_azure", status: "pending" },
+        { name: "create_managed_disk", status: "pending" },
+        { name: "create_vm", status: "pending" },
+        { name: "cleanup", status: "pending" },
+      ],
+    };
+  }
+
+  private buildAzureSourcePlan(
+    targetProvider: "vmware" | "proxmox",
+    source: {
+      vm: { name: string };
+      vmId: string;
+      vmConfig: {
+        name: string;
+        cpuCount: number;
+        coresPerSocket: number;
+        memoryMiB: number;
+        guestOS: string;
+        disks: Array<{ label: string; capacityBytes: number; sourcePath: string; sourceFormat: "vmdk" | "qcow2" | "raw" | "vdi" | "vhdx" | "vhd" | "ova"; targetFormat: "vmdk" | "qcow2" | "raw" | "vdi" | "vhdx" | "vhd" | "ova" }>;
+        nics: Array<{ label: string; macAddress: string; networkName: string; adapterType: string }>;
+        firmware: "bios" | "efi";
+      };
+      resourceGroup: string;
+    },
+    targetCpu: number,
+    targetMemoryMiB: number,
+  ): Record<string, unknown> {
+    const target = targetProvider === "vmware"
+      ? { node: this.config.esxiHost, host: this.config.esxiHost, storage: "" }
+      : { node: this.config.proxmoxNode, host: this.config.proxmoxHost, storage: this.config.proxmoxStorage || "local-lvm" };
+
+    return {
+      id: `plan-${Date.now()}`,
+      source: {
+        provider: "azure",
+        vmId: source.vmId,
+        vmName: source.vm.name,
+        host: "azure",
+        resourceGroup: source.resourceGroup,
+      },
+      target: {
+        provider: targetProvider,
+        ...target,
+      },
+      vmConfig: {
+        ...source.vmConfig,
+        cpuCount: targetCpu,
+        memoryMiB: targetMemoryMiB,
+      },
+      status: "pending",
+      steps: [
+        { name: "capture_image", status: "pending" },
+        { name: "export_disk", status: "pending" },
+        { name: "download_disk", status: "pending" },
+        { name: "convert_disk", status: "pending" },
+        { name: "import_vm", status: "pending" },
+        { name: "cleanup", status: "pending" },
+      ],
+    };
+  }
+
+  private parseAzureVMReference(vmId: string): { resourceGroup: string; vmName: string } | null {
+    const armMatch = vmId.match(
+      /\/resourceGroups\/([^/]+)\/providers\/Microsoft\.Compute\/virtualMachines\/([^/]+)/i,
+    );
+    if (armMatch) {
+      return {
+        resourceGroup: decodeURIComponent(armMatch[1]),
+        vmName: decodeURIComponent(armMatch[2]),
+      };
+    }
+
+    const slashSplit = vmId.split("/");
+    if (slashSplit.length === 2 && slashSplit[0] && slashSplit[1]) {
+      return { resourceGroup: slashSplit[0], vmName: slashSplit[1] };
+    }
+
+    return null;
+  }
+
+  private async getAzureSourceVM(vmId: string): Promise<{
+    vm: { id: string; name: string; vmSize: string; osType?: "Linux" | "Windows" };
+    vmId: string;
+    resourceGroup: string;
+    vmConfig: {
+      name: string;
+      cpuCount: number;
+      coresPerSocket: number;
+      memoryMiB: number;
+      guestOS: string;
+      disks: Array<{ label: string; capacityBytes: number; sourcePath: string; sourceFormat: "vmdk" | "qcow2" | "raw" | "vdi" | "vhdx" | "vhd" | "ova"; targetFormat: "vmdk" | "qcow2" | "raw" | "vdi" | "vhdx" | "vhd" | "ova" }>;
+      nics: Array<{ label: string; macAddress: string; networkName: string; adapterType: string }>;
+      firmware: "bios" | "efi";
+    };
+    totalDiskGB: number;
+  }> {
+    if (!this.config.azureClient) {
+      throw new Error("Azure not configured");
+    }
+
+    const ref = this.parseAzureVMReference(vmId);
+    if (!ref) {
+      throw new Error("vm_id must be an Azure ARM id or resourceGroup/vmName");
+    }
+
+    const vm = await this.config.azureClient.getVM(ref.resourceGroup, ref.vmName);
+    const size = AZURE_VM_SIZE_CATALOG.find((entry) => entry.name === vm.vmSize) ?? { name: vm.vmSize || "Standard_B2s", vCPU: 2, memoryMiB: 4096 };
+    const disks = await this.config.azureClient.listDisks(ref.resourceGroup);
+    const attachedDisks = disks.filter((disk) => disk.attachedVmId === vm.id);
+    const totalDiskGB = attachedDisks.reduce((sum, disk) => sum + Math.max(1, disk.sizeGB), 0) || 64;
+
+    const vmConfig = {
+      name: vm.name,
+      cpuCount: size.vCPU,
+      coresPerSocket: 1,
+      memoryMiB: size.memoryMiB,
+      guestOS: vm.osType === "Windows" ? "windows9Server64Guest" : "otherLinux64Guest",
+      disks: attachedDisks.length > 0
+        ? attachedDisks.map((disk) => ({
+          label: disk.name || "disk",
+          capacityBytes: Math.max(1, disk.sizeGB) * 1024 * 1024 * 1024,
+          sourcePath: disk.id,
+          sourceFormat: "vhd" as const,
+          targetFormat: "vmdk" as const,
+        }))
+        : [{
+          label: "osdisk",
+          capacityBytes: totalDiskGB * 1024 * 1024 * 1024,
+          sourcePath: "",
+          sourceFormat: "vhd" as const,
+          targetFormat: "vmdk" as const,
+        }],
+      nics: (vm.networkInterfaceIds ?? []).map((nicId, index) => ({
+        label: `nic-${index + 1}`,
+        macAddress: "",
+        networkName: nicId,
+        adapterType: "virtio",
+      })),
+      firmware: "efi" as const,
+    };
+
+    return {
+      vm: {
+        id: vm.id,
+        name: vm.name,
+        vmSize: vm.vmSize,
+        osType: vm.osType,
+      },
+      vmId,
+      resourceGroup: ref.resourceGroup,
+      vmConfig,
+      totalDiskGB,
+    };
+  }
+
+  private mapVMwareInfoToVMConfig(vmInfo: any): {
+    name: string;
+    cpuCount: number;
+    coresPerSocket: number;
+    memoryMiB: number;
+    guestOS: string;
+    disks: Array<{ label: string; capacityBytes: number; sourcePath: string; sourceFormat: "vmdk"; targetFormat: "vmdk" }>;
+    nics: Array<{ label: string; macAddress: string; networkName: string; adapterType: string }>;
+    firmware: "bios" | "efi";
+  } {
+    return {
+      name: vmInfo.name,
+      cpuCount: vmInfo.cpu.count,
+      coresPerSocket: vmInfo.cpu.cores_per_socket,
+      memoryMiB: vmInfo.memory.size_MiB,
+      guestOS: vmInfo.guest_OS,
+      disks: Object.values(vmInfo.disks ?? {}).map((d: any) => ({
+        label: d.label || "disk",
+        capacityBytes: d.capacity || 0,
+        sourcePath: "",
+        sourceFormat: "vmdk" as const,
+        targetFormat: "vmdk" as const,
+      })),
+      nics: Object.values(vmInfo.nics ?? {}).map((n: any) => ({
+        label: n.label || "nic",
+        macAddress: n.mac_address || "",
+        networkName: n.backing?.network_name || "",
+        adapterType: n.type || "vmxnet3",
+      })),
+      firmware: (vmInfo.boot?.type === "EFI" ? "efi" : "bios") as "efi" | "bios",
+    };
+  }
+
+  private mapAWSInstanceToVMConfig(
+    name: string,
+    instanceType: string,
+    totalDiskGB: number,
+    platform?: string,
+  ): {
+    name: string;
+    cpuCount: number;
+    coresPerSocket: number;
+    memoryMiB: number;
+    guestOS: string;
+    disks: Array<{ label: string; capacityBytes: number; sourcePath: string; sourceFormat: "vmdk"; targetFormat: "vmdk" }>;
+    nics: Array<{ label: string; macAddress: string; networkName: string; adapterType: string }>;
+    firmware: "bios" | "efi";
+  } {
+    const analysis = WorkloadAnalyzer.analyzeAWSForVMware(
+      instanceType,
+      [{ sizeGB: totalDiskGB }],
+      platform,
+    );
+    return {
+      name,
+      cpuCount: analysis.target.recommended.cpuCount ?? 2,
+      coresPerSocket: 1,
+      memoryMiB: analysis.target.recommended.memoryMiB ?? 4096,
+      guestOS: analysis.target.recommended.guestOS ?? "otherLinux64Guest",
+      disks: [{
+        label: "root",
+        capacityBytes: Math.max(1, totalDiskGB) * 1024 * 1024 * 1024,
+        sourcePath: "",
+        sourceFormat: "vmdk" as const,
+        targetFormat: "vmdk" as const,
+      }],
+      nics: [{
+        label: "eth0",
+        macAddress: "",
+        networkName: "default",
+        adapterType: "virtio",
+      }],
+      firmware: "bios" as const,
+    };
   }
 
   private async executeAnalyzeWorkload(params: Record<string, unknown>): Promise<ToolCallResult> {

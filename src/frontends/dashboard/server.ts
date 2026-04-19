@@ -952,29 +952,35 @@ export class DashboardServer {
         return;
       }
       const body = await this.parseBody(req);
-      const direction = body.direction as string;
+      const direction = this.normalizeMigrationDirection(body.direction);
       const vmId = body.vm_id;
 
-      if (!direction || !vmId) {
+      if (!direction || vmId === undefined || vmId === null || vmId === "") {
         this.json(res, { error: "Missing direction or vm_id" }, 400);
         return;
       }
 
-      const planToolMap: Record<string, string> = {
-        vmware_to_proxmox: "plan_migration_vmware_to_proxmox",
-        proxmox_to_vmware: "plan_migration_proxmox_to_vmware",
-        vmware_to_aws: "plan_migration_vmware_to_aws",
-        aws_to_vmware: "plan_migration_aws_to_vmware",
-        proxmox_to_aws: "plan_migration_proxmox_to_aws",
-        aws_to_proxmox: "plan_migration_aws_to_proxmox",
+      const planToolMap: Record<string, { tool: string; idParam: "vm_id" | "instance_id" }> = {
+        vmware_to_proxmox: { tool: "plan_migration_vmware_to_proxmox", idParam: "vm_id" },
+        proxmox_to_vmware: { tool: "plan_migration_proxmox_to_vmware", idParam: "vm_id" },
+        vmware_to_aws: { tool: "plan_migration_vmware_to_aws", idParam: "vm_id" },
+        aws_to_vmware: { tool: "plan_migration_aws_to_vmware", idParam: "instance_id" },
+        proxmox_to_aws: { tool: "plan_migration_proxmox_to_aws", idParam: "vm_id" },
+        aws_to_proxmox: { tool: "plan_migration_aws_to_proxmox", idParam: "instance_id" },
+        vmware_to_azure: { tool: "plan_migration_vmware_to_azure", idParam: "vm_id" },
+        azure_to_vmware: { tool: "plan_migration_azure_to_vmware", idParam: "vm_id" },
+        proxmox_to_azure: { tool: "plan_migration_proxmox_to_azure", idParam: "vm_id" },
+        azure_to_proxmox: { tool: "plan_migration_azure_to_proxmox", idParam: "vm_id" },
+        aws_to_azure: { tool: "plan_migration_aws_to_azure", idParam: "instance_id" },
+        azure_to_aws: { tool: "plan_migration_azure_to_aws", idParam: "vm_id" },
       };
-      const toolName = planToolMap[direction];
-      if (!toolName) {
+      const mapping = planToolMap[direction];
+      if (!mapping) {
         this.json(res, { error: `Unsupported migration direction: ${direction}` }, 400);
         return;
       }
 
-      const result = await this.migrationAdapter.execute(toolName, { vm_id: vmId });
+      const result = await this.migrationAdapter.execute(mapping.tool, { [mapping.idParam]: vmId });
       if (!result.success) {
         this.json(res, { error: result.error }, 400);
         return;
@@ -984,7 +990,8 @@ export class DashboardServer {
       // AWS plan tools return { plan, analysis }, others return the plan directly
       const plan = data.plan || data;
       const analysis = data.analysis || null;
-      this.json(res, { ...plan, direction, analysis });
+      const executability = this.getPlanExecutability(direction);
+      this.json(res, { ...plan, direction, analysis, ...executability });
     } catch (err) {
       console.error("[DashboardServer] Migration plan error:", err);
       this.json(res, { error: "Failed to create migration plan" }, 500);
@@ -998,24 +1005,30 @@ export class DashboardServer {
         return;
       }
       const body = await this.parseBody(req);
-      const direction = body.direction as string;
+      const direction = this.normalizeMigrationDirection(body.direction);
       const vmId = body.vm_id;
 
-      if (!direction || !vmId) {
+      if (!direction || vmId === undefined || vmId === null || vmId === "") {
         this.json(res, { error: "Missing direction or vm_id" }, 400);
         return;
       }
 
-      const execToolMap: Record<string, string> = {
-        vmware_to_proxmox: "migrate_vmware_to_proxmox",
-        proxmox_to_vmware: "migrate_proxmox_to_vmware",
-        vmware_to_aws: "migrate_vmware_to_aws",
-        aws_to_vmware: "migrate_aws_to_vmware",
-        proxmox_to_aws: "migrate_proxmox_to_aws",
-        aws_to_proxmox: "migrate_aws_to_proxmox",
+      const execToolMap: Record<string, { tool: string; idParam: "vm_id" | "instance_id" }> = {
+        vmware_to_proxmox: { tool: "migrate_vmware_to_proxmox", idParam: "vm_id" },
+        proxmox_to_vmware: { tool: "migrate_proxmox_to_vmware", idParam: "vm_id" },
+        vmware_to_aws: { tool: "migrate_vmware_to_aws", idParam: "vm_id" },
+        aws_to_vmware: { tool: "migrate_aws_to_vmware", idParam: "instance_id" },
+        proxmox_to_aws: { tool: "migrate_proxmox_to_aws", idParam: "vm_id" },
+        aws_to_proxmox: { tool: "migrate_aws_to_proxmox", idParam: "instance_id" },
+        vmware_to_azure: { tool: "migrate_vmware_to_azure", idParam: "vm_id" },
+        azure_to_vmware: { tool: "migrate_azure_to_vmware", idParam: "vm_id" },
+        proxmox_to_azure: { tool: "migrate_proxmox_to_azure", idParam: "vm_id" },
+        azure_to_proxmox: { tool: "migrate_azure_to_proxmox", idParam: "vm_id" },
+        aws_to_azure: { tool: "migrate_aws_to_azure", idParam: "instance_id" },
+        azure_to_aws: { tool: "migrate_azure_to_aws", idParam: "vm_id" },
       };
-      const toolName = execToolMap[direction];
-      if (!toolName) {
+      const mapping = execToolMap[direction];
+      if (!mapping) {
         this.json(res, { error: `Unsupported migration direction: ${direction}` }, 400);
         return;
       }
@@ -1027,7 +1040,7 @@ export class DashboardServer {
         data: { direction, vm_id: vmId },
       });
 
-      const result = await this.migrationAdapter.execute(toolName, { vm_id: vmId });
+      const result = await this.migrationAdapter.execute(mapping.tool, { [mapping.idParam]: vmId });
 
       if (!result.success) {
         this.broadcast({
@@ -1063,6 +1076,33 @@ export class DashboardServer {
 
   private handleMigrationHistory(res: ServerResponse): void {
     this.json(res, { migrations: this.migrationHistory });
+  }
+
+  private normalizeMigrationDirection(direction: unknown): string {
+    if (typeof direction !== "string") return "";
+    return direction.trim().toLowerCase().replaceAll("-", "_");
+  }
+
+  private getPlanExecutability(direction: string): { executable: boolean; executable_reason?: string } {
+    const planOnlyDirections = new Set([
+      "vmware_to_azure",
+      "proxmox_to_azure",
+      "aws_to_azure",
+      "azure_to_vmware",
+      "azure_to_proxmox",
+      "azure_to_aws",
+    ]);
+
+    if (planOnlyDirections.has(direction)) {
+      return {
+        executable: false,
+        executable_reason:
+          `Execution pipeline for ${direction} has not been implemented yet. ` +
+          "Use the plan endpoint for validation and sizing until disk transfer/import is completed.",
+      };
+    }
+
+    return { executable: true };
   }
 
   // ── Topology Handlers ──────────────────────────────────

@@ -161,14 +161,19 @@ export class VMwareExporter {
     // Ensure target directory exists
     await this.sshExec(targetHost, targetUser, `mkdir -p ${JSON.stringify(targetDir)}`, 10_000);
 
+    // Resolve datastore aliases (for example names with spaces/parens) to canonical
+    // /vmfs/volumes/<uuid>/... paths before running scp.
+    const resolvedVmDir = await this.resolveCanonicalVolumePath(esxiHost, esxiUser, vmDir);
+
     // SCP the vmdk descriptor and flat file using glob pattern
     // The flat file is named like "vm-flat.vmdk" for a descriptor "vm.vmdk"
     const baseName = vmdkFilename.replace(/\.vmdk$/, "");
+    const sourceGlob = `${resolvedVmDir}/${baseName}*.vmdk`;
     const cmd = [
       "scp",
       "-o StrictHostKeyChecking=no",
       "-o UserKnownHostsFile=/dev/null",
-      `${esxiUser}@${esxiHost}:${JSON.stringify(vmDir)}/${baseName}*.vmdk`,
+      `${esxiUser}@${esxiHost}:${JSON.stringify(sourceGlob)}`,
       JSON.stringify(targetDir) + "/",
     ].join(" ");
 
@@ -182,5 +187,21 @@ export class VMwareExporter {
 
     // Return the path to the descriptor vmdk on the target
     return `${targetDir}/${vmdkFilename}`;
+  }
+
+  private async resolveCanonicalVolumePath(esxiHost: string, esxiUser: string, path: string): Promise<string> {
+    const result = await this.sshExec(
+      esxiHost,
+      esxiUser,
+      `readlink -f ${JSON.stringify(path)}`,
+      10_000
+    );
+
+    if (result.exitCode !== 0) {
+      return path;
+    }
+
+    const resolved = result.stdout.trim();
+    return resolved.length > 0 ? resolved : path;
   }
 }

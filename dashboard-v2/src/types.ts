@@ -284,7 +284,19 @@ export interface Toast {
 }
 
 // Migration types
-export type MigrationDirection = "vmware_to_proxmox" | "proxmox_to_vmware" | "vmware_to_aws" | "aws_to_vmware" | "proxmox_to_aws" | "aws_to_proxmox";
+export type MigrationDirection =
+  | "vmware_to_proxmox"
+  | "proxmox_to_vmware"
+  | "vmware_to_aws"
+  | "aws_to_vmware"
+  | "proxmox_to_aws"
+  | "aws_to_proxmox"
+  | "vmware_to_azure"
+  | "azure_to_vmware"
+  | "proxmox_to_azure"
+  | "azure_to_proxmox"
+  | "aws_to_azure"
+  | "azure_to_aws";
 export type MigrationStatus = "pending" | "exporting" | "converting" | "transferring" | "importing" | "completed" | "failed";
 
 export interface MigrationStep {
@@ -316,6 +328,8 @@ export interface MigrationPlan {
     subnetId?: string;
     securityGroupIds?: string[];
     amiId?: string;
+    vmSize?: string;
+    resourceGroup?: string;
   };
   analysis?: any;
   vmConfig: {

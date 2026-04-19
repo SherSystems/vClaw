@@ -29,6 +29,7 @@ import { ProxmoxClient } from "./providers/proxmox/client.js";
 import { AWSAdapter } from "./providers/aws/adapter.js";
 import { AWSClient } from "./providers/aws/client.js";
 import { AzureAdapter } from "./providers/azure/adapter.js";
+import { AzureClient } from "./providers/azure/client.js";
 import { spawn } from "node:child_process";
 import type { SSHExecResult } from "./migration/types.js";
 import { join } from "path";
@@ -171,6 +172,24 @@ async function main() {
       await awsClient.connect();
     }
 
+    // Create Azure client for migration if configured
+    let azureClient: AzureClient | undefined;
+    if (
+      config.azure.tenantId &&
+      config.azure.clientId &&
+      config.azure.clientSecret &&
+      config.azure.subscriptionId
+    ) {
+      azureClient = new AzureClient({
+        tenantId: config.azure.tenantId,
+        clientId: config.azure.clientId,
+        clientSecret: config.azure.clientSecret,
+        subscriptionId: config.azure.subscriptionId,
+        defaultLocation: config.azure.defaultLocation,
+      });
+      await azureClient.connect();
+    }
+
     migrationAdapter = new MigrationAdapter({
       vsphereClient: migVsphere,
       proxmoxClient: migProxmox,
@@ -182,6 +201,7 @@ async function main() {
       proxmoxNode: config.migration.proxmoxNode,
       proxmoxStorage: config.migration.proxmoxStorage,
       awsClient,
+      azureClient,
       awsS3Bucket: config.aws.s3MigrationBucket,
       awsS3Prefix: config.aws.s3MigrationPrefix,
     });

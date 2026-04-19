@@ -144,6 +144,7 @@ npm run dev:mcp
 ## Documentation
 
 - [Quickstart Guide](docs/quickstart.md) (Proxmox + VMware + Azure setup paths, first command, governance walkthrough)
+- [Architecture Guide](docs/architecture.md) (core system design, adapter model, governance, and extension points)
 - [Provider Guides Index](docs/providers/README.md) (Azure, Proxmox, VMware, AWS, Kubernetes scaffold)
 - [Azure Provider Guide](docs/providers/azure.md) (reference template for provider docs)
 - [Proxmox Provider Guide](docs/providers/proxmox.md) (31 tools across VM/CT lifecycle, storage, tasks, and firewall)
@@ -238,10 +239,10 @@ Built-in fault injection for testing infrastructure resilience:
 ### Real-Time Dashboard
 
 <p align="center">
-  <img src="docs/screenshots/topology.png" alt="Topology View" width="80%" />
+  <img src="docs/screenshots/topology.png" alt="Dashboard-v2 Topology View" width="80%" />
 </p>
 <p align="center">
-  <img src="docs/screenshots/resources.png" alt="Resources & Forecasting" width="80%" />
+  <img src="docs/screenshots/resources.png" alt="Dashboard-v2 Overview & Resources" width="80%" />
 </p>
 
 Web-based dashboard with:

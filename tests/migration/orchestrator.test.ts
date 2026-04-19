@@ -204,7 +204,7 @@ describe("MigrationOrchestrator", () => {
 
       const orchestrator = createOrchestrator();
       await expect(orchestrator.migrateVMwareToProxmox("vm-empty")).rejects.toThrow(
-        "VM has no disks to migrate"
+        "Source VM has no attached disks. Nothing to migrate."
       );
     });
 

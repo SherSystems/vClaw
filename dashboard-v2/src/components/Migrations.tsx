@@ -9,28 +9,34 @@ import {
 import type { MigrationVM, MigrationPlan, MigrationDirection } from "../types";
 
 type MigrationProvider = "vmware" | "proxmox" | "aws" | "azure";
+type RouteExecutionSupport = "full" | "plan_only";
 
 type MigrationRoute = {
   id: string;
   label: string;
   from: MigrationProvider;
   to: MigrationProvider;
-  direction?: MigrationDirection;
+  direction: MigrationDirection;
+  executionSupport: RouteExecutionSupport;
+  executionNote?: string;
 };
 
+const AZURE_PLAN_ONLY_NOTE =
+  "Execution is not supported yet for this route. Use planning for sizing and preflight checks.";
+
 const ROUTES: MigrationRoute[] = [
-  { id: "vmware_to_proxmox", label: "VMware \u2192 Proxmox", from: "vmware", to: "proxmox", direction: "vmware_to_proxmox" },
-  { id: "proxmox_to_vmware", label: "Proxmox \u2192 VMware", from: "proxmox", to: "vmware", direction: "proxmox_to_vmware" },
-  { id: "vmware_to_aws", label: "VMware \u2192 AWS", from: "vmware", to: "aws", direction: "vmware_to_aws" },
-  { id: "aws_to_vmware", label: "AWS \u2192 VMware", from: "aws", to: "vmware", direction: "aws_to_vmware" },
-  { id: "proxmox_to_aws", label: "Proxmox \u2192 AWS", from: "proxmox", to: "aws", direction: "proxmox_to_aws" },
-  { id: "aws_to_proxmox", label: "AWS \u2192 Proxmox", from: "aws", to: "proxmox", direction: "aws_to_proxmox" },
-  { id: "vmware_to_azure", label: "VMware \u2192 Azure (coming soon)", from: "vmware", to: "azure" },
-  { id: "azure_to_vmware", label: "Azure \u2192 VMware (coming soon)", from: "azure", to: "vmware" },
-  { id: "proxmox_to_azure", label: "Proxmox \u2192 Azure (coming soon)", from: "proxmox", to: "azure" },
-  { id: "azure_to_proxmox", label: "Azure \u2192 Proxmox (coming soon)", from: "azure", to: "proxmox" },
-  { id: "aws_to_azure", label: "AWS \u2192 Azure (coming soon)", from: "aws", to: "azure" },
-  { id: "azure_to_aws", label: "Azure \u2192 AWS (coming soon)", from: "azure", to: "aws" },
+  { id: "vmware_to_proxmox", label: "VMware \u2192 Proxmox", from: "vmware", to: "proxmox", direction: "vmware_to_proxmox", executionSupport: "full" },
+  { id: "proxmox_to_vmware", label: "Proxmox \u2192 VMware", from: "proxmox", to: "vmware", direction: "proxmox_to_vmware", executionSupport: "full" },
+  { id: "vmware_to_aws", label: "VMware \u2192 AWS", from: "vmware", to: "aws", direction: "vmware_to_aws", executionSupport: "full" },
+  { id: "aws_to_vmware", label: "AWS \u2192 VMware", from: "aws", to: "vmware", direction: "aws_to_vmware", executionSupport: "full" },
+  { id: "proxmox_to_aws", label: "Proxmox \u2192 AWS", from: "proxmox", to: "aws", direction: "proxmox_to_aws", executionSupport: "full" },
+  { id: "aws_to_proxmox", label: "AWS \u2192 Proxmox", from: "aws", to: "proxmox", direction: "aws_to_proxmox", executionSupport: "full" },
+  { id: "vmware_to_azure", label: "VMware \u2192 Azure", from: "vmware", to: "azure", direction: "vmware_to_azure", executionSupport: "plan_only", executionNote: AZURE_PLAN_ONLY_NOTE },
+  { id: "azure_to_vmware", label: "Azure \u2192 VMware", from: "azure", to: "vmware", direction: "azure_to_vmware", executionSupport: "plan_only", executionNote: AZURE_PLAN_ONLY_NOTE },
+  { id: "proxmox_to_azure", label: "Proxmox \u2192 Azure", from: "proxmox", to: "azure", direction: "proxmox_to_azure", executionSupport: "plan_only", executionNote: AZURE_PLAN_ONLY_NOTE },
+  { id: "azure_to_proxmox", label: "Azure \u2192 Proxmox", from: "azure", to: "proxmox", direction: "azure_to_proxmox", executionSupport: "plan_only", executionNote: AZURE_PLAN_ONLY_NOTE },
+  { id: "aws_to_azure", label: "AWS \u2192 Azure", from: "aws", to: "azure", direction: "aws_to_azure", executionSupport: "plan_only", executionNote: AZURE_PLAN_ONLY_NOTE },
+  { id: "azure_to_aws", label: "Azure \u2192 AWS", from: "azure", to: "aws", direction: "azure_to_aws", executionSupport: "plan_only", executionNote: AZURE_PLAN_ONLY_NOTE },
 ];
 
 function isMigrationProvider(value: string): value is MigrationProvider {
@@ -53,6 +59,10 @@ const STEP_LABELS: Record<string, string> = {
   create_ami: "Create AMI",
   export_to_s3: "Export to S3",
   download_disk: "Download Disk",
+  export_disk: "Export Disk",
+  upload_to_azure: "Upload to Azure",
+  create_managed_disk: "Create Managed Disk",
+  capture_image: "Capture Image",
   stage_setup: "Setup Staging",
 };
 
@@ -133,7 +143,14 @@ export default function Migrations() {
   const sourceProvider = route.from;
   const targetProvider = route.to;
   const selectedDirection = route.direction;
-  const isRouteSupported = selectedDirection != null;
+  const isExecutionSupported = route.executionSupport === "full";
+  const hasPlanDisks = (plan?.vmConfig?.disks?.length ?? 0) > 0;
+  const executeDisabledReason =
+    !isExecutionSupported
+      ? route.executionNote ?? "Execution is not supported for this route."
+      : plan && !hasPlanDisks
+        ? "Source VM has no attached disks. Nothing to migrate."
+        : null;
 
   // Load VMs for selected direction
   useEffect(() => {
@@ -211,7 +228,7 @@ export default function Migrations() {
   }, [logEntries]);
 
   const handlePlan = async () => {
-    if (!selectedVM || !selectedDirection) return;
+    if (!selectedVM) return;
     setLoading(true);
     setError(null);
     try {
@@ -225,7 +242,7 @@ export default function Migrations() {
   };
 
   const handleExecute = async () => {
-    if (!selectedVM || !plan || !selectedDirection) return;
+    if (!selectedVM || !plan || !isExecutionSupported || !hasPlanDisks) return;
     const ok = window.confirm(
       `This will migrate "${plan.vmConfig?.name || selectedVM}" from ${sourceProvider.toUpperCase()} to ${targetProvider.toUpperCase()}. The source VM will be powered off. Continue?`
     );
@@ -282,7 +299,9 @@ export default function Migrations() {
             >
               {availableRoutes.map((routeOption) => (
                 <option key={routeOption.id} value={routeOption.id}>
-                  {routeOption.label}
+                  {routeOption.executionSupport === "plan_only"
+                    ? `${routeOption.label} (plan only)`
+                    : routeOption.label}
                 </option>
               ))}
             </select>
@@ -309,7 +328,7 @@ export default function Migrations() {
 
           <button
             className="btn-mig-plan"
-            disabled={!isRouteSupported || !selectedVM || loading || !!isRunning}
+            disabled={!selectedVM || loading || !!isRunning}
             onClick={handlePlan}
           >
             {loading && !plan ? "Planning..." : "Plan"}
@@ -317,16 +336,23 @@ export default function Migrations() {
 
           <button
             className="btn-mig-execute"
-            disabled={!isRouteSupported || !plan || loading || !!isRunning}
+            disabled={!plan || loading || !!isRunning || executeDisabledReason != null}
+            title={executeDisabledReason ?? "Execute migration"}
             onClick={handleExecute}
           >
             {loading && plan ? "Migrating..." : "Migrate"}
           </button>
         </div>
 
-        {!isRouteSupported && (
+        {!isExecutionSupported && (
           <div className="mig-error">
-            This route is visible because Azure is connected, but execution support for {sourceProvider.toUpperCase()} -&gt; {targetProvider.toUpperCase()} is not implemented yet.
+            {route.executionNote}
+          </div>
+        )}
+
+        {plan && !hasPlanDisks && (
+          <div className="mig-error">
+            Source VM has no attached disks. Execution is disabled because there is no data to migrate.
           </div>
         )}
 

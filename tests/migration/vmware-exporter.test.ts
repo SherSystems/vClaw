@@ -180,7 +180,7 @@ describe("VMwareExporter", () => {
       expect(scpCall[2]).toContain("StrictHostKeyChecking=no");
     });
 
-    it("should fall back to original VM directory when canonical path lookup fails", async () => {
+    it("should resolve datastore alias via readlink fallback when readlink -f is unavailable", async () => {
       (mockSshExec as ReturnType<typeof vi.fn>)
         .mockResolvedValueOnce(ok()) // mkdir
         .mockResolvedValueOnce({
@@ -188,6 +188,7 @@ describe("VMwareExporter", () => {
           stderr: "readlink: not found",
           exitCode: 1,
         }) // readlink -f
+        .mockResolvedValueOnce(ok("5f0f8f2c-abcdef12")) // readlink datastore alias
         .mockResolvedValueOnce(ok()); // scp
 
       await exporter.transferDisk(
@@ -199,7 +200,42 @@ describe("VMwareExporter", () => {
         "/tmp/staging"
       );
 
-      const scpCall = (mockSshExec as ReturnType<typeof vi.fn>).mock.calls[2];
+      expect(mockSshExec).toHaveBeenNthCalledWith(
+        3,
+        "192.168.86.37",
+        "root",
+        expect.stringContaining("readlink \"/vmfs/volumes/datastore1 (1)\""),
+        10_000
+      );
+      const scpCall = (mockSshExec as ReturnType<typeof vi.fn>).mock.calls[3];
+      expect(scpCall[2]).toContain("/vmfs/volumes/5f0f8f2c-abcdef12/vm/vm*.vmdk");
+    });
+
+    it("should fall back to original VM directory when all canonical lookups fail", async () => {
+      (mockSshExec as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce(ok()) // mkdir
+        .mockResolvedValueOnce({
+          stdout: "",
+          stderr: "readlink: not found",
+          exitCode: 1,
+        }) // readlink -f
+        .mockResolvedValueOnce({
+          stdout: "",
+          stderr: "not a symlink",
+          exitCode: 1,
+        }) // readlink datastore alias
+        .mockResolvedValueOnce(ok()); // scp
+
+      await exporter.transferDisk(
+        "192.168.86.37",
+        "root",
+        "/vmfs/volumes/datastore1 (1)/vm/vm.vmdk",
+        "192.168.86.50",
+        "root",
+        "/tmp/staging"
+      );
+
+      const scpCall = (mockSshExec as ReturnType<typeof vi.fn>).mock.calls[3];
       expect(scpCall[2]).toContain("/vmfs/volumes/datastore1 (1)/vm/vm*.vmdk");
     });
 

@@ -197,11 +197,40 @@ export class VMwareExporter {
       10_000
     );
 
-    if (result.exitCode !== 0) {
+    if (result.exitCode === 0) {
+      const resolved = result.stdout.trim();
+      if (resolved.length > 0) {
+        return resolved;
+      }
+    }
+
+    // ESXi shells may not support `readlink -f`. Fall back to resolving
+    // only the datastore mount symlink and re-joining the VM-relative suffix.
+    const datastoreMatch = path.match(/^\/vmfs\/volumes\/([^/]+)(\/.*)?$/);
+    if (!datastoreMatch) {
       return path;
     }
 
-    const resolved = result.stdout.trim();
-    return resolved.length > 0 ? resolved : path;
+    const datastoreAlias = datastoreMatch[1];
+    const suffix = datastoreMatch[2] ?? "";
+    const datastoreLinkResult = await this.sshExec(
+      esxiHost,
+      esxiUser,
+      `readlink ${JSON.stringify(`/vmfs/volumes/${datastoreAlias}`)}`,
+      10_000,
+    );
+    if (datastoreLinkResult.exitCode !== 0) {
+      return path;
+    }
+
+    const resolvedDatastore = datastoreLinkResult.stdout.trim();
+    if (resolvedDatastore.length === 0) {
+      return path;
+    }
+
+    const datastoreRoot = resolvedDatastore.startsWith("/")
+      ? resolvedDatastore
+      : `/vmfs/volumes/${resolvedDatastore}`;
+    return `${datastoreRoot}${suffix}`;
   }
 }

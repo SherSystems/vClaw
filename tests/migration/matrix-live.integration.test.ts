@@ -30,7 +30,6 @@ const DIRECTION_CASES: DirectionCase[] = [
 ];
 
 const PLAN_ONLY_DIRECTIONS = new Set([
-  "vmware_to_azure",
   "aws_to_azure",
   "azure_to_vmware",
   "azure_to_aws",
@@ -82,7 +81,6 @@ describeLive("Live migration matrix (env-gated)", () => {
   );
 
   it.each([
-    "vmware_to_azure",
     "aws_to_azure",
     "azure_to_vmware",
     "azure_to_aws",

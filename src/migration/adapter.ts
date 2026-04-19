@@ -1252,7 +1252,301 @@ export class MigrationAdapter implements InfraAdapter {
   }
 
   private async executeVMwareToAzure(params: Record<string, unknown>): Promise<ToolCallResult> {
-    return this.executeAzureExecutionScaffold("vmware_to_azure", () => this.executePlanVMwareToAzure(params));
+    const vmId = params.vm_id as string;
+    if (!vmId) return { success: false, error: "vm_id is required" };
+    if (!this.config.azureClient) return { success: false, error: "Azure not configured" };
+
+    const azureClient = this.config.azureClient;
+    const esxiUser = this.config.esxiUser ?? "root";
+    const proxmoxUser = this.config.proxmoxUser ?? "root";
+    const resourceGroup = this.normalizeOptionalString(params.resource_group) ?? "vclaw-migrations";
+    const location = this.normalizeOptionalString(params.location) ?? azureClient.defaultLocation;
+    const storageAccountName = this.normalizeOptionalString(params.storage_account)
+      ?? this.buildAzureStorageAccountName(resourceGroup, azureClient.subscriptionId);
+    const containerName = this.normalizeOptionalString(params.container_name) ?? "vhds";
+    const requestedVmSize = this.normalizeOptionalString(params.vm_size);
+    const requestedSubnetId = this.normalizeOptionalString(params.subnet_id);
+
+    const startedAt = new Date().toISOString();
+    const executionSteps: Array<{ name: string; status: "pending" | "completed" | "failed"; detail?: string; error?: string }> = [
+      { name: "export_config", status: "pending" },
+      { name: "power_off", status: "pending" },
+      { name: "export_disk", status: "pending" },
+      { name: "upload_to_azure", status: "pending" },
+      { name: "create_managed_disk", status: "pending" },
+      { name: "create_vm", status: "pending" },
+      { name: "cleanup", status: "pending" },
+    ];
+
+    const markStepComplete = (name: string, detail?: string) => {
+      const step = executionSteps.find((entry) => entry.name === name);
+      if (!step) return;
+      step.status = "completed";
+      if (detail) step.detail = detail;
+    };
+
+    const markStepFailed = (name: string, error: string) => {
+      const step = executionSteps.find((entry) => entry.name === name);
+      if (!step) return;
+      step.status = "failed";
+      step.error = error;
+    };
+
+    const markPendingCleanupSteps = (name: string, detail: string) => {
+      let reached = false;
+      for (const step of executionSteps) {
+        if (step.name === name) reached = true;
+        if (reached && step.status === "pending") {
+          step.status = "completed";
+          step.detail = detail;
+        }
+      }
+    };
+
+    const workDir = "/tmp/vclaw-migration";
+    const stageDir = `${workDir}/vmware-azure-${Date.now()}`;
+    const stageRawPath = `${stageDir}/disk.raw`;
+    let managedDiskName = "";
+    let vmName = "";
+    let exportedVmName = "";
+    let vmSize = requestedVmSize ?? "Standard_B2s";
+    let subnetId = requestedSubnetId ?? "";
+    let managedDiskId = "";
+    let uploadedBlobUrl = "";
+    let createdVm = false;
+    let createdDisk = false;
+    let blobClientForCleanup: { deleteIfExists: () => Promise<unknown> } | null = null;
+
+    try {
+      const { VMwareExporter } = await import("./vmware-exporter.js");
+      const exporter = new VMwareExporter(this.config.vsphereClient, this.config.sshExec);
+      const exportResult = await exporter.exportVM(vmId, this.config.esxiHost, esxiUser);
+      if (exportResult.vmConfig.disks.length === 0) {
+        throw new Error("Source VM has no attached disks. Nothing to migrate.");
+      }
+
+      const primaryDisk = exportResult.vmConfig.disks[0];
+      if (typeof primaryDisk.sourcePath !== "string" || primaryDisk.sourcePath.trim().length === 0) {
+        throw new Error("Source VM primary disk is missing source path. Nothing to migrate.");
+      }
+
+      exportedVmName = exportResult.vmConfig.name;
+      markStepComplete("export_config", `Exported VMware VM config for ${exportedVmName}`);
+
+      try {
+        await this.config.vsphereClient.vmPowerOff(vmId);
+      } catch {
+        // VM might already be powered off.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      markStepComplete("power_off", "Source VM power-off requested");
+
+      await this.config.sshExec(this.config.proxmoxHost, proxmoxUser, `mkdir -p ${stageDir}`, 10_000);
+      const vmdkFsPath = exporter.datastorePathToFs(primaryDisk.sourcePath);
+      const stagedVmdkPath = await exporter.transferDisk(
+        this.config.esxiHost,
+        esxiUser,
+        vmdkFsPath,
+        this.config.proxmoxHost,
+        proxmoxUser,
+        stageDir,
+        7_200_000,
+      );
+
+      const converter = new DiskConverter(this.config.sshExec);
+      await converter.convert({
+        sshExec: this.config.sshExec,
+        host: this.config.proxmoxHost,
+        user: proxmoxUser,
+        sourcePath: stagedVmdkPath,
+        targetPath: stageRawPath,
+        sourceFormat: "vmdk",
+        targetFormat: "raw",
+        timeoutMs: 7_200_000,
+      });
+
+      const statResult = await this.config.sshExec(
+        this.config.proxmoxHost,
+        proxmoxUser,
+        `stat -c%s ${JSON.stringify(stageRawPath)}`,
+        30_000,
+      );
+      if (statResult.exitCode !== 0) {
+        throw new Error(`Unable to read staged disk size: ${statResult.stderr || statResult.stdout}`);
+      }
+      const stagedDiskSizeBytes = Number(statResult.stdout.trim());
+      if (!Number.isFinite(stagedDiskSizeBytes) || stagedDiskSizeBytes <= 0) {
+        throw new Error("Staged disk size is invalid for Azure page blob upload");
+      }
+      if (stagedDiskSizeBytes % 512 !== 0) {
+        throw new Error("Staged disk size must be a multiple of 512 bytes for Azure page blobs");
+      }
+      markStepComplete("export_disk", `Transferred and converted primary disk to ${stageRawPath}`);
+
+      await azureClient.ensureResourceGroup(resourceGroup, location);
+      const storageAccount = await azureClient.ensureStorageAccount({
+        resourceGroup,
+        accountName: storageAccountName,
+        location,
+      });
+      await azureClient.ensureBlobContainer(resourceGroup, storageAccount.name, containerName);
+      const storageKey = await azureClient.getStorageAccountKey(resourceGroup, storageAccount.name);
+
+      const connectionString =
+        `DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};` +
+        `AccountKey=${storageKey};EndpointSuffix=core.windows.net`;
+      const blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
+      const containerClient = blobServiceClient.getContainerClient(containerName);
+      await containerClient.createIfNotExists();
+
+      const blobName = `${this.sanitizeAzureName(exportResult.vmConfig.name, "vmware-vm", 48)}-${Date.now()}.vhd`;
+      const pageBlobClient = containerClient.getPageBlobClient(blobName);
+      blobClientForCleanup = pageBlobClient;
+      uploadedBlobUrl = pageBlobClient.url;
+
+      const sharedKeyCredential = new StorageSharedKeyCredential(storageAccount.name, storageKey);
+      const sasToken = generateBlobSASQueryParameters(
+        {
+          containerName,
+          blobName,
+          startsOn: new Date(Date.now() - 5 * 60 * 1000),
+          expiresOn: new Date(Date.now() + 2 * 60 * 60 * 1000),
+          permissions: BlobSASPermissions.parse("cw"),
+        },
+        sharedKeyCredential,
+      ).toString();
+      const uploadUrlWithSas = `${pageBlobClient.url}?${sasToken}`;
+
+      await this.uploadDiskToAzurePageBlob(
+        this.config.proxmoxHost,
+        proxmoxUser,
+        stageRawPath,
+        uploadUrlWithSas,
+        stagedDiskSizeBytes,
+      );
+      markStepComplete("upload_to_azure", `Uploaded staged disk to ${uploadedBlobUrl}`);
+
+      managedDiskName = this.sanitizeAzureName(`${exportResult.vmConfig.name}-osdisk`, `vmware-${vmId}-osdisk`, 80);
+      const osType = this.detectAzureOsType(exportResult.vmConfig.guestOS);
+      const managedDisk = await azureClient.createManagedDiskFromImport({
+        resourceGroup,
+        name: managedDiskName,
+        sourceUri: pageBlobClient.url,
+        storageAccountId: storageAccount.id,
+        location,
+        osType,
+      });
+      createdDisk = true;
+      managedDiskId = managedDisk.id;
+      markStepComplete("create_managed_disk", `Created managed disk ${managedDiskName}`);
+
+      const analysis = this.buildAzureTargetAnalysis(exportResult.vmConfig);
+      vmSize = requestedVmSize ?? analysis.target.recommended.vmSize;
+      subnetId = requestedSubnetId ?? await this.resolveAzureSubnetId(resourceGroup);
+      vmName = this.sanitizeAzureName(exportResult.vmConfig.name, `vmware-vm-${vmId}`, 64);
+
+      await azureClient.createVMFromManagedDisk({
+        resourceGroup,
+        name: vmName,
+        location,
+        vmSize,
+        osDiskId: managedDisk.id,
+        subnetId,
+        osType,
+      });
+      createdVm = true;
+      markStepComplete("create_vm", `Created Azure VM ${vmName}`);
+
+      // Blob is no longer required once the managed disk import succeeds.
+      await pageBlobClient.deleteIfExists();
+      blobClientForCleanup = null;
+      await this.config.sshExec(this.config.proxmoxHost, proxmoxUser, `rm -rf ${JSON.stringify(stageDir)}`, 10_000);
+      markStepComplete("cleanup", "Removed temporary blob and staging files");
+
+      return {
+        success: true,
+        data: {
+          id: `mig-${Date.now()}`,
+          source: {
+            provider: "vmware",
+            vmId,
+            vmName: exportedVmName,
+            host: this.config.esxiHost,
+          },
+          target: {
+            provider: "azure",
+            node: location,
+            host: "azure",
+            storage: "managed-disk",
+            vmSize,
+            resourceGroup,
+            subnetId,
+          },
+          vmConfig: exportResult.vmConfig,
+          status: "completed",
+          steps: executionSteps,
+          startedAt,
+          completedAt: new Date().toISOString(),
+          metadata: {
+            managedDiskId,
+            managedDiskName,
+            uploadedBlobUrl,
+          },
+        },
+      };
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      const firstPendingStep = executionSteps.find((entry) => entry.status === "pending");
+      if (firstPendingStep) {
+        markStepFailed(firstPendingStep.name, errorMessage);
+        markPendingCleanupSteps(firstPendingStep.name, "Not executed due to earlier failure");
+      }
+
+      const cleanupFailures: string[] = [];
+
+      if (createdVm && vmName) {
+        try {
+          await azureClient.deleteVM(resourceGroup, vmName);
+        } catch (cleanupErr) {
+          cleanupFailures.push(`delete VM ${vmName}: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`);
+        }
+      }
+
+      if (createdDisk && managedDiskName) {
+        try {
+          await azureClient.deleteDisk(resourceGroup, managedDiskName);
+        } catch (cleanupErr) {
+          cleanupFailures.push(
+            `delete managed disk ${managedDiskName}: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`,
+          );
+        }
+      }
+
+      if (blobClientForCleanup) {
+        try {
+          await blobClientForCleanup.deleteIfExists();
+        } catch (cleanupErr) {
+          cleanupFailures.push(`delete page blob: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`);
+        }
+      }
+
+      try {
+        await this.config.sshExec(this.config.proxmoxHost, proxmoxUser, `rm -rf ${JSON.stringify(stageDir)}`, 10_000);
+      } catch (cleanupErr) {
+        cleanupFailures.push(
+          `remove Proxmox staging directory ${stageDir}: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`,
+        );
+      }
+
+      const cleanupSuffix = cleanupFailures.length > 0
+        ? ` Cleanup warnings: ${cleanupFailures.join("; ")}`
+        : "";
+
+      return {
+        success: false,
+        error: `${errorMessage}${cleanupSuffix}`,
+      };
+    }
   }
 
   private async executeProxmoxToAzure(params: Record<string, unknown>): Promise<ToolCallResult> {

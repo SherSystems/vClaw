@@ -265,16 +265,145 @@ describe("MigrationAdapter Azure direction routes", () => {
 
   it("surfaces explicit plan-only execution messaging for Azure execute calls", async () => {
     const adapter = createAdapter();
-    vi.spyOn(adapter as any, "executePlanVMwareToAzure").mockResolvedValue({
+    vi.spyOn(adapter as any, "executePlanAWSToAzure").mockResolvedValue({
       success: true,
       data: { plan: { id: "plan-1", steps: [] } },
     });
 
-    const result = await adapter.execute("migrate_vmware_to_azure", { vm_id: "vm-200" });
+    const result = await adapter.execute("migrate_aws_to_azure", { instance_id: "i-0123" });
 
     expect(result.success).toBe(false);
     expect(result.error).toContain("has not been implemented yet");
     expect(result.error).toContain("Use the plan endpoint");
+  });
+
+  it("executes vmware_to_azure migration with Azure disk import path", async () => {
+    const pageBlobClient = {
+      url: "https://vclawmig.blob.core.windows.net/vhds/migration-disk.vhd",
+      deleteIfExists: vi.fn(async () => undefined),
+    };
+    const containerClient = {
+      createIfNotExists: vi.fn(async () => undefined),
+      getPageBlobClient: vi.fn(() => pageBlobClient),
+    };
+    blobStorageMocks.getPageBlobClient.mockReturnValue(pageBlobClient);
+    blobStorageMocks.fromConnectionString.mockReturnValue({
+      getContainerClient: vi.fn(() => containerClient),
+    });
+    blobStorageMocks.parsePermissions.mockReturnValue("cw");
+    blobStorageMocks.generateSas.mockReturnValue({ toString: () => "sv=2024-01-01&sig=mock" });
+
+    const sshExec = vi.fn(async (_host: string, _user: string, cmd: string) => {
+      if (cmd.includes("stat -c%s")) {
+        return { stdout: "1073741824\n", stderr: "", exitCode: 0 };
+      }
+      return { stdout: "", stderr: "", exitCode: 0 };
+    });
+
+    vmwareExporterMocks.exportVM.mockResolvedValue({
+      vmConfig: {
+        name: "vmware-200",
+        cpuCount: 2,
+        coresPerSocket: 1,
+        memoryMiB: 4096,
+        guestOS: "otherLinux64Guest",
+        disks: [
+          {
+            label: "scsi0",
+            capacityBytes: 20 * 1024 * 1024 * 1024,
+            sourcePath: "[datastore1] vmware-200/vmware-200.vmdk",
+            sourceFormat: "vmdk",
+            targetFormat: "qcow2",
+          },
+        ],
+        nics: [],
+        firmware: "bios",
+      },
+      esxiHost: "192.168.86.46",
+      datastorePath: "/vmfs/volumes/datastore1",
+    });
+    vmwareExporterMocks.datastorePathToFs.mockReturnValue("/vmfs/volumes/datastore1/vmware-200/vmware-200.vmdk");
+    vmwareExporterMocks.transferDisk.mockResolvedValue("/tmp/vclaw-migration/vmware-azure-123456/disk.vmdk");
+
+    const azureClient = {
+      defaultLocation: "eastus",
+      subscriptionId: "sub-1234",
+      ensureResourceGroup: vi.fn(async () => undefined),
+      ensureStorageAccount: vi.fn(async () => ({
+        id: "/subscriptions/sub-1234/resourceGroups/vclaw-migrations/providers/Microsoft.Storage/storageAccounts/vclawmigabc123",
+        name: "vclawmigabc123",
+        location: "eastus",
+      })),
+      ensureBlobContainer: vi.fn(async () => undefined),
+      getStorageAccountKey: vi.fn(async () => "storage-account-key"),
+      createManagedDiskFromImport: vi.fn(async () => ({
+        id: "/subscriptions/sub-1234/resourceGroups/vclaw-migrations/providers/Microsoft.Compute/disks/vmware-200-osdisk",
+        name: "vmware-200-osdisk",
+        resourceGroup: "vclaw-migrations",
+        location: "eastus",
+        sizeGB: 20,
+        diskState: "Unattached",
+        encrypted: false,
+      })),
+      listVNets: vi.fn(async () => [
+        { id: "vnet-1", name: "default-vnet", resourceGroup: "vclaw-migrations", location: "eastus", addressSpaces: ["10.0.0.0/16"], subnetCount: 1 },
+      ]),
+      listSubnets: vi.fn(async () => [
+        { id: "/subscriptions/sub-1234/resourceGroups/vclaw-migrations/providers/Microsoft.Network/virtualNetworks/default-vnet/subnets/default", name: "default", resourceGroup: "vclaw-migrations", vnetName: "default-vnet", addressPrefix: "10.0.0.0/24" },
+      ]),
+      createVMFromManagedDisk: vi.fn(async () => ({
+        id: "/subscriptions/sub-1234/resourceGroups/vclaw-migrations/providers/Microsoft.Compute/virtualMachines/vmware-200",
+        name: "vmware-200",
+        resourceGroup: "vclaw-migrations",
+        location: "eastus",
+        vmSize: "Standard_B2s",
+        powerState: "unknown",
+        provisioningState: "Succeeded",
+        osType: "Linux",
+      })),
+      deleteVM: vi.fn(async () => undefined),
+      deleteDisk: vi.fn(async () => undefined),
+    } as any;
+
+    const vmPowerOff = vi.fn(async () => undefined);
+    const adapter = createAdapter({
+      vsphereClient: { vmPowerOff } as any,
+      sshExec: sshExec as any,
+      azureClient,
+    });
+
+    const result = await adapter.execute("migrate_vmware_to_azure", { vm_id: "vm-200" });
+
+    expect(result.success, String(result.error)).toBe(true);
+    expect(vmPowerOff).toHaveBeenCalledWith("vm-200");
+    expect(vmwareExporterMocks.datastorePathToFs).toHaveBeenCalledWith("[datastore1] vmware-200/vmware-200.vmdk");
+    expect(vmwareExporterMocks.transferDisk).toHaveBeenCalledWith(
+      "192.168.86.46",
+      "root",
+      "/vmfs/volumes/datastore1/vmware-200/vmware-200.vmdk",
+      "192.168.86.50",
+      "root",
+      expect.stringContaining("/tmp/vclaw-migration/vmware-azure-"),
+      7_200_000,
+    );
+    expect(cloudUploaderMocks.uploadDiskFromSSHToAzurePageBlob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceHost: "192.168.86.50",
+        sourceUser: "root",
+        sourcePath: expect.stringContaining("/tmp/vclaw-migration/vmware-azure-"),
+        destinationUrlWithSas: expect.stringContaining("https://vclawmig.blob.core.windows.net"),
+        diskSizeBytes: 1073741824,
+      }),
+    );
+    expect(azureClient.createManagedDiskFromImport).toHaveBeenCalled();
+    expect(azureClient.createVMFromManagedDisk).toHaveBeenCalled();
+    expect(result.data).toEqual(
+      expect.objectContaining({
+        status: "completed",
+        source: expect.objectContaining({ provider: "vmware", vmId: "vm-200" }),
+        target: expect.objectContaining({ provider: "azure", resourceGroup: "vclaw-migrations" }),
+      }),
+    );
   });
 
   it("executes proxmox_to_azure migration with Azure disk import path", async () => {

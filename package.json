@@ -49,6 +49,7 @@
     "@azure/arm-resources": "^7.0.0",
     "@azure/arm-storage": "^19.1.0",
     "@azure/identity": "^4.13.1",
+    "@azure/storage-blob": "^12.31.0",
     "@modelcontextprotocol/sdk": "^1.12.1",
     "better-sqlite3": "^11.7.0",
     "dotenv": "^16.4.7",

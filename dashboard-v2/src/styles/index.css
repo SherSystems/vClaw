@@ -3068,52 +3068,105 @@ tbody tr:last-child td {
 .mig-route-detail { font-size: 0.71rem; color: var(--text-tertiary); }
 .mig-route-arrow { display: flex; align-items: center; }
 
-/* Execution */
-.mig-execution {
-  margin: 0 16px 16px; padding: 14px;
+/* Live progress */
+.mig-progress-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 16px 16px;
+}
+.mig-progress-item {
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
   background: var(--bg-card-inner, rgba(255,255,255,0.02));
-  border: 1px solid var(--border-subtle); border-radius: 8px;
   animation: fadeIn 0.2s ease;
 }
-.mig-exec-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-.mig-exec-status {
-  padding: 3px 10px; border-radius: 4px;
-  font-size: 0.71rem; font-weight: 700; letter-spacing: 0.05em;
+.mig-progress-item.completed {
+  border-color: rgba(16,185,129,0.35);
 }
-.mig-exec-status.exporting,
-.mig-exec-status.converting,
-.mig-exec-status.transferring,
-.mig-exec-status.importing { background: var(--amber-muted); color: var(--amber); }
-.mig-exec-status.completed { background: var(--green-muted); color: var(--green); }
-.mig-exec-status.failed { background: var(--red-muted); color: var(--red); }
-.mig-exec-status.pending { background: rgba(255,255,255,0.06); color: var(--text-tertiary); }
-
-.mig-exec-timer {
-  font-family: var(--font-mono); font-size: 1rem;
-  font-weight: 600; color: var(--teal);
-  letter-spacing: 0.08em;
+.mig-progress-item.failed {
+  border-color: rgba(239,68,68,0.35);
 }
-
-.mig-exec-steps { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
-.mig-exec-step {
-  display: flex; align-items: center; gap: 8px;
-  padding: 4px 8px; border-radius: 4px; font-size: 0.78rem;
+.mig-progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.mig-progress-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-family: var(--font-brand);
+}
+.mig-progress-status {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+.mig-progress-status.running { background: var(--amber-muted); color: var(--amber); }
+.mig-progress-status.completed { background: var(--green-muted); color: var(--green); }
+.mig-progress-status.failed { background: var(--red-muted); color: var(--red); }
+.mig-progress-stage {
+  margin-top: 6px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+.mig-progress-bar {
+  height: 9px;
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 10px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.06);
+}
+.mig-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--teal), var(--blue));
+  transition: width 0.35s ease;
+}
+.mig-progress-fill.completed {
+  background: var(--green);
+}
+.mig-progress-fill.failed {
+  background: var(--red);
+}
+.mig-progress-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+  font-size: 0.7rem;
   color: var(--text-tertiary);
 }
-.mig-exec-step.completed { color: var(--green); }
-.mig-exec-step.failed { color: var(--red); }
-.mig-exec-step-icon { width: 14px; text-align: center; }
-.mig-exec-step-detail { margin-left: auto; font-size: 0.71rem; color: var(--text-tertiary); }
-
-.mig-exec-log {
-  max-height: 180px; overflow-y: auto;
-  display: flex; flex-direction: column; gap: 2px;
-  padding: 8px; border-radius: 6px;
-  background: rgba(0,0,0,0.15); font-family: var(--font-mono);
-  font-size: 0.71rem;
+.mig-progress-message {
+  margin-top: 8px;
+  font-size: 0.73rem;
+  color: var(--text-secondary);
 }
-.mig-log-entry { display: flex; gap: 10px; }
-.mig-log-time { color: var(--text-tertiary); white-space: nowrap; }
+.mig-progress-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+  font-size: 0.72rem;
+}
+.mig-progress-links a {
+  color: var(--blue);
+  text-decoration: none;
+}
+.mig-progress-links a:hover {
+  text-decoration: underline;
+}
+.mig-progress-error {
+  margin-top: 8px;
+  font-size: 0.73rem;
+  color: var(--red);
+}
 
 /* History */
 .mig-history { display: flex; flex-direction: column; }
@@ -3951,6 +4004,7 @@ button, select, a, .tab, .incident-card, .incident-row, .audit-header, .audit-pl
   .mig-plan-route { flex-direction: column; gap: 8px; }
 
   .mig-history-detail { flex-direction: column; gap: 4px; }
+  .mig-progress-meta { flex-direction: column; gap: 4px; }
 
   /* ── Incidents ───────────────────────────────── */
   .incident-card {

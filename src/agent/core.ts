@@ -14,7 +14,7 @@ import type {
 } from "../types.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import type { AIConfig } from "./llm.js";
-import type { GovernanceEngineRef } from "./executor.js";
+import type { GovernanceEngineRef, ExecutorOptions } from "./executor.js";
 import { Planner, type PlanningContext } from "./planner.js";
 import { Executor } from "./executor.js";
 import { Observer, type ObservationResult } from "./observer.js";
@@ -49,6 +49,7 @@ export interface AgentCoreOptions {
   eventBus: EventBus;
   config: AIConfig;
   memoryDbPath?: string;
+  executorOptions?: Pick<ExecutorOptions, "reliability">;
 }
 
 export class AgentCore {
@@ -80,6 +81,8 @@ export class AgentCore {
       this.toolRegistry,
       this.governance,
       this.eventBus,
+      undefined,
+      options.executorOptions,
     );
     this.observer = new Observer();
     this.investigator = new Investigator();

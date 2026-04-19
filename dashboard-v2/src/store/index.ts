@@ -11,8 +11,124 @@ import type {
   HealthSummary,
   TabId,
   Toast,
+  MigrationDirection,
+  MigrationLiveRun,
   MigrationPlan,
 } from "../types";
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object") return null;
+  return value as Record<string, unknown>;
+}
+
+function asString(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+  if (typeof value === "number") {
+    return String(value);
+  }
+  return undefined;
+}
+
+function asNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number.parseFloat(value.replace("%", ""));
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
+
+function normalizeMigrationEventType(type: string): string {
+  const snake = type
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/-/g, "_")
+    .toLowerCase();
+
+  if (snake === "migrationprogress") return "migration_progress";
+  if (snake === "migrationcompleted") return "migration_completed";
+  if (snake === "migrationfailed") return "migration_failed";
+  return snake;
+}
+
+function extractMigrationId(data: Record<string, unknown>): string | undefined {
+  return asString(data.migrationId ?? data.migration_id ?? data.id);
+}
+
+function extractMigrationVmId(data: Record<string, unknown>): string | undefined {
+  return asString(data.vm_id ?? data.vmId);
+}
+
+function extractMigrationDirection(data: Record<string, unknown>): MigrationDirection | undefined {
+  const direction = asString(data.direction);
+  return direction as MigrationDirection | undefined;
+}
+
+function extractMigrationStage(data: Record<string, unknown>): string | undefined {
+  return asString(data.stage ?? data.step ?? data.currentStep ?? data.step_name);
+}
+
+function extractMigrationProgressPct(data: Record<string, unknown>): number | undefined {
+  const pct = asNumber(data.progressPct ?? data.progress_pct ?? data.progress ?? data.percentage);
+  if (pct === undefined) return undefined;
+  return Math.max(0, Math.min(100, pct));
+}
+
+function extractRunIdentifiers(data: Record<string, unknown>): {
+  amiId?: string;
+  instanceId?: string;
+  targetVmId?: string;
+} {
+  const nestedPlan = asRecord(data.plan);
+  const nestedTarget = asRecord(nestedPlan?.target);
+  return {
+    amiId: asString(data.amiId ?? data.ami_id ?? nestedTarget?.amiId),
+    instanceId: asString(data.instanceId ?? data.instance_id ?? data.ec2InstanceId ?? data.ec2_instance_id),
+    targetVmId: asString(data.targetVmId ?? data.target_vm_id ?? data.vmId ?? nestedTarget?.vmId),
+  };
+}
+
+function deriveRunStage(plan: MigrationPlan): string {
+  const lastCompleted = [...plan.steps].reverse().find((step) => step.status === "completed");
+  const failedStep = plan.steps.find((step) => step.status === "failed");
+  const activeStep = plan.steps.find((step) => step.status === "pending");
+  return failedStep?.name || activeStep?.name || lastCompleted?.name || "queued";
+}
+
+function resolveRunId(
+  runs: Record<string, MigrationLiveRun>,
+  eventType: string,
+  data: Record<string, unknown>,
+): string {
+  const explicitId = extractMigrationId(data);
+  if (explicitId) return explicitId;
+
+  const vmId = extractMigrationVmId(data);
+  const direction = extractMigrationDirection(data);
+
+  const candidates = Object.values(runs)
+    .filter((run) => {
+      if (run.status !== "running") return false;
+      if (vmId && run.vmId !== vmId) return false;
+      if (direction && run.direction !== direction) return false;
+      return true;
+    })
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+
+  if (candidates[0]) return candidates[0].id;
+
+  const runningRuns = Object.values(runs).filter((run) => run.status === "running");
+  if (
+    runningRuns.length === 1 &&
+    (eventType === "migration_step" || eventType === "migration_progress" || eventType === "migration_completed" || eventType === "migration_failed")
+  ) {
+    return runningRuns[0].id;
+  }
+
+  return `legacy:${direction ?? "unknown"}:${vmId ?? "unknown"}`;
+}
 
 interface DashboardState {
   // Connection
@@ -83,10 +199,28 @@ interface DashboardState {
   // Migrations
   activeMigration: MigrationPlan | null;
   migrationHistory: MigrationPlan[];
+  migrationRuns: Record<string, MigrationLiveRun>;
+  migrationRunOrder: string[];
   setActiveMigration: (m: MigrationPlan | null) => void;
   updateMigrationStep: (stepName: string, updates: Partial<MigrationPlan["steps"][0]>) => void;
   completeMigration: (m: MigrationPlan) => void;
   setMigrationHistory: (h: MigrationPlan[]) => void;
+  beginMigrationRun: (params: {
+    direction: MigrationDirection;
+    vmId: string;
+    vmName?: string;
+  }) => string;
+  registerMigrationRun: (
+    plan: MigrationPlan,
+    options?: {
+      localRunId?: string;
+      direction?: MigrationDirection;
+      vmId?: string;
+      vmName?: string;
+    },
+  ) => void;
+  markMigrationRunFailed: (runId: string, error: string) => void;
+  applyMigrationEvent: (eventType: string, payload: Record<string, unknown>, timestamp: string) => void;
 
   // Governance counters
   totalActions: number;
@@ -232,6 +366,8 @@ export const useStore = create<DashboardState>((set) => ({
 
   activeMigration: null,
   migrationHistory: [],
+  migrationRuns: {},
+  migrationRunOrder: [],
   setActiveMigration: (m) => set({ activeMigration: m }),
   updateMigrationStep: (stepName, updates) =>
     set((s) => {
@@ -251,6 +387,171 @@ export const useStore = create<DashboardState>((set) => ({
       migrationHistory: [m, ...s.migrationHistory].slice(0, 50),
     })),
   setMigrationHistory: (h) => set({ migrationHistory: h }),
+  beginMigrationRun: ({ direction, vmId, vmName }) => {
+    const runId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const now = new Date().toISOString();
+    set((s) => ({
+      migrationRuns: {
+        ...s.migrationRuns,
+        [runId]: {
+          id: runId,
+          migrationId: runId,
+          direction,
+          vmId,
+          vmName,
+          status: "running",
+          stage: "queued",
+          progressPct: 0,
+          startedAt: now,
+          updatedAt: now,
+        },
+      },
+      migrationRunOrder: [runId, ...s.migrationRunOrder.filter((id) => id !== runId)].slice(0, 50),
+    }));
+    return runId;
+  },
+  registerMigrationRun: (plan, options) =>
+    set((s) => {
+      const planDirection = asString(asRecord(plan)?.direction) as MigrationDirection | undefined;
+      const direction = options?.direction ?? planDirection;
+      const vmId = options?.vmId ?? asString(plan.source?.vmId);
+      const vmName = options?.vmName ?? plan.vmConfig?.name ?? plan.source?.vmName;
+      const runId = asString(plan.id) ?? options?.localRunId ?? `local-${Date.now()}`;
+
+      let sourceRunId = options?.localRunId;
+      if (!sourceRunId) {
+        sourceRunId = Object.keys(s.migrationRuns).find((candidateId) => {
+          if (candidateId === runId) return false;
+          const candidate = s.migrationRuns[candidateId];
+          if (candidate.status !== "running") return false;
+          if (vmId && candidate.vmId !== vmId) return false;
+          if (direction && candidate.direction !== direction) return false;
+          return true;
+        });
+      }
+
+      const sourceRun = sourceRunId ? s.migrationRuns[sourceRunId] : undefined;
+      const status =
+        plan.status === "completed"
+          ? "completed"
+          : plan.status === "failed"
+            ? "failed"
+            : "running";
+
+      const identifiers = extractRunIdentifiers(asRecord(plan) ?? {});
+      const now = new Date().toISOString();
+      const mergedRun: MigrationLiveRun = {
+        ...sourceRun,
+        id: runId,
+        migrationId: runId,
+        direction: direction ?? sourceRun?.direction,
+        vmId: vmId ?? sourceRun?.vmId,
+        vmName: vmName ?? sourceRun?.vmName,
+        status,
+        stage: deriveRunStage(plan),
+        progressPct: status === "completed" ? 100 : sourceRun?.progressPct ?? 0,
+        message: plan.error ?? sourceRun?.message,
+        startedAt: plan.startedAt ?? sourceRun?.startedAt ?? now,
+        updatedAt: now,
+        completedAt: plan.completedAt ?? (status === "running" ? undefined : now),
+        etaSample: sourceRun?.etaSample,
+        amiId: plan.target?.amiId ?? identifiers.amiId ?? sourceRun?.amiId,
+        instanceId: identifiers.instanceId ?? sourceRun?.instanceId,
+        targetVmId: identifiers.targetVmId ?? sourceRun?.targetVmId,
+        error: plan.error ?? sourceRun?.error,
+      };
+
+      const nextRuns = { ...s.migrationRuns };
+      if (sourceRunId && sourceRunId !== runId) {
+        delete nextRuns[sourceRunId];
+      }
+      nextRuns[runId] = mergedRun;
+
+      return {
+        migrationRuns: nextRuns,
+        migrationRunOrder: [runId, ...s.migrationRunOrder.filter((id) => id !== runId && id !== sourceRunId)].slice(0, 50),
+      };
+    }),
+  markMigrationRunFailed: (runId, error) =>
+    set((s) => {
+      const current = s.migrationRuns[runId];
+      if (!current) return s;
+      const now = new Date().toISOString();
+      return {
+        migrationRuns: {
+          ...s.migrationRuns,
+          [runId]: {
+            ...current,
+            status: "failed",
+            error,
+            message: error,
+            completedAt: now,
+            updatedAt: now,
+          },
+        },
+        migrationRunOrder: [runId, ...s.migrationRunOrder.filter((id) => id !== runId)].slice(0, 50),
+      };
+    }),
+  applyMigrationEvent: (eventType, payload, timestamp) =>
+    set((s) => {
+      const normalizedType = normalizeMigrationEventType(eventType);
+      if (!normalizedType.startsWith("migration")) return s;
+
+      const runId = resolveRunId(s.migrationRuns, normalizedType, payload);
+      const current = s.migrationRuns[runId];
+      const nowIso = timestamp || new Date().toISOString();
+      const startedAt = current?.startedAt ?? asString(payload.startedAt ?? payload.started_at) ?? nowIso;
+      const nowMs = new Date(nowIso).getTime();
+      const startedMs = new Date(startedAt).getTime();
+      const elapsedMs = Number.isFinite(startedMs) ? Math.max(0, nowMs - startedMs) : 0;
+
+      const status =
+        normalizedType === "migration_completed"
+          ? "completed"
+          : normalizedType === "migration_failed"
+            ? "failed"
+            : "running";
+      const progressFromEvent = extractMigrationProgressPct(payload);
+      const prevPct = current?.progressPct ?? 0;
+      let progressPct = progressFromEvent ?? prevPct;
+      if (status === "completed") progressPct = 100;
+      progressPct = Math.max(prevPct, progressPct);
+
+      const etaSample =
+        current?.etaSample ||
+        (status === "running" && progressPct > 0
+          ? progressPct <= 20
+            ? { progressPct, elapsedMs }
+            : { progressPct: 20, elapsedMs: Math.round((elapsedMs * 20) / progressPct) }
+          : undefined);
+
+      const ids = extractRunIdentifiers(payload);
+      const nextRun: MigrationLiveRun = {
+        ...current,
+        id: runId,
+        migrationId: runId,
+        direction: extractMigrationDirection(payload) ?? current?.direction,
+        vmId: extractMigrationVmId(payload) ?? current?.vmId,
+        vmName: asString(payload.vm_name ?? payload.vmName) ?? current?.vmName,
+        status,
+        stage: extractMigrationStage(payload) ?? current?.stage ?? (normalizedType === "migration_started" ? "queued" : "processing"),
+        progressPct,
+        message: asString(payload.message ?? payload.detail ?? payload.status ?? payload.error) ?? current?.message,
+        startedAt,
+        updatedAt: nowIso,
+        completedAt: status === "running" ? current?.completedAt : nowIso,
+        etaSample,
+        amiId: ids.amiId ?? current?.amiId,
+        instanceId: ids.instanceId ?? current?.instanceId,
+        targetVmId: ids.targetVmId ?? current?.targetVmId,
+        error: asString(payload.error) ?? current?.error,
+      };
+
+      return {
+        migrationRuns: { ...s.migrationRuns, [runId]: nextRun },
+        migrationRunOrder: [runId, ...s.migrationRunOrder.filter((id) => id !== runId)].slice(0, 50),
+      };
+    }),
 
   totalActions: 0,
   failures: 0,

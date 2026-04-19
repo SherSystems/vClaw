@@ -1086,7 +1086,6 @@ export class DashboardServer {
   private getPlanExecutability(direction: string): { executable: boolean; executable_reason?: string } {
     const planOnlyDirections = new Set([
       "vmware_to_azure",
-      "proxmox_to_azure",
       "aws_to_azure",
       "azure_to_vmware",
       "azure_to_proxmox",

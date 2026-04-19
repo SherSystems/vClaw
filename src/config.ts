@@ -79,6 +79,19 @@ const AutopilotConfigSchema = z.object({
     .transform((v) => v === "true"),
 });
 
+const ExecutorConfigSchema = z.object({
+  maxRetries: z.coerce.number().int().nonnegative().default(2),
+  retryBaseBackoffMs: z.coerce.number().int().nonnegative().default(250),
+  retryMaxBackoffMs: z.coerce.number().int().nonnegative().default(4000),
+  retryJitterRatio: z.coerce.number().min(0).max(1).default(0.2),
+  retryOnTimeout: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((v) => v === "true"),
+  maxToolCallsPerRun: z.coerce.number().int().positive().default(200),
+  maxToolCallsPerPlan: z.coerce.number().int().positive().default(100),
+});
+
 export const ConfigSchema = z.object({
   proxmox: ProxmoxConfigSchema,
   vmware: VMwareConfigSchema,
@@ -89,6 +102,7 @@ export const ConfigSchema = z.object({
   dashboard: DashboardConfigSchema,
   migration: MigrationConfigSchema.default({}),
   autopilot: AutopilotConfigSchema,
+  executor: ExecutorConfigSchema.default({}),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
@@ -150,6 +164,15 @@ export function getConfig(): Config {
     autopilot: {
       pollIntervalMs: process.env.AUTOPILOT_POLL_INTERVAL_MS,
       enabled: process.env.AUTOPILOT_ENABLED,
+    },
+    executor: {
+      maxRetries: process.env.EXECUTOR_MAX_RETRIES,
+      retryBaseBackoffMs: process.env.EXECUTOR_RETRY_BASE_BACKOFF_MS,
+      retryMaxBackoffMs: process.env.EXECUTOR_RETRY_MAX_BACKOFF_MS,
+      retryJitterRatio: process.env.EXECUTOR_RETRY_JITTER_RATIO,
+      retryOnTimeout: process.env.EXECUTOR_RETRY_ON_TIMEOUT,
+      maxToolCallsPerRun: process.env.EXECUTOR_MAX_TOOL_CALLS_PER_RUN,
+      maxToolCallsPerPlan: process.env.EXECUTOR_MAX_TOOL_CALLS_PER_PLAN,
     },
   });
 

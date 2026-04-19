@@ -16,8 +16,18 @@ import type { AzureClient } from "../providers/azure/client.js";
 import type { SSHExecFn } from "./types.js";
 import { MigrationOrchestrator } from "./orchestrator.js";
 import { WorkloadAnalyzer } from "./workload-analyzer.js";
+import { AzureWorkloadAnalyzer } from "./azure-workload-analyzer.js";
 import { AWSExporter } from "./aws-exporter.js";
 import { AWSImporter } from "./aws-importer.js";
+import { uploadDiskFromSSHToAzurePageBlob } from "./cloud-uploader.js";
+import { DiskConverter } from "./disk-converter.js";
+import { createHash } from "node:crypto";
+import {
+  BlobSASPermissions,
+  BlobServiceClient,
+  StorageSharedKeyCredential,
+  generateBlobSASQueryParameters,
+} from "@azure/storage-blob";
 
 export interface MigrationAdapterConfig {
   vsphereClient: VSphereClient;
@@ -36,22 +46,6 @@ export interface MigrationAdapterConfig {
   // Azure (optional — enables Azure migration planning/execution tools)
   azureClient?: AzureClient;
 }
-
-const AZURE_VM_SIZE_CATALOG: Array<{ name: string; vCPU: number; memoryMiB: number }> = [
-  { name: "Standard_B1s", vCPU: 1, memoryMiB: 1024 },
-  { name: "Standard_B1ms", vCPU: 1, memoryMiB: 2048 },
-  { name: "Standard_B2s", vCPU: 2, memoryMiB: 4096 },
-  { name: "Standard_B2ms", vCPU: 2, memoryMiB: 8192 },
-  { name: "Standard_B4ms", vCPU: 4, memoryMiB: 16384 },
-  { name: "Standard_D2s_v5", vCPU: 2, memoryMiB: 8192 },
-  { name: "Standard_D4s_v5", vCPU: 4, memoryMiB: 16384 },
-  { name: "Standard_D8s_v5", vCPU: 8, memoryMiB: 32768 },
-  { name: "Standard_D16s_v5", vCPU: 16, memoryMiB: 65536 },
-  { name: "Standard_E2s_v5", vCPU: 2, memoryMiB: 16384 },
-  { name: "Standard_E4s_v5", vCPU: 4, memoryMiB: 32768 },
-  { name: "Standard_F2s_v2", vCPU: 2, memoryMiB: 4096 },
-  { name: "Standard_F4s_v2", vCPU: 4, memoryMiB: 8192 },
-];
 
 export class MigrationAdapter implements InfraAdapter {
   name = "migration";
@@ -199,7 +193,7 @@ export class MigrationAdapter implements InfraAdapter {
           name: "migrate_vmware_to_aws",
           description:
             "Migrate a VM from VMware vSphere to AWS EC2. " +
-            "Exports the VM, converts disk to VMDK, uploads to S3, " +
+            "Exports the VM, uploads disk to S3, " +
             "imports as AMI, and launches an EC2 instance. " +
             "The source VM will be powered off during migration.",
           tier: "risky_write" as const,
@@ -210,6 +204,8 @@ export class MigrationAdapter implements InfraAdapter {
             { name: "subnet_id", type: "string", required: false, description: "AWS subnet ID" },
             { name: "security_group_ids", type: "string", required: false, description: "Comma-separated AWS security group IDs" },
             { name: "key_name", type: "string", required: false, description: "EC2 key pair name for SSH access" },
+            { name: "import_mode", type: "string", required: false, description: "Import strategy: auto, snapshot, or image (default: auto)" },
+            { name: "fallback_to_import_image", type: "string", required: false, description: "When using snapshot path, fallback to ImportImage on failure (true/false; default: true)" },
           ],
           returns: "MigrationPlan with AMI ID and EC2 instance details",
         },
@@ -256,7 +252,7 @@ export class MigrationAdapter implements InfraAdapter {
           name: "migrate_proxmox_to_aws",
           description:
             "Migrate a VM from Proxmox VE to AWS EC2. " +
-            "Exports VM config, converts disk to VMDK, uploads to S3, " +
+            "Exports VM config, uploads disk to S3 (RAW when possible), " +
             "imports as AMI, and launches an EC2 instance.",
           tier: "risky_write" as const,
           adapter: "migration",
@@ -265,6 +261,8 @@ export class MigrationAdapter implements InfraAdapter {
             { name: "instance_type", type: "string", required: false, description: "EC2 instance type (auto-selected if omitted)" },
             { name: "subnet_id", type: "string", required: false, description: "AWS subnet ID" },
             { name: "security_group_ids", type: "string", required: false, description: "Comma-separated AWS security group IDs" },
+            { name: "import_mode", type: "string", required: false, description: "Import strategy: auto, snapshot, or image (default: auto)" },
+            { name: "fallback_to_import_image", type: "string", required: false, description: "When using snapshot path, fallback to ImportImage on failure (true/false; default: true)" },
           ],
           returns: "MigrationPlan with AMI ID and EC2 instance details",
         },
@@ -689,6 +687,14 @@ export class MigrationAdapter implements InfraAdapter {
     if (!vmId) return { success: false, error: "vm_id is required" };
     if (!this.config.awsClient) return { success: false, error: "AWS not configured" };
     if (!this.config.awsS3Bucket) return { success: false, error: "AWS S3 migration bucket not configured" };
+    const importMode = this.parseAWSImportMode(params.import_mode);
+    if (!importMode) {
+      return { success: false, error: "import_mode must be one of: auto, snapshot, image" };
+    }
+    const fallbackToImportImage = this.parseOptionalBooleanParam(params.fallback_to_import_image);
+    if (fallbackToImportImage === "invalid") {
+      return { success: false, error: "fallback_to_import_image must be a boolean (true/false)" };
+    }
 
     try {
       // Step 1: Export from VMware (get VM config + disk path)
@@ -729,7 +735,6 @@ export class MigrationAdapter implements InfraAdapter {
         this.config.awsClient,
         this.config.awsS3Bucket,
         this.config.awsS3Prefix ?? "vclaw-migration/",
-        this.config.sshExec,
       );
 
       const importResult = await importer.importVM(
@@ -737,6 +742,8 @@ export class MigrationAdapter implements InfraAdapter {
           vmConfig: exportResult.vmConfig,
           diskPath: stagedVmdk,
           diskFormat: "vmdk",
+          importMode,
+          fallbackToImportImage: fallbackToImportImage ?? undefined,
           instanceType: params.instance_type as string | undefined,
           subnetId: params.subnet_id as string | undefined,
           securityGroupIds: params.security_group_ids
@@ -927,6 +934,14 @@ export class MigrationAdapter implements InfraAdapter {
     if (vmId === undefined || vmId === null) return { success: false, error: "vm_id is required" };
     if (!this.config.awsClient) return { success: false, error: "AWS not configured" };
     if (!this.config.awsS3Bucket) return { success: false, error: "AWS S3 migration bucket not configured" };
+    const importMode = this.parseAWSImportMode(params.import_mode);
+    if (!importMode) {
+      return { success: false, error: "import_mode must be one of: auto, snapshot, image" };
+    }
+    const fallbackToImportImage = this.parseOptionalBooleanParam(params.fallback_to_import_image);
+    if (fallbackToImportImage === "invalid") {
+      return { success: false, error: "fallback_to_import_image must be a boolean (true/false)" };
+    }
 
     try {
       const proxmoxUser = this.config.proxmoxUser ?? "root";
@@ -942,30 +957,41 @@ export class MigrationAdapter implements InfraAdapter {
       try { await this.config.proxmoxClient.stopVM(this.config.proxmoxNode, vmId); } catch { /* may be stopped */ }
       await new Promise(r => setTimeout(r, 3000));
 
-      // Convert disk to vmdk (AWS Import supports vmdk)
-      await this.config.sshExec(this.config.proxmoxHost, proxmoxUser, `mkdir -p ${stageDir}`, 10_000);
       const primaryDisk = exportResult.vmConfig.disks[0];
-      const stagedVmdk = `${stageDir}/disk.vmdk`;
+      if (!primaryDisk) {
+        return { success: false, error: "Source VM has no attached disks. Nothing to migrate." };
+      }
+      let stagedDiskPath = primaryDisk.sourcePath;
+      let stagedDiskFormat: "raw" | "vmdk" = "raw";
+      let shouldCleanupStageDir = false;
 
-      await exporter.convertDiskToVmdk(
-        this.config.proxmoxHost, proxmoxUser,
-        primaryDisk.sourcePath, stagedVmdk,
-        primaryDisk.sourceFormat, 600_000
-      );
+      if (primaryDisk.sourceFormat !== "raw") {
+        await this.config.sshExec(this.config.proxmoxHost, proxmoxUser, `mkdir -p ${stageDir}`, 10_000);
+        const stagedVmdk = `${stageDir}/disk.vmdk`;
+        await exporter.convertDiskToVmdk(
+          this.config.proxmoxHost, proxmoxUser,
+          primaryDisk.sourcePath, stagedVmdk,
+          primaryDisk.sourceFormat, 600_000
+        );
+        stagedDiskPath = stagedVmdk;
+        stagedDiskFormat = "vmdk";
+        shouldCleanupStageDir = true;
+      }
 
       // Upload to S3 and import
       const importer = new AWSImporter(
         this.config.awsClient,
         this.config.awsS3Bucket,
         this.config.awsS3Prefix ?? "vclaw-migration/",
-        this.config.sshExec,
       );
 
       const importResult = await importer.importVM(
         {
           vmConfig: exportResult.vmConfig,
-          diskPath: stagedVmdk,
-          diskFormat: "vmdk",
+          diskPath: stagedDiskPath,
+          diskFormat: stagedDiskFormat,
+          importMode,
+          fallbackToImportImage: fallbackToImportImage ?? undefined,
           instanceType: params.instance_type as string | undefined,
           subnetId: params.subnet_id as string | undefined,
           securityGroupIds: params.security_group_ids
@@ -977,7 +1003,9 @@ export class MigrationAdapter implements InfraAdapter {
       );
 
       // Cleanup
-      await this.config.sshExec(this.config.proxmoxHost, proxmoxUser, `rm -rf ${JSON.stringify(stageDir)}`, 10_000);
+      if (shouldCleanupStageDir) {
+        await this.config.sshExec(this.config.proxmoxHost, proxmoxUser, `rm -rf ${JSON.stringify(stageDir)}`, 10_000);
+      }
 
       return {
         success: true,
@@ -1228,7 +1256,290 @@ export class MigrationAdapter implements InfraAdapter {
   }
 
   private async executeProxmoxToAzure(params: Record<string, unknown>): Promise<ToolCallResult> {
-    return this.executeAzureExecutionScaffold("proxmox_to_azure", () => this.executePlanProxmoxToAzure(params));
+    const vmId = params.vm_id as number;
+    if (vmId === undefined || vmId === null) return { success: false, error: "vm_id is required" };
+    if (!this.config.azureClient) return { success: false, error: "Azure not configured" };
+
+    const azureClient = this.config.azureClient;
+    const proxmoxUser = this.config.proxmoxUser ?? "root";
+    const resourceGroup = this.normalizeOptionalString(params.resource_group) ?? "vclaw-migrations";
+    const location = this.normalizeOptionalString(params.location) ?? azureClient.defaultLocation;
+    const storageAccountName = this.normalizeOptionalString(params.storage_account)
+      ?? this.buildAzureStorageAccountName(resourceGroup, azureClient.subscriptionId);
+    const containerName = this.normalizeOptionalString(params.container_name) ?? "vhds";
+    const requestedVmSize = this.normalizeOptionalString(params.vm_size);
+    const requestedSubnetId = this.normalizeOptionalString(params.subnet_id);
+
+    const startedAt = new Date().toISOString();
+    const executionSteps: Array<{ name: string; status: "pending" | "completed" | "failed"; detail?: string; error?: string }> = [
+      { name: "export_config", status: "pending" },
+      { name: "power_off", status: "pending" },
+      { name: "export_disk", status: "pending" },
+      { name: "upload_to_azure", status: "pending" },
+      { name: "create_managed_disk", status: "pending" },
+      { name: "create_vm", status: "pending" },
+      { name: "cleanup", status: "pending" },
+    ];
+
+    const markStepComplete = (name: string, detail?: string) => {
+      const step = executionSteps.find((entry) => entry.name === name);
+      if (!step) return;
+      step.status = "completed";
+      if (detail) step.detail = detail;
+    };
+
+    const markStepFailed = (name: string, error: string) => {
+      const step = executionSteps.find((entry) => entry.name === name);
+      if (!step) return;
+      step.status = "failed";
+      step.error = error;
+    };
+
+    const markPendingCleanupSteps = (name: string, detail: string) => {
+      let reached = false;
+      for (const step of executionSteps) {
+        if (step.name === name) reached = true;
+        if (reached && step.status === "pending") {
+          step.status = "completed";
+          step.detail = detail;
+        }
+      }
+    };
+
+    const workDir = "/tmp/vclaw-migration";
+    const stageDir = `${workDir}/pve-azure-${Date.now()}`;
+    const stageDiskPath = `${stageDir}/disk.raw`;
+    let managedDiskName = "";
+    let vmName = "";
+    let exportedVmName = "";
+    let vmSize = requestedVmSize ?? "Standard_B2s";
+    let subnetId = requestedSubnetId ?? "";
+    let managedDiskId = "";
+    let uploadedBlobUrl = "";
+    let createdVm = false;
+    let createdDisk = false;
+    let blobClientForCleanup: { deleteIfExists: () => Promise<unknown> } | null = null;
+
+    try {
+      const { ProxmoxExporter } = await import("./proxmox-exporter.js");
+      const exporter = new ProxmoxExporter(this.config.proxmoxClient, this.config.sshExec);
+      const exportResult = await exporter.exportVM(
+        this.config.proxmoxNode,
+        vmId,
+        this.config.proxmoxHost,
+        proxmoxUser,
+      );
+      if (exportResult.vmConfig.disks.length === 0) {
+        throw new Error("Source VM has no attached disks. Nothing to migrate.");
+      }
+
+      exportedVmName = exportResult.vmConfig.name;
+      markStepComplete("export_config", `Exported Proxmox VM config for ${exportedVmName}`);
+
+      try {
+        await this.config.proxmoxClient.stopVM(this.config.proxmoxNode, vmId);
+      } catch {
+        // VM might already be stopped.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      markStepComplete("power_off", "Source VM power-off requested");
+
+      await this.config.sshExec(this.config.proxmoxHost, proxmoxUser, `mkdir -p ${stageDir}`, 10_000);
+      const converter = new DiskConverter(this.config.sshExec);
+      const primaryDisk = exportResult.vmConfig.disks[0];
+      await converter.convert({
+        sshExec: this.config.sshExec,
+        host: this.config.proxmoxHost,
+        user: proxmoxUser,
+        sourcePath: primaryDisk.sourcePath,
+        targetPath: stageDiskPath,
+        sourceFormat: primaryDisk.sourceFormat,
+        targetFormat: "raw",
+        timeoutMs: 7_200_000,
+      });
+
+      const statResult = await this.config.sshExec(
+        this.config.proxmoxHost,
+        proxmoxUser,
+        `stat -c%s ${JSON.stringify(stageDiskPath)}`,
+        30_000,
+      );
+      if (statResult.exitCode !== 0) {
+        throw new Error(`Unable to read staged disk size: ${statResult.stderr || statResult.stdout}`);
+      }
+      const stagedDiskSizeBytes = Number(statResult.stdout.trim());
+      if (!Number.isFinite(stagedDiskSizeBytes) || stagedDiskSizeBytes <= 0) {
+        throw new Error("Staged disk size is invalid for Azure page blob upload");
+      }
+      if (stagedDiskSizeBytes % 512 !== 0) {
+        throw new Error("Staged disk size must be a multiple of 512 bytes for Azure page blobs");
+      }
+      markStepComplete("export_disk", `Exported and converted primary disk to ${stageDiskPath}`);
+
+      await azureClient.ensureResourceGroup(resourceGroup, location);
+      const storageAccount = await azureClient.ensureStorageAccount({
+        resourceGroup,
+        accountName: storageAccountName,
+        location,
+      });
+      await azureClient.ensureBlobContainer(resourceGroup, storageAccount.name, containerName);
+      const storageKey = await azureClient.getStorageAccountKey(resourceGroup, storageAccount.name);
+
+      const connectionString =
+        `DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};` +
+        `AccountKey=${storageKey};EndpointSuffix=core.windows.net`;
+      const blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
+      const containerClient = blobServiceClient.getContainerClient(containerName);
+      await containerClient.createIfNotExists();
+
+      const blobName = `${this.sanitizeAzureName(exportResult.vmConfig.name, "proxmox-vm", 48)}-${Date.now()}.vhd`;
+      const pageBlobClient = containerClient.getPageBlobClient(blobName);
+      blobClientForCleanup = pageBlobClient;
+      uploadedBlobUrl = pageBlobClient.url;
+
+      const sharedKeyCredential = new StorageSharedKeyCredential(storageAccount.name, storageKey);
+      const sasToken = generateBlobSASQueryParameters(
+        {
+          containerName,
+          blobName,
+          startsOn: new Date(Date.now() - 5 * 60 * 1000),
+          expiresOn: new Date(Date.now() + 2 * 60 * 60 * 1000),
+          permissions: BlobSASPermissions.parse("cw"),
+        },
+        sharedKeyCredential,
+      ).toString();
+      const uploadUrlWithSas = `${pageBlobClient.url}?${sasToken}`;
+
+      await this.uploadDiskToAzurePageBlob(
+        this.config.proxmoxHost,
+        proxmoxUser,
+        stageDiskPath,
+        uploadUrlWithSas,
+        stagedDiskSizeBytes,
+      );
+      markStepComplete("upload_to_azure", `Uploaded staged disk to ${uploadedBlobUrl}`);
+
+      managedDiskName = this.sanitizeAzureName(`${exportResult.vmConfig.name}-osdisk`, `pve-${vmId}-osdisk`, 80);
+      const osType = this.detectAzureOsType(exportResult.vmConfig.guestOS);
+      const managedDisk = await azureClient.createManagedDiskFromImport({
+        resourceGroup,
+        name: managedDiskName,
+        sourceUri: pageBlobClient.url,
+        storageAccountId: storageAccount.id,
+        location,
+        osType,
+      });
+      createdDisk = true;
+      managedDiskId = managedDisk.id;
+      markStepComplete("create_managed_disk", `Created managed disk ${managedDiskName}`);
+
+      const analysis = this.buildAzureTargetAnalysis(exportResult.vmConfig);
+      vmSize = requestedVmSize ?? analysis.target.recommended.vmSize;
+      subnetId = requestedSubnetId ?? await this.resolveAzureSubnetId(resourceGroup);
+      vmName = this.sanitizeAzureName(exportResult.vmConfig.name, `proxmox-vm-${vmId}`, 64);
+
+      await azureClient.createVMFromManagedDisk({
+        resourceGroup,
+        name: vmName,
+        location,
+        vmSize,
+        osDiskId: managedDisk.id,
+        subnetId,
+        osType,
+      });
+      createdVm = true;
+      markStepComplete("create_vm", `Created Azure VM ${vmName}`);
+
+      // Blob is no longer required once the managed disk import succeeds.
+      await pageBlobClient.deleteIfExists();
+      blobClientForCleanup = null;
+      await this.config.sshExec(this.config.proxmoxHost, proxmoxUser, `rm -rf ${JSON.stringify(stageDir)}`, 10_000);
+      markStepComplete("cleanup", "Removed temporary blob and staging files");
+
+      return {
+        success: true,
+        data: {
+          id: `mig-${Date.now()}`,
+          source: {
+            provider: "proxmox",
+            vmId: String(vmId),
+            vmName: exportedVmName,
+            host: this.config.proxmoxHost,
+          },
+          target: {
+            provider: "azure",
+            node: location,
+            host: "azure",
+            storage: "managed-disk",
+            vmSize,
+            resourceGroup,
+            subnetId,
+          },
+          vmConfig: exportResult.vmConfig,
+          status: "completed",
+          steps: executionSteps,
+          startedAt,
+          completedAt: new Date().toISOString(),
+          metadata: {
+            managedDiskId,
+            managedDiskName,
+            uploadedBlobUrl,
+          },
+        },
+      };
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      const firstPendingStep = executionSteps.find((entry) => entry.status === "pending");
+      if (firstPendingStep) {
+        markStepFailed(firstPendingStep.name, errorMessage);
+        markPendingCleanupSteps(firstPendingStep.name, "Not executed due to earlier failure");
+      }
+
+      const cleanupFailures: string[] = [];
+
+      if (createdVm && vmName) {
+        try {
+          await azureClient.deleteVM(resourceGroup, vmName);
+        } catch (cleanupErr) {
+          cleanupFailures.push(`delete VM ${vmName}: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`);
+        }
+      }
+
+      if (createdDisk && managedDiskName) {
+        try {
+          await azureClient.deleteDisk(resourceGroup, managedDiskName);
+        } catch (cleanupErr) {
+          cleanupFailures.push(
+            `delete managed disk ${managedDiskName}: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`,
+          );
+        }
+      }
+
+      if (blobClientForCleanup) {
+        try {
+          await blobClientForCleanup.deleteIfExists();
+        } catch (cleanupErr) {
+          cleanupFailures.push(`delete page blob: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`);
+        }
+      }
+
+      try {
+        await this.config.sshExec(this.config.proxmoxHost, proxmoxUser, `rm -rf ${JSON.stringify(stageDir)}`, 10_000);
+      } catch (cleanupErr) {
+        cleanupFailures.push(
+          `remove Proxmox staging directory ${stageDir}: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`,
+        );
+      }
+
+      const cleanupSuffix = cleanupFailures.length > 0
+        ? ` Cleanup warnings: ${cleanupFailures.join("; ")}`
+        : "";
+
+      return {
+        success: false,
+        error: `${errorMessage}${cleanupSuffix}`,
+      };
+    }
   }
 
   private async executeAWSToAzure(params: Record<string, unknown>): Promise<ToolCallResult> {
@@ -1262,43 +1573,21 @@ export class MigrationAdapter implements InfraAdapter {
   }
 
   private buildAzureTargetAnalysis(vmConfig: {
+    name?: string;
     cpuCount: number;
     memoryMiB: number;
     disks: Array<{ capacityBytes: number }>;
-  }): {
-    target: { recommended: { vmSize: string; location: string } };
-    estimate: { monthlyUSD: number; diskGB: number };
-    risks: string[];
-  } {
-    const recommendation = this.pickAzureVMSize(vmConfig.cpuCount, vmConfig.memoryMiB);
-    const diskGB = Math.max(1, Math.ceil(
-      vmConfig.disks.reduce((sum, disk) => sum + (disk.capacityBytes || 0), 0) / (1024 ** 3),
-    ));
-    // Lightweight estimate used for planning UX only.
-    const monthlyUSD = Number(((recommendation.vCPU * 10) + (recommendation.memoryMiB / 1024 * 3)).toFixed(2));
-    return {
-      target: {
-        recommended: {
-          vmSize: recommendation.name,
-          location: this.config.azureClient?.defaultLocation ?? "eastus",
-        },
-      },
-      estimate: { monthlyUSD, diskGB },
-      risks: [
-        "Cross-cloud image export/import bandwidth can increase total migration time.",
-        "Guest drivers and network adapters may need post-cutover validation.",
-      ],
-    };
-  }
-
-  private pickAzureVMSize(cpuCount: number, memoryMiB: number): { name: string; vCPU: number; memoryMiB: number } {
-    const sorted = [...AZURE_VM_SIZE_CATALOG].sort((a, b) => (a.vCPU * a.memoryMiB) - (b.vCPU * b.memoryMiB));
-    for (const candidate of sorted) {
-      if (candidate.vCPU >= Math.max(1, cpuCount) && candidate.memoryMiB >= Math.max(1024, memoryMiB)) {
-        return candidate;
-      }
-    }
-    return sorted[sorted.length - 1];
+    nics?: Array<{ label: string; macAddress: string; networkName: string; adapterType: string }>;
+    firmware?: "bios" | "efi";
+  }): ReturnType<typeof AzureWorkloadAnalyzer.analyzeVMForAzure> {
+    return AzureWorkloadAnalyzer.analyzeVMForAzure({
+      name: vmConfig.name ?? "source-vm",
+      cpuCount: vmConfig.cpuCount,
+      memoryMiB: vmConfig.memoryMiB,
+      disks: vmConfig.disks,
+      nics: vmConfig.nics ?? [],
+      firmware: vmConfig.firmware ?? "bios",
+    }, this.config.azureClient?.defaultLocation ?? "eastus");
   }
 
   private buildAzureTargetPlan(
@@ -1401,6 +1690,35 @@ export class MigrationAdapter implements InfraAdapter {
     };
   }
 
+  private parseAWSImportMode(value: unknown): "auto" | "snapshot" | "image" | null {
+    if (value === undefined || value === null || value === "") {
+      return "auto";
+    }
+    if (typeof value !== "string") {
+      return null;
+    }
+    const normalized = value.toLowerCase();
+    if (normalized === "auto" || normalized === "snapshot" || normalized === "image") {
+      return normalized;
+    }
+    return null;
+  }
+
+  private parseOptionalBooleanParam(value: unknown): boolean | null | "invalid" {
+    if (value === undefined || value === null || value === "") {
+      return null;
+    }
+    if (typeof value === "boolean") {
+      return value;
+    }
+    if (typeof value === "string") {
+      const normalized = value.toLowerCase();
+      if (normalized === "true") return true;
+      if (normalized === "false") return false;
+    }
+    return "invalid";
+  }
+
   private parseAzureVMReference(vmId: string): { resourceGroup: string; vmName: string } | null {
     const armMatch = vmId.match(
       /\/resourceGroups\/([^/]+)\/providers\/Microsoft\.Compute\/virtualMachines\/([^/]+)/i,
@@ -1446,7 +1764,11 @@ export class MigrationAdapter implements InfraAdapter {
     }
 
     const vm = await this.config.azureClient.getVM(ref.resourceGroup, ref.vmName);
-    const size = AZURE_VM_SIZE_CATALOG.find((entry) => entry.name === vm.vmSize) ?? { name: vm.vmSize || "Standard_B2s", vCPU: 2, memoryMiB: 4096 };
+    const size = AzureWorkloadAnalyzer.getVMSizeSpecs(vm.vmSize) ?? {
+      vCPU: 2,
+      memoryMiB: 4096,
+      hourlyRate: 0.0416,
+    };
     const disks = await this.config.azureClient.listDisks(ref.resourceGroup);
     const attachedDisks = disks.filter((disk) => disk.attachedVmId === vm.id);
     const totalDiskGB = attachedDisks.reduce((sum, disk) => sum + Math.max(1, disk.sizeGB), 0) || 64;
@@ -1493,6 +1815,69 @@ export class MigrationAdapter implements InfraAdapter {
       vmConfig,
       totalDiskGB,
     };
+  }
+
+  private normalizeOptionalString(value: unknown): string | null {
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  private sanitizeAzureName(value: string, fallback: string, maxLength: number): string {
+    const cleaned = value
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    const candidate = cleaned.length > 0 ? cleaned : fallback.toLowerCase();
+    return candidate.slice(0, maxLength);
+  }
+
+  private buildAzureStorageAccountName(resourceGroup: string, subscriptionId: string): string {
+    const seed = `${resourceGroup}:${subscriptionId}`;
+    const suffix = createHash("sha1").update(seed).digest("hex").slice(0, 18);
+    return `vclawmig${suffix}`.slice(0, 24);
+  }
+
+  private detectAzureOsType(guestOS: string): "Linux" | "Windows" {
+    return guestOS.toLowerCase().includes("win") ? "Windows" : "Linux";
+  }
+
+  private async resolveAzureSubnetId(resourceGroup: string): Promise<string> {
+    if (!this.config.azureClient) {
+      throw new Error("Azure not configured");
+    }
+
+    const vnets = await this.config.azureClient.listVNets(resourceGroup);
+    for (const vnet of vnets) {
+      if (!vnet.name) continue;
+      const subnets = await this.config.azureClient.listSubnets(resourceGroup, vnet.name);
+      const subnetWithId = subnets.find((subnet) => Boolean(subnet.id));
+      if (subnetWithId?.id) {
+        return subnetWithId.id;
+      }
+    }
+
+    throw new Error(
+      `No subnet found in resource group '${resourceGroup}'. ` +
+      "Provide subnet_id explicitly or create a VNet/subnet in the target resource group.",
+    );
+  }
+
+  private async uploadDiskToAzurePageBlob(
+    host: string,
+    user: string,
+    sourcePath: string,
+    destinationUrlWithSas: string,
+    diskSizeBytes: number,
+  ): Promise<void> {
+    await uploadDiskFromSSHToAzurePageBlob({
+      sourceHost: host,
+      sourceUser: user,
+      sourcePath,
+      destinationUrlWithSas,
+      diskSizeBytes,
+    });
   }
 
   private mapVMwareInfoToVMConfig(vmInfo: any): {

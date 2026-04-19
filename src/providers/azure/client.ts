@@ -7,6 +7,7 @@ import { ClientSecretCredential } from "@azure/identity";
 import { ComputeManagementClient } from "@azure/arm-compute";
 import { NetworkManagementClient } from "@azure/arm-network";
 import { ResourceManagementClient } from "@azure/arm-resources";
+import { StorageManagementClient } from "@azure/arm-storage";
 
 import type {
   AzureClientConfig,
@@ -64,6 +65,7 @@ export class AzureClient {
   private compute: ComputeManagementClient;
   private network: NetworkManagementClient;
   private resources: ResourceManagementClient;
+  private storage: StorageManagementClient;
   private connected = false;
 
   constructor(config: AzureClientConfig) {
@@ -79,6 +81,7 @@ export class AzureClient {
     this.compute = new ComputeManagementClient(credential, config.subscriptionId);
     this.network = new NetworkManagementClient(credential, config.subscriptionId);
     this.resources = new ResourceManagementClient(credential, config.subscriptionId);
+    this.storage = new StorageManagementClient(credential, config.subscriptionId);
   }
 
   // ── Connection ─────────────────────────────────────────────
@@ -112,6 +115,19 @@ export class AzureClient {
       });
     }
     return out;
+  }
+
+  async ensureResourceGroup(name: string, location?: string): Promise<AzureResourceGroupInfo> {
+    const rg = await this.resources.resourceGroups.createOrUpdate(name, {
+      location: location ?? this.defaultLocation,
+    });
+    return {
+      id: rg.id ?? "",
+      name: rg.name ?? name,
+      location: rg.location ?? location ?? this.defaultLocation,
+      provisioningState: rg.properties?.provisioningState ?? "",
+      tags: (rg.tags ?? {}) as Record<string, string>,
+    };
   }
 
   // ── Virtual Machines ───────────────────────────────────────
@@ -284,6 +300,70 @@ export class AzureClient {
     };
   }
 
+  async createVMFromManagedDisk(params: {
+    resourceGroup: string;
+    name: string;
+    location?: string;
+    vmSize: string;
+    osDiskId: string;
+    subnetId: string;
+    osType?: "Linux" | "Windows";
+  }): Promise<AzureVMSummary> {
+    const location = params.location ?? this.defaultLocation;
+
+    // Create NIC first
+    const nicName = `${params.name}-nic`;
+    const nicPoller = await this.network.networkInterfaces.beginCreateOrUpdate(
+      params.resourceGroup,
+      nicName,
+      {
+        location,
+        ipConfigurations: [
+          {
+            name: "ipconfig1",
+            subnet: { id: params.subnetId },
+            privateIPAllocationMethod: "Dynamic",
+          },
+        ],
+      },
+    );
+    const nic = await nicPoller.pollUntilDone();
+    if (!nic.id) {
+      throw new Error("Failed to create network interface for VM");
+    }
+
+    const vmPoller = await this.compute.virtualMachines.beginCreateOrUpdate(
+      params.resourceGroup,
+      params.name,
+      {
+        location,
+        hardwareProfile: { vmSize: params.vmSize },
+        storageProfile: {
+          osDisk: {
+            createOption: "Attach",
+            managedDisk: { id: params.osDiskId },
+            osType: params.osType ?? "Linux",
+          },
+        },
+        networkProfile: {
+          networkInterfaces: [{ id: nic.id, primary: true }],
+        },
+      },
+    );
+    const vm = await vmPoller.pollUntilDone();
+
+    return {
+      id: vm.id ?? "",
+      name: vm.name ?? params.name,
+      resourceGroup: params.resourceGroup,
+      location,
+      vmSize: params.vmSize,
+      powerState: "unknown",
+      provisioningState: vm.provisioningState ?? "",
+      osType: params.osType,
+    };
+  }
+
   // ── Disks ──────────────────────────────────────────────────
 
   async listDisks(resourceGroup?: string): Promise<AzureDiskInfo[]> {
@@ -306,6 +386,47 @@ export class AzureClient {
       });
     }
     return out;
+  }
+
+  async createManagedDiskFromImport(params: {
+    resourceGroup: string;
+    name: string;
+    sourceUri: string;
+    storageAccountId: string;
+    location?: string;
+    osType?: "Linux" | "Windows";
+  }): Promise<AzureDiskInfo> {
+    const location = params.location ?? this.defaultLocation;
+    const disk = await this.compute.disks.beginCreateOrUpdateAndWait(
+      params.resourceGroup,
+      params.name,
+      {
+        location,
+        creationData: {
+          createOption: "Import",
+          sourceUri: params.sourceUri,
+          storageAccountId: params.storageAccountId,
+        },
+        osType: params.osType,
+        sku: { name: "Standard_LRS" },
+      },
+    );
+
+    return {
+      id: disk.id ?? "",
+      name: disk.name ?? params.name,
+      resourceGroup: params.resourceGroup,
+      location: disk.location ?? location,
+      sizeGB: disk.diskSizeGB ?? 0,
+      diskState: (disk.diskState ?? "Unknown") as AzureDiskState,
+      skuName: disk.sku?.name,
+      encrypted: Boolean(disk.encryption?.diskEncryptionSetId || disk.encryptionSettingsCollection?.enabled),
+      attachedVmId: disk.managedBy,
+    };
+  }
+
+  async deleteDisk(resourceGroup: string, diskName: string): Promise<void> {
+    await this.compute.disks.beginDeleteAndWait(resourceGroup, diskName);
   }
 
   async createSnapshot(params: {
@@ -452,6 +573,48 @@ export class AzureClient {
       });
     }
     return out;
+  }
+
+  // ── Storage ────────────────────────────────────────────────
+
+  async ensureStorageAccount(params: {
+    resourceGroup: string;
+    accountName: string;
+    location?: string;
+  }): Promise<{ id: string; name: string; location: string }> {
+    const location = params.location ?? this.defaultLocation;
+    const account = await this.storage.storageAccounts.beginCreateAndWait(
+      params.resourceGroup,
+      params.accountName,
+      {
+        kind: "StorageV2",
+        location,
+        sku: { name: "Standard_LRS" },
+      },
+    );
+
+    if (!account.id || !account.name) {
+      throw new Error(`Failed to create or resolve storage account ${params.accountName}`);
+    }
+
+    return {
+      id: account.id,
+      name: account.name,
+      location: account.location ?? location,
+    };
+  }
+
+  async ensureBlobContainer(resourceGroup: string, accountName: string, containerName: string): Promise<void> {
+    await this.storage.blobContainers.create(resourceGroup, accountName, containerName, {});
+  }
+
+  async getStorageAccountKey(resourceGroup: string, accountName: string): Promise<string> {
+    const keys = await this.storage.storageAccounts.listKeys(resourceGroup, accountName);
+    const key = keys.keys?.find((candidate) => Boolean(candidate.value))?.value;
+    if (!key) {
+      throw new Error(`Unable to retrieve storage key for account ${accountName}`);
+    }
+    return key;
   }
 
   // ── Helpers ────────────────────────────────────────────────

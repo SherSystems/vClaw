@@ -4,6 +4,7 @@
 // ============================================================
 
 import { randomUUID } from "node:crypto";
+import { z } from "zod";
 import type {
   Goal,
   Plan,
@@ -37,8 +38,30 @@ interface LLMPlanStep {
 interface LLMPlanResponse {
   steps: LLMPlanStep[];
   reasoning: string;
-  resource_estimate: ResourceEstimate;
+  resource_estimate?: ResourceEstimate;
 }
+
+const LLMPlanStepSchema = z.object({
+  id: z.string(),
+  action: z.string(),
+  params: z.record(z.string(), z.unknown()).default({}),
+  description: z.string(),
+  depends_on: z.array(z.string()).default([]),
+});
+
+const ResourceEstimateSchema = z.object({
+  ram_mb: z.number(),
+  disk_gb: z.number(),
+  cpu_cores: z.number(),
+  vms_created: z.number(),
+  containers_created: z.number(),
+});
+
+const LLMPlanResponseSchema = z.object({
+  steps: z.array(LLMPlanStepSchema),
+  reasoning: z.string(),
+  resource_estimate: ResourceEstimateSchema.optional(),
+});
 
 export class Planner {
   /**
@@ -180,11 +203,37 @@ export class Planner {
 // ── Helpers ─────────────────────────────────────────────────
 
 function parseResponse(raw: string): LLMPlanResponse {
+  let parsedJson: unknown;
   try {
-    return JSON.parse(raw) as LLMPlanResponse;
+    parsedJson = JSON.parse(raw);
   } catch {
     throw new Error(`Failed to parse LLM plan response as JSON: ${raw.slice(0, 500)}`);
   }
+
+  const parsed = LLMPlanResponseSchema.safeParse(parsedJson);
+  if (!parsed.success) {
+    throw new Error(`Invalid LLM plan response schema: ${formatSchemaIssues(parsed.error.issues)}`);
+  }
+
+  return parsed.data;
+}
+
+function formatSchemaIssues(issues: z.ZodIssue[]): string {
+  return issues.map((issue) => `${formatIssuePath(issue.path)}: ${issue.message}`).join("; ");
+}
+
+function formatIssuePath(path: (string | number)[]): string {
+  if (path.length === 0) return "$";
+
+  return path.reduce<string>((acc, segment) => {
+    if (typeof segment === "number") {
+      return `${acc}[${segment}]`;
+    }
+    if (acc.length === 0) {
+      return segment;
+    }
+    return `${acc}.${segment}`;
+  }, "");
 }
 
 function validateToolReferences(

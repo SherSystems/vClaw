@@ -298,6 +298,7 @@ export type MigrationDirection =
   | "aws_to_azure"
   | "azure_to_aws";
 export type MigrationStatus = "pending" | "exporting" | "converting" | "transferring" | "importing" | "completed" | "failed";
+export type MigrationLiveStatus = "running" | "completed" | "failed";
 
 export interface MigrationStep {
   name: string;
@@ -345,6 +346,31 @@ export interface MigrationPlan {
   steps: MigrationStep[];
   startedAt?: string;
   completedAt?: string;
+  error?: string;
+}
+
+export interface MigrationEtaSample {
+  progressPct: number;
+  elapsedMs: number;
+}
+
+export interface MigrationLiveRun {
+  id: string;
+  migrationId: string;
+  direction?: MigrationDirection;
+  vmId?: string;
+  vmName?: string;
+  status: MigrationLiveStatus;
+  stage: string;
+  progressPct: number;
+  message?: string;
+  startedAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  etaSample?: MigrationEtaSample;
+  amiId?: string;
+  instanceId?: string;
+  targetVmId?: string;
   error?: string;
 }
 

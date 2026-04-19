@@ -118,7 +118,7 @@ const MIGRATION_DIRECTION_ROUTE_CASES: MigrationDirectionRouteCase[] = [
     idParam: "vm_id",
     executable: false,
   },
-  { direction: "proxmox_to_azure", vmId: 114, idParam: "vm_id", executable: false },
+  { direction: "proxmox_to_azure", vmId: 114, idParam: "vm_id", executable: true },
   {
     direction: "azure_to_proxmox",
     vmId: "/subscriptions/sub/resourceGroups/rg-demo/providers/Microsoft.Compute/virtualMachines/api-1",
@@ -267,7 +267,7 @@ describe("Dashboard server static routing", () => {
     expect(res.getStatusCode()).toBe(200);
     const payload = JSON.parse(String(res.getBody()));
     expect(payload.direction).toBe("proxmox_to_azure");
-    expect(payload.executable).toBe(false);
+    expect(payload.executable).toBe(true);
   });
 
   it.each(MIGRATION_DIRECTION_ROUTE_CASES)(

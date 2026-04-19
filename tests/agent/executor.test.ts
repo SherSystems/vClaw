@@ -273,7 +273,9 @@ describe("Executor", () => {
     const result = await executor.executeStep(step, "build");
 
     expect(result.success).toBe(false);
-    expect(result.error).toBe("VM limit reached");
+    expect(result.error).toContain("VM limit reached");
+    expect(result.error).toContain("attempt(s)");
+    expect(result.error).toContain("terminal_error_type=tool_failure");
     expect(result.state_before).toBeDefined();
     expect(result.state_after).toBeDefined();
   });
@@ -339,6 +341,7 @@ describe("Executor", () => {
     const result = await executor.executeStep(step, "build");
 
     expect(result.success).toBe(false);
+    expect(result.error).toContain("terminal_error_type=exception");
     expect(result.error).toContain("Tool execution threw");
     expect(result.error).toContain("connection timeout");
   });
@@ -362,7 +365,14 @@ describe("Executor", () => {
     });
     eventBus = new EventBus();
     vi.spyOn(eventBus, "emit");
-    executor = new Executor(toolRegistry, governance, eventBus);
+    executor = new Executor(toolRegistry, governance, eventBus, undefined, {
+      reliability: {
+        retry: {
+          maxRetries: 0,
+          retryOnTimeout: false,
+        },
+      },
+    });
 
     (toolRegistry.execute as ReturnType<typeof vi.fn>).mockImplementation(
       async () => await new Promise(() => undefined),
@@ -382,6 +392,150 @@ describe("Executor", () => {
     expect(escalated).toBeDefined();
     expect(escalated?.data.reason).toBe("rollback_triggered");
     expect(escalated?.data.trigger).toBe("timeout");
+  });
+
+  it("retries transient tool failures and succeeds within configured bounds", async () => {
+    (toolRegistry.execute as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ success: false, error: "temporary upstream timeout" })
+      .mockResolvedValueOnce({ success: true, data: { ok: true } });
+
+    executor = new Executor(toolRegistry, governance, eventBus, undefined, {
+      reliability: {
+        retry: {
+          maxRetries: 2,
+          baseBackoffMs: 0,
+          maxBackoffMs: 0,
+          jitterRatio: 0,
+        },
+      },
+    });
+
+    const step = makeStep();
+    const result = await executor.executeStep(step, "build", "plan_retry", "run_retry");
+
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual({ ok: true });
+    expect(toolRegistry.execute).toHaveBeenCalledTimes(2);
+
+    const emitCalls = (eventBus.emit as ReturnType<typeof vi.fn>).mock.calls;
+    const retryMetric = emitCalls
+      .map((c) => c[0])
+      .find((e) => e.type === "metric_recorded" && e.data.metric === "executor_tool_retry_attempt");
+    expect(retryMetric).toBeDefined();
+  });
+
+  it("returns deterministic failure when retries are exhausted", async () => {
+    (toolRegistry.execute as ReturnType<typeof vi.fn>).mockResolvedValue({
+      success: false,
+      error: "temporary backend unavailable",
+    });
+
+    executor = new Executor(toolRegistry, governance, eventBus, undefined, {
+      reliability: {
+        retry: {
+          maxRetries: 2,
+          baseBackoffMs: 0,
+          maxBackoffMs: 0,
+          jitterRatio: 0,
+        },
+      },
+    });
+
+    const step = makeStep();
+    const result = await executor.executeStep(step, "build");
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("terminal_error_type=tool_failure");
+    expect(result.error).toContain("after 3 attempt(s)");
+    expect(toolRegistry.execute).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not retry non-retryable failures", async () => {
+    (toolRegistry.execute as ReturnType<typeof vi.fn>).mockResolvedValue({
+      success: false,
+      error: "permission denied",
+    });
+
+    executor = new Executor(toolRegistry, governance, eventBus, undefined, {
+      reliability: {
+        retry: {
+          maxRetries: 3,
+          baseBackoffMs: 0,
+          maxBackoffMs: 0,
+          jitterRatio: 0,
+        },
+      },
+    });
+
+    const step = makeStep();
+    const result = await executor.executeStep(step, "build");
+
+    expect(result.success).toBe(false);
+    expect(toolRegistry.execute).toHaveBeenCalledTimes(1);
+    expect(result.error).toContain("terminal_error_type=tool_failure");
+    expect(result.error).toContain("after 1 attempt(s)");
+  });
+
+  it("enforces run-level tool-call limit and emits limit telemetry", async () => {
+    executor = new Executor(toolRegistry, governance, eventBus, undefined, {
+      reliability: {
+        limits: {
+          maxToolCallsPerRun: 2,
+          maxToolCallsPerPlan: 10,
+        },
+        retry: {
+          maxRetries: 0,
+        },
+      },
+    });
+
+    const step = makeStep();
+    const first = await executor.executeStep(step, "build", "plan_a", "run_limit");
+    const second = await executor.executeStep(makeStep({ id: "step_2" }), "build", "plan_b", "run_limit");
+    const third = await executor.executeStep(makeStep({ id: "step_3" }), "build", "plan_c", "run_limit");
+
+    expect(first.success).toBe(true);
+    expect(second.success).toBe(true);
+    expect(third.success).toBe(false);
+    expect(third.error).toContain("Tool-call limit exceeded for run scope");
+    expect(governance.logAction).toHaveBeenLastCalledWith(
+      expect.objectContaining({ result: "blocked" }),
+    );
+
+    const emitCalls = (eventBus.emit as ReturnType<typeof vi.fn>).mock.calls;
+    const limitMetric = emitCalls
+      .map((c) => c[0])
+      .find((e) => e.type === "metric_recorded" && e.data.metric === "executor_tool_call_limit_violation");
+    expect(limitMetric).toBeDefined();
+    expect(limitMetric?.data.scope).toBe("run");
+  });
+
+  it("enforces plan/thread tool-call limit independently of run limit", async () => {
+    executor = new Executor(toolRegistry, governance, eventBus, undefined, {
+      reliability: {
+        limits: {
+          maxToolCallsPerRun: 10,
+          maxToolCallsPerPlan: 1,
+        },
+        retry: {
+          maxRetries: 0,
+        },
+      },
+    });
+
+    const first = await executor.executeStep(makeStep({ id: "step_plan_1" }), "build", "plan_shared", "run_shared");
+    const second = await executor.executeStep(makeStep({ id: "step_plan_2" }), "build", "plan_shared", "run_shared");
+
+    expect(first.success).toBe(true);
+    expect(second.success).toBe(false);
+    expect(second.error).toContain("Tool-call limit exceeded for plan/thread scope");
+
+    const emitCalls = (eventBus.emit as ReturnType<typeof vi.fn>).mock.calls;
+    const limitMetric = emitCalls
+      .map((c) => c[0])
+      .find((e) => e.type === "metric_recorded" && e.data.metric === "executor_tool_call_limit_violation");
+    expect(limitMetric).toBeDefined();
+    expect(limitMetric?.data.scope).toBe("plan");
   });
 
   // ── Governance evaluate throws ─────────────────────────

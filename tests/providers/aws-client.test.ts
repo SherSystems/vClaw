@@ -1,3 +1,4 @@
+import { PassThrough } from "node:stream";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // ── Mocks ───────────────────────────────────────────────────
@@ -37,6 +38,9 @@ vi.mock("@aws-sdk/client-ec2", () => {
     DescribeSecurityGroupsCommand: makeCmd("DescribeSecurityGroupsCommand"),
     ImportImageCommand: makeCmd("ImportImageCommand"),
     DescribeImportImageTasksCommand: makeCmd("DescribeImportImageTasksCommand"),
+    ImportSnapshotCommand: makeCmd("ImportSnapshotCommand"),
+    DescribeImportSnapshotTasksCommand: makeCmd("DescribeImportSnapshotTasksCommand"),
+    RegisterImageCommand: makeCmd("RegisterImageCommand"),
     ExportImageCommand: makeCmd("ExportImageCommand"),
     DescribeExportImageTasksCommand: makeCmd("DescribeExportImageTasksCommand"),
     CreateTagsCommand: makeCmd("CreateTagsCommand"),
@@ -93,6 +97,11 @@ async function getStsSend() {
   return (mod as unknown as { __stsSend: ReturnType<typeof vi.fn> }).__stsSend;
 }
 
+async function getUploadCtor() {
+  const mod = await import("@aws-sdk/lib-storage");
+  return (mod as unknown as { Upload: ReturnType<typeof vi.fn> }).Upload;
+}
+
 type Cmd = { __name: string; input: Record<string, unknown> };
 
 function routeEc2(responses: Record<string, unknown | ((input: Record<string, unknown>) => unknown)>) {
@@ -115,9 +124,11 @@ describe("AWSClient", () => {
     const ec2Send = await getEc2Send();
     const s3Send = await getS3Send();
     const stsSend = await getStsSend();
+    const Upload = await getUploadCtor();
     ec2Send.mockReset();
     s3Send.mockReset();
     stsSend.mockReset();
+    Upload.mockReset();
 
     client = new AWSClient({
       accessKeyId: "AKIAFAKE",
@@ -671,7 +682,7 @@ describe("AWSClient", () => {
       const id = await client.importImage({
         s3Bucket: "bucket",
         s3Key: "key.vmdk",
-        format: "VMDK",
+        format: "vmdk",
         description: "from vmware",
       });
       expect(id).toBe("import-1");
@@ -684,11 +695,11 @@ describe("AWSClient", () => {
       await expect(client.importImage({
         s3Bucket: "b",
         s3Key: "k",
-        format: "VMDK",
+        format: "vmdk",
       })).rejects.toThrow("Failed to import image");
     });
 
-    it("describeImportTasks maps progress and snapshotId", async () => {
+    it("describeImportTasks maps progress, snapshotId, and imageId", async () => {
       const ec2Send = await getEc2Send();
       ec2Send.mockImplementation(routeEc2({
         DescribeImportImageTasksCommand: {
@@ -697,6 +708,7 @@ describe("AWSClient", () => {
             Status: "active",
             Progress: "42",
             SnapshotDetails: [{ SnapshotId: "snap-1" }],
+            ImageId: "ami-123",
           }],
         },
       }));
@@ -707,7 +719,87 @@ describe("AWSClient", () => {
         status: "active",
         progress: "42",
         snapshotId: "snap-1",
+        imageId: "ami-123",
       });
+    });
+
+    it("importSnapshot returns task id", async () => {
+      const ec2Send = await getEc2Send();
+      ec2Send.mockImplementation(routeEc2({
+        ImportSnapshotCommand: (input) => {
+          expect(input.DiskContainer).toEqual({
+            Format: "RAW",
+            UserBucket: { S3Bucket: "bucket", S3Key: "disk.raw" },
+          });
+          expect(input.Description).toBe("from proxmox");
+          return { ImportTaskId: "import-snap-1" };
+        },
+      }));
+
+      const id = await client.importSnapshot({
+        s3Bucket: "bucket",
+        s3Key: "disk.raw",
+        format: "raw",
+        description: "from proxmox",
+      });
+      expect(id).toBe("import-snap-1");
+    });
+
+    it("describeImportSnapshotTasks maps snapshot task detail", async () => {
+      const ec2Send = await getEc2Send();
+      ec2Send.mockImplementation(routeEc2({
+        DescribeImportSnapshotTasksCommand: {
+          ImportSnapshotTasks: [{
+            ImportTaskId: "import-snap-1",
+            Description: "from proxmox",
+            SnapshotTaskDetail: {
+              SnapshotId: "snap-9",
+              Status: "active",
+              StatusMessage: "uploading",
+              Progress: "71",
+            },
+          }],
+        },
+      }));
+
+      const tasks = await client.describeImportSnapshotTasks(["import-snap-1"]);
+      expect(tasks[0]).toEqual({
+        importTaskId: "import-snap-1",
+        status: "active",
+        statusMessage: "uploading",
+        progress: "71",
+        snapshotId: "snap-9",
+        description: "from proxmox",
+      });
+    });
+
+    it("registerImageFromSnapshot returns image id", async () => {
+      const ec2Send = await getEc2Send();
+      ec2Send.mockImplementation(routeEc2({
+        RegisterImageCommand: (input) => {
+          expect(input).toMatchObject({
+            Name: "vm-1-123",
+            Description: "vClaw import: vm-1",
+            Architecture: "x86_64",
+            RootDeviceName: "/dev/sda1",
+            VirtualizationType: "hvm",
+            EnaSupport: true,
+            BootMode: "uefi-preferred",
+            BlockDeviceMappings: [{
+              DeviceName: "/dev/sda1",
+              Ebs: { SnapshotId: "snap-9", DeleteOnTermination: true },
+            }],
+          });
+          return { ImageId: "ami-9" };
+        },
+      }));
+
+      const imageId = await client.registerImageFromSnapshot({
+        snapshotId: "snap-9",
+        name: "vm-1-123",
+        description: "vClaw import: vm-1",
+      });
+      expect(imageId).toBe("ami-9");
     });
 
     it("exportImage throws when no ExportImageTaskId", async () => {
@@ -758,6 +850,31 @@ describe("AWSClient", () => {
   });
 
   describe("S3", () => {
+    it("uploadStreamToS3 uses tuned multipart settings", async () => {
+      const Upload = await getUploadCtor();
+      const done = vi.fn().mockResolvedValue(undefined);
+      const on = vi.fn();
+      Upload.mockImplementation(function UploadMock() {
+        return { done, on };
+      });
+
+      const body = new PassThrough();
+      body.end("disk-bytes");
+      await client.uploadStreamToS3(body, "bucket", "disk.raw");
+
+      expect(Upload).toHaveBeenCalledTimes(1);
+      expect(Upload).toHaveBeenCalledWith(expect.objectContaining({
+        queueSize: 8,
+        partSize: 64 * 1024 * 1024,
+        params: expect.objectContaining({
+          Bucket: "bucket",
+          Key: "disk.raw",
+          Body: body,
+        }),
+      }));
+      expect(done).toHaveBeenCalledTimes(1);
+    });
+
     it("headObject returns exists=true with size and lastModified", async () => {
       const s3Send = await getS3Send();
       s3Send.mockResolvedValue({

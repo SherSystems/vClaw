@@ -71,6 +71,16 @@ const AzureConfigSchema = z.object({
   defaultLocation: z.string().default("eastus"),
 });
 
+const KubernetesConfigSchema = z.object({
+  kubeconfigPath: z.string().default(""),
+  context: z.string().default(""),
+  namespace: z.string().default("default"),
+  insecureSkipTlsVerify: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+});
+
 const AutopilotConfigSchema = z.object({
   pollIntervalMs: z.coerce.number().default(30000),
   enabled: z
@@ -99,6 +109,7 @@ export const ConfigSchema = z.object({
   ai: AIConfigSchema,
   aws: AWSConfigSchema.default({}),
   azure: AzureConfigSchema.default({}),
+  kubernetes: KubernetesConfigSchema.default({}),
   dashboard: DashboardConfigSchema,
   migration: MigrationConfigSchema.default({}),
   autopilot: AutopilotConfigSchema,
@@ -149,6 +160,12 @@ export function getConfig(): Config {
       clientSecret: process.env.AZURE_CLIENT_SECRET,
       subscriptionId: process.env.AZURE_SUBSCRIPTION_ID,
       defaultLocation: process.env.AZURE_DEFAULT_LOCATION,
+    },
+    kubernetes: {
+      kubeconfigPath: process.env.KUBERNETES_KUBECONFIG_PATH,
+      context: process.env.KUBERNETES_CONTEXT,
+      namespace: process.env.KUBERNETES_NAMESPACE,
+      insecureSkipTlsVerify: process.env.KUBERNETES_INSECURE_SKIP_TLS_VERIFY,
     },
     dashboard: {
       port: process.env.DASHBOARD_PORT,

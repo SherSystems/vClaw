@@ -1,4 +1,5 @@
 // API client for vClaw dashboard
+import { isOnPremProvider } from "../lib/costs";
 
 const BASE = "";
 
@@ -17,6 +18,185 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object") return null;
   return value as Record<string, unknown>;
+}
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function asString(value: unknown): string | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+  return null;
+}
+
+function asNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number.parseFloat(value.replace(/[$,]/g, ""));
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function readCostNumber(record: Record<string, unknown>): number {
+  const candidate = (
+    asNumber(record.monthlyCostUsd)
+    ?? asNumber(record.monthly_cost_usd)
+    ?? asNumber(record.costUsd)
+    ?? asNumber(record.cost_usd)
+    ?? asNumber(record.totalUsd)
+    ?? asNumber(record.total_usd)
+    ?? asNumber(record.amountUsd)
+    ?? asNumber(record.amount_usd)
+    ?? asNumber(record.cost)
+    ?? asNumber(record.value)
+    ?? 0
+  );
+  return Math.max(0, candidate);
+}
+
+function normalizeCostSummary(payload: unknown): import("../types").ProviderCostSummary[] {
+  const record = asRecord(payload);
+  const direct = asArray(payload);
+  const providers = asArray(record?.providers);
+  const nestedProviders = asArray(asRecord(record?.summary)?.providers);
+  const rawProviders = direct.length > 0 ? direct : (providers.length > 0 ? providers : nestedProviders);
+
+  if (rawProviders.length > 0) {
+    const normalized: import("../types").ProviderCostSummary[] = [];
+    for (const entry of rawProviders) {
+      const row = asRecord(entry);
+      if (!row) continue;
+      const provider = asString(row.provider ?? row.name ?? row.id ?? row.key);
+      if (!provider) continue;
+      normalized.push({
+        provider,
+        monthlyCostUsd: readCostNumber(row),
+        currency: asString(row.currency ?? row.currencyCode) ?? "USD",
+      });
+    }
+    return normalized;
+  }
+
+  if (!record) return [];
+
+  const normalized: import("../types").ProviderCostSummary[] = [];
+  for (const [provider, value] of Object.entries(record)) {
+    if (provider === "providers" || provider === "summary") continue;
+    const numeric = asNumber(value);
+    if (numeric === null) continue;
+    normalized.push({
+      provider,
+      monthlyCostUsd: Math.max(0, numeric),
+      currency: "USD",
+    });
+  }
+  return normalized;
+}
+
+function normalizeCostTimeseries(payload: unknown): import("../types").CostTimeseriesPoint[] {
+  const record = asRecord(payload);
+  const direct = asArray(payload);
+  const points = asArray(record?.points);
+  const timeseries = asArray(record?.timeseries);
+  const series = asArray(record?.series);
+  const directRows = direct.length > 0 ? direct : (points.length > 0 ? points : (timeseries.length > 0 ? timeseries : series));
+
+  if (directRows.length > 0) {
+    const normalized: import("../types").CostTimeseriesPoint[] = [];
+    for (const rowValue of directRows) {
+      const row = asRecord(rowValue);
+      if (!row) continue;
+      const date = asString(row.date ?? row.day ?? row.timestamp);
+      const provider = asString(row.provider ?? row.name ?? row.providerName);
+      if (date && provider) {
+        normalized.push({
+          date,
+          provider,
+          costUsd: readCostNumber(row),
+        });
+        continue;
+      }
+
+      if (date) {
+        for (const [key, value] of Object.entries(row)) {
+          if (key === "date" || key === "day" || key === "timestamp" || key === "total" || key === "totalUsd" || key === "total_usd") {
+            continue;
+          }
+          const amount = asNumber(value);
+          if (amount === null) continue;
+          normalized.push({
+            date,
+            provider: key,
+            costUsd: Math.max(0, amount),
+          });
+        }
+      }
+    }
+    return normalized;
+  }
+
+  const nestedSeries = asRecord(record?.series);
+  if (!nestedSeries) return [];
+
+  const normalized: import("../types").CostTimeseriesPoint[] = [];
+  for (const [provider, providerSeries] of Object.entries(nestedSeries)) {
+    for (const pointValue of asArray(providerSeries)) {
+      const point = asRecord(pointValue);
+      if (!point) continue;
+      const date = asString(point.date ?? point.day ?? point.timestamp);
+      if (!date) continue;
+      normalized.push({
+        date,
+        provider,
+        costUsd: readCostNumber(point),
+      });
+    }
+  }
+  return normalized;
+}
+
+function normalizeCostTopResources(payload: unknown): import("../types").CostTopResource[] {
+  const record = asRecord(payload);
+  const direct = asArray(payload);
+  const resources = asArray(record?.resources);
+  const items = asArray(record?.items);
+  const topResources = asArray(record?.topResources);
+  const rows = direct.length > 0 ? direct : (resources.length > 0 ? resources : (items.length > 0 ? items : topResources));
+  const normalized: import("../types").CostTopResource[] = [];
+  rows.forEach((entry, idx) => {
+    const row = asRecord(entry);
+    if (!row) return;
+    const provider = asString(row.provider ?? row.providerName ?? row.cloud ?? row.platform) ?? "unknown";
+    const id = asString(row.id ?? row.resourceId ?? row.resource_id) ?? `${provider}-${idx}`;
+    const name = asString(row.name ?? row.resourceName ?? row.resource_name ?? row.label) ?? id;
+    const resourceType = asString(row.resourceType ?? row.resource_type ?? row.type) ?? "resource";
+    const monthlyCostUsd = readCostNumber(row);
+    normalized.push({
+      id,
+      name,
+      provider,
+      resourceType,
+      monthlyCostUsd,
+      comparisonCostUsd: asNumber(row.comparisonCostUsd ?? row.comparison_cost_usd) ?? undefined,
+      deltaUsd: asNumber(row.deltaUsd ?? row.delta_usd) ?? undefined,
+    });
+  });
+  return normalized;
+}
+
+function filterByComparison<T extends { provider: string }>(
+  rows: T[],
+  comparison: import("../types").CostComparisonMode,
+): T[] {
+  if (comparison === "hybrid") return rows;
+  return rows.filter((row) => !isOnPremProvider(row.provider));
 }
 
 function normalizeChaosSimulation(payload: unknown): import("../types").ChaosSimulation {
@@ -125,6 +305,27 @@ export const fetchRunTelemetry = (days = 7) =>
     `/api/telemetry/runs?days=${encodeURIComponent(String(days))}`,
   );
 
+// Costs
+export const fetchCostSummary = async (comparison: import("../types").CostComparisonMode) => {
+  const payload = await request<unknown>(`/api/costs/summary?comparison=${encodeURIComponent(comparison)}`);
+  return filterByComparison(normalizeCostSummary(payload), comparison);
+};
+
+export const fetchCostTimeseries = async (comparison: import("../types").CostComparisonMode) => {
+  const payload = await request<unknown>(`/api/costs/timeseries?window=30d&comparison=${encodeURIComponent(comparison)}`);
+  return filterByComparison(normalizeCostTimeseries(payload), comparison);
+};
+
+export const fetchCostTopResources = async (
+  comparison: import("../types").CostComparisonMode,
+  limit = 10,
+) => {
+  const payload = await request<unknown>(
+    `/api/costs/top-resources?comparison=${encodeURIComponent(comparison)}&limit=${encodeURIComponent(String(limit))}`,
+  );
+  return filterByComparison(normalizeCostTopResources(payload), comparison);
+};
+
 // Health
 export const fetchPredictions = () =>
   request<{ predictions: import("../types").Prediction[] }>("/api/health/predictions");
@@ -191,6 +392,9 @@ export const executeMigration = (direction: import("../types").MigrationDirectio
 
 export const fetchMigrationHistory = () =>
   request<{ migrations: import("../types").MigrationPlan[] }>("/api/migration/history");
+
+export const fetchMigrationStatus = (migrationId: string) =>
+  request<unknown>(`/api/migration/status/${encodeURIComponent(migrationId)}`);
 
 // Agent command
 export const sendAgentCommand = (command: string) =>

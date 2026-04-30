@@ -4786,3 +4786,337 @@ button, select, a, .tab, .incident-card, .incident-row, .audit-header, .audit-pl
   flex: 1;
   justify-content: center;
 }
+
+/* ── Costs Page ─────────────────────────────────────── */
+.costs-page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.costs-toggle {
+  display: inline-flex;
+  gap: 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 3px;
+}
+
+.costs-toggle-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 0.8rem;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  padding: 7px 12px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.costs-toggle-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.costs-toggle-btn.active {
+  color: var(--text-accent);
+  background: var(--bg-card);
+}
+
+.costs-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+}
+
+.costs-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.costs-section-head h3 {
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.costs-section-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+
+.costs-projection {
+  color: var(--teal);
+}
+
+.costs-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.costs-card {
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+
+.costs-card.skeleton {
+  min-height: 88px;
+  animation: pulse 1.3s ease-in-out infinite;
+}
+
+.costs-card-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-secondary);
+  font-size: 0.77rem;
+  margin-bottom: 10px;
+}
+
+.costs-provider-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  display: inline-flex;
+}
+
+.costs-card-value {
+  font-size: 1.42rem;
+  font-weight: 700;
+  color: var(--text-accent);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+
+.costs-card-label {
+  margin-top: 4px;
+  font-size: 0.72rem;
+  color: var(--text-tertiary);
+}
+
+.costs-state,
+.costs-chart-state {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  color: var(--text-secondary);
+  font-size: 0.79rem;
+}
+
+.costs-state.error,
+.costs-chart-state.error {
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #fda4a4;
+}
+
+.costs-inline-action {
+  margin-left: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 4px 9px;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.costs-inline-action:hover {
+  color: var(--text-primary);
+  border-color: var(--border-focus);
+}
+
+.costs-chart-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.costs-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.costs-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 0.73rem;
+}
+
+.costs-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+.costs-chart-surface {
+  position: relative;
+  border: 1px solid var(--border-subtle);
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0));
+  border-radius: var(--radius);
+  padding: 8px;
+}
+
+.costs-chart-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.costs-tooltip {
+  position: absolute;
+  top: 16px;
+  transform: translateX(-50%);
+  min-width: 180px;
+  background: rgba(17, 25, 40, 0.95);
+  border: 1px solid var(--border-focus);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  z-index: 10;
+  pointer-events: none;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+}
+
+.costs-tooltip-date {
+  font-size: 0.69rem;
+  color: var(--text-tertiary);
+  margin-bottom: 3px;
+}
+
+.costs-tooltip-total {
+  font-size: 0.79rem;
+  font-weight: 700;
+  margin-bottom: 4px;
+  color: var(--text-accent);
+}
+
+.costs-tooltip-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.71rem;
+  color: var(--text-secondary);
+}
+
+.costs-tooltip-row strong {
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+
+.costs-table-wrap {
+  overflow-x: auto;
+}
+
+.costs-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 640px;
+}
+
+.costs-table th,
+.costs-table td {
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 10px 12px;
+  text-align: left;
+  font-size: 0.78rem;
+}
+
+.costs-table th {
+  color: var(--text-tertiary);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+
+.costs-table tr:hover {
+  background: var(--bg-elevated);
+}
+
+.costs-resource-cell {
+  display: flex;
+  flex-direction: column;
+}
+
+.costs-resource-name {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.costs-resource-id {
+  color: var(--text-tertiary);
+  font-size: 0.68rem;
+  margin-top: 1px;
+}
+
+.costs-resource-cost {
+  color: var(--text-accent);
+  font-weight: 700;
+  font-family: var(--font-mono);
+}
+
+.costs-sort-btn {
+  border: none;
+  background: none;
+  color: inherit;
+  font-size: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  font-family: inherit;
+  font-weight: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.costs-sort-btn:hover {
+  color: var(--text-secondary);
+}
+
+@media (max-width: 1024px) {
+  .costs-section-head {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 768px) {
+  .costs-page {
+    gap: 12px;
+  }
+
+  .costs-section {
+    padding: 12px;
+  }
+
+  .costs-toggle {
+    width: 100%;
+  }
+
+  .costs-toggle-btn {
+    flex: 1;
+    text-align: center;
+  }
+
+  .costs-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .costs-table {
+    min-width: 560px;
+  }
+}

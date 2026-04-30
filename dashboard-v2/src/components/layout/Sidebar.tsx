@@ -70,6 +70,16 @@ const navItems: (NavItem | "divider")[] = [
       </svg>
     ),
   },
+  {
+    id: "costs",
+    label: "Costs",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="9" y1="2" x2="9" y2="16" />
+        <path d="M12.5 5.5c0-1.4-1.6-2.5-3.5-2.5S5.5 4.1 5.5 5.5 7.1 8 9 8s3.5 1.1 3.5 2.5S10.9 13 9 13s-3.5-1.1-3.5-2.5" />
+      </svg>
+    ),
+  },
   "divider",
   {
     id: "chaos",

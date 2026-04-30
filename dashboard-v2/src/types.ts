@@ -475,5 +475,36 @@ export interface ImpactReport {
   totalBrokenDependencies: number;
 }
 
-export type PageId = "overview" | "infrastructure" | "applications" | "migrations" | "operations" | "chaos";
+export type CostComparisonMode = "cloud" | "hybrid";
+
+export interface ProviderCostSummary {
+  provider: string;
+  monthlyCostUsd: number;
+  currency?: string;
+}
+
+export interface CostTimeseriesPoint {
+  date: string;
+  provider: string;
+  costUsd: number;
+}
+
+export interface CostTopResource {
+  id: string;
+  name: string;
+  provider: string;
+  resourceType: string;
+  monthlyCostUsd: number;
+  comparisonCostUsd?: number;
+  deltaUsd?: number;
+}
+
+export type PageId =
+  | "overview"
+  | "infrastructure"
+  | "applications"
+  | "migrations"
+  | "operations"
+  | "costs"
+  | "chaos";
 export type TabId = PageId;

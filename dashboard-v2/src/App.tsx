@@ -7,6 +7,7 @@ import Infrastructure from "./components/pages/Infrastructure";
 import AppTopology from "./components/AppTopology";
 import Migrations from "./components/Migrations";
 import Operations from "./components/pages/Operations";
+import Costs from "./components/pages/Costs";
 import Chaos from "./components/Chaos";
 import CommandPalette from "./components/CommandPalette";
 import ToastContainer from "./components/Toast";
@@ -29,6 +30,7 @@ export function App() {
             {activeTab === "applications" && <AppTopology />}
             {activeTab === "migrations" && <Migrations />}
             {activeTab === "operations" && <Operations />}
+            {activeTab === "costs" && <Costs />}
             {activeTab === "chaos" && <Chaos />}
           </main>
         </div>

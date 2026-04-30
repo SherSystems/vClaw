@@ -19,7 +19,7 @@ What you expected to happen.
 **Environment**
 - OS: [e.g., Ubuntu 24.04]
 - Node.js version: [e.g., 22.x]
-- vClaw version: [e.g., 0.1.0]
+- vClaw version: [e.g., 0.2.0]
 - Provider: [e.g., Proxmox 8.x, VMware vSphere 8.x]
 
 **Logs**

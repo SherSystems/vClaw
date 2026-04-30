@@ -12,6 +12,7 @@ import { ToolRegistry } from "./providers/registry.js";
 import { ProxmoxAdapter } from "./providers/proxmox/adapter.js";
 import { VMwareAdapter } from "./providers/vmware/adapter.js";
 import { SystemAdapter } from "./providers/system/adapter.js";
+import { SshAdapter } from "./providers/ssh/adapter.js";
 import { TopologyStore } from "./topology/store.js";
 import { TopologyAdapter } from "./topology/adapter.js";
 import { AgentCore } from "./agent/core.js";
@@ -115,6 +116,22 @@ async function main() {
     sshStrictHostKeyCheck: config.system.sshStrictHostKeyCheck,
   });
   registry.registerAdapter(system);
+
+  // Register SSH adapter — only if any targets are configured.
+  // Adapter has kind="service" so it doesn't pollute the dashboard
+  // provider list. Targets come from VCLAW_SSH_TARGETS_FILE (a JSON
+  // file) or VCLAW_SSH_TARGETS (inline JSON) — see src/config.ts.
+  if (config.ssh.targets.length > 0) {
+    const sshAdapter = new SshAdapter({
+      targets: config.ssh.targets,
+      max_output_bytes: config.ssh.max_output_bytes,
+      default_timeout_s: config.ssh.default_timeout_s,
+      allow_destructive: config.ssh.allow_destructive,
+      strict_host_key_checking: config.ssh.strict_host_key_checking,
+    });
+    await sshAdapter.connect();
+    registry.registerAdapter(sshAdapter);
+  }
 
   // Create migration adapter if both providers are configured
   // SSH exec function — used by migration and topology adapters

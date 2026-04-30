@@ -2,6 +2,7 @@ import { z } from "zod";
 import dotenv from "dotenv";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
+import { existsSync, readFileSync } from "node:fs";
 import { CredentialVault } from "./security/vault.js";
 import {
   serviceHealthConfigSchema,
@@ -93,6 +94,24 @@ const AutopilotConfigSchema = z.object({
     .transform((v) => v === "true"),
 });
 
+const SshTargetSchema = z.object({
+  id: z.string().min(1),
+  host: z.string().min(1),
+  port: z.coerce.number().int().positive().optional(),
+  user: z.string().min(1),
+  identity_file: z.string().optional(),
+  jump_host: z.string().optional(),
+  description: z.string().optional(),
+});
+
+const SshConfigSchema = z.object({
+  targets: z.array(SshTargetSchema).default([]),
+  max_output_bytes: z.coerce.number().int().positive().default(65536),
+  default_timeout_s: z.coerce.number().int().positive().default(30),
+  allow_destructive: z.boolean().default(false),
+  strict_host_key_checking: z.boolean().default(true),
+});
+
 const ExecutorConfigSchema = z.object({
   maxRetries: z.coerce.number().int().nonnegative().default(2),
   retryBaseBackoffMs: z.coerce.number().int().nonnegative().default(250),
@@ -121,6 +140,13 @@ export const ConfigSchema = z.object({
   service_health: serviceHealthConfigSchema.default({
     enabled: true,
     probes: DEFAULT_PROBES,
+  }),
+  ssh: SshConfigSchema.default({
+    targets: [],
+    max_output_bytes: 65536,
+    default_timeout_s: 30,
+    allow_destructive: false,
+    strict_host_key_checking: true,
   }),
 });
 
@@ -205,9 +231,60 @@ export function getConfig(): Config {
       // so they don't auto-start without operator opt-in.
       probes: DEFAULT_PROBES,
     },
+    ssh: {
+      targets: loadSshTargets(),
+      max_output_bytes: process.env.VCLAW_SSH_MAX_OUTPUT_BYTES,
+      default_timeout_s: process.env.VCLAW_SSH_DEFAULT_TIMEOUT_S,
+      allow_destructive: process.env.VCLAW_SSH_ALLOW_DESTRUCTIVE === "true",
+      strict_host_key_checking:
+        process.env.VCLAW_SSH_STRICT_HOST_KEY_CHECKING !== "false",
+    },
   });
 
   return _config;
+}
+
+/**
+ * Load SSH targets from a JSON file pointed at by VCLAW_SSH_TARGETS_FILE.
+ *
+ * We deliberately keep targets out of process env so:
+ *  - identity_file paths aren't exposed via /proc/<pid>/environ
+ *  - operators have a single stable inventory file to version-control
+ *  - the same shape works for one-off scripts and the daemon
+ *
+ * Returns an empty array if the env var is unset, the file is missing,
+ * or the file is malformed (we log a warning to stderr and fail soft so
+ * vclaw still boots without SSH).
+ */
+function loadSshTargets(): unknown[] {
+  const envInline = process.env.VCLAW_SSH_TARGETS;
+  if (envInline) {
+    try {
+      const parsed = JSON.parse(envInline);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (err) {
+      console.error(
+        `[config] VCLAW_SSH_TARGETS is not valid JSON; ignoring. (${(err as Error).message})`,
+      );
+      return [];
+    }
+  }
+
+  const file = process.env.VCLAW_SSH_TARGETS_FILE;
+  if (!file) return [];
+  if (!existsSync(file)) {
+    console.error(`[config] VCLAW_SSH_TARGETS_FILE points at "${file}" but the file is missing; ignoring.`);
+    return [];
+  }
+  try {
+    const raw = readFileSync(file, "utf-8");
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    // Never log the file path again here in case it lives in a secret dir.
+    console.error(`[config] Failed to load SSH targets file: ${(err as Error).message}`);
+    return [];
+  }
 }
 
 export function getProjectRoot(): string {

@@ -1,6 +1,6 @@
 {
   "name": "vclaw",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Open-source autonomous AI agent for infrastructure management. Multi-provider (Proxmox, VMware), 5-tier safety governance, self-healing, chaos engineering.",
   "type": "module",
   "main": "dist/index.js",

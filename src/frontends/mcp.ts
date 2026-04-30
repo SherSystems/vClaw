@@ -165,7 +165,7 @@ export class vClawMCP {
 
     this.server = new McpServer({
       name: "vclaw",
-      version: "0.1.0",
+      version: "0.2.0",
     });
 
     this.registerInfraTools();

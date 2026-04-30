@@ -53,7 +53,7 @@ describe("VMwareImporter", () => {
             capacity: 10737418240,
             backing: {
               type: "VMDK_FILE",
-              vmdk_file: "[datastore1] migrated-to-vmware/migrated-to-vmware.vmdk",
+              vmdk_file: "[datastore1] migrated-to-vmware/migrated-to-vmware-imported.vmdk",
             },
           },
         },
@@ -191,6 +191,27 @@ describe("VMwareImporter", () => {
       expect(vmkfstoolsCall![2]).toContain("-d thin");
     });
 
+    it("should add imported disk using datastore bracket path", async () => {
+      await importer.importVM(
+        {
+          config: testConfig,
+          vmdkPath: "/tmp/disk.vmdk",
+          esxiHost: "192.168.86.37",
+          datastoreId: "datastore-14",
+          datastoreName: "datastore1",
+          hostId: "host-11",
+          folderId: "group-v4",
+        },
+        "192.168.86.50"
+      );
+
+      const addDiskCall = (mockSshExec as ReturnType<typeof vi.fn>).mock.calls.find(
+        (c: string[]) => c[2].includes("vim-cmd vmsvc/device.diskaddexisting")
+      );
+      expect(addDiskCall).toBeDefined();
+      expect(addDiskCall![2]).toContain("[datastore1] migrated-to-vmware/migrated-to-vmware-imported.vmdk");
+    });
+
     it("should create VM via vSphere API", async () => {
       await importer.importVM(
         {
@@ -259,6 +280,35 @@ describe("VMwareImporter", () => {
           "192.168.86.50"
         )
       ).rejects.toThrow("Failed to transfer vmdk to ESXi");
+    });
+
+    it("should fail if imported disk is not attached after import", async () => {
+      (mockClient.getVM as ReturnType<typeof vi.fn>).mockResolvedValue({
+        name: "migrated-to-vmware",
+        power_state: "POWERED_OFF",
+        cpu: { count: 2, cores_per_socket: 2, hot_add_enabled: false, hot_remove_enabled: false },
+        memory: { size_MiB: 4096, hot_add_enabled: false },
+        hardware: { upgrade_policy: "manual", upgrade_status: "NONE", version: "vmx-19" },
+        guest_OS: "OTHER_LINUX_64",
+        disks: {},
+        nics: {},
+        boot: { type: "BIOS" },
+      });
+
+      await expect(
+        importer.importVM(
+          {
+            config: testConfig,
+            vmdkPath: "/tmp/disk.vmdk",
+            esxiHost: "192.168.86.37",
+            datastoreId: "datastore-14",
+            datastoreName: "datastore1",
+            hostId: "host-11",
+            folderId: "group-v4",
+          },
+          "192.168.86.50"
+        )
+      ).rejects.toThrow("created without imported disk");
     });
   });
 });

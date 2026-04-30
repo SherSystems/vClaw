@@ -106,7 +106,8 @@ export class VMwareImporter {
     );
 
     // 4. Convert the streamOptimized vmdk to a flat vmdk using vmkfstools
-    const flatVmdk = `${vmDir}/${vmName}-imported.vmdk`;
+    const importedDiskFileName = `${vmName}-imported.vmdk`;
+    const flatVmdk = `${vmDir}/${importedDiskFileName}`;
     await this.sshExecOnESXi(
       opts.esxiHost,
       esxiUser,
@@ -125,9 +126,21 @@ export class VMwareImporter {
       `rm -f ${JSON.stringify(targetVmdk)}`
     );
 
-    // 6. Add the converted disk to the VM using vim-cmd
-    //    Use filesystem path (not datastore bracket notation) to avoid quoting issues through SSH
-    await this.addExistingDisk(vmId, flatVmdk, vmName, opts.esxiHost, esxiUser, proxmoxHost, proxmoxUser);
+    // 6. Add the converted disk to the VM using vim-cmd.
+    // vim-cmd expects datastore bracket notation, not /vmfs filesystem paths.
+    const flatVmdkDatastorePath = `[${opts.datastoreName}] ${vmDirName}/${importedDiskFileName}`;
+    await this.addExistingDisk(
+      vmId,
+      flatVmdkDatastorePath,
+      vmName,
+      opts.esxiHost,
+      esxiUser,
+      proxmoxHost,
+      proxmoxUser
+    );
+
+    // Guardrail: don't report success if VMware still has no imported disk attached.
+    await this.assertImportedDiskAttached(vmId, importedDiskFileName);
 
     return {
       vmId,
@@ -241,8 +254,20 @@ export class VMwareImporter {
 
     const esxiVmId = vmLine.trim().split(/\s+/)[0];
     // controller 0, unit 0 = first SCSI disk
-    const cmd = `vim-cmd vmsvc/device.diskaddexisting ${esxiVmId} ${datastorePath} 0 0`;
+    const cmd = `vim-cmd vmsvc/device.diskaddexisting ${esxiVmId} ${JSON.stringify(datastorePath)} 0 0`;
     await this.sshExecOnESXi(esxiHost, esxiUser, proxmoxHost, proxmoxUser, cmd);
+  }
+
+  private async assertImportedDiskAttached(vmId: string, diskFileName: string): Promise<void> {
+    const vmInfo = await this.client.getVM(vmId);
+    const diskBackings = Object.values(vmInfo.disks ?? {}).map((disk) => disk.backing?.vmdk_file ?? "");
+    const hasImportedDisk = diskBackings.some((path) => path.includes(diskFileName));
+
+    if (!hasImportedDisk) {
+      throw new Error(
+        `VM ${vmId} was created without imported disk ${diskFileName}. Refusing to mark migration as completed.`
+      );
+    }
   }
 
   /**

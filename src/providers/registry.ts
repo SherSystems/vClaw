@@ -5,7 +5,16 @@ import type {
   ClusterState,
   MultiClusterState,
   ProviderType,
+  AdapterKind,
 } from "./types.js";
+
+/** Default adapter kind when an adapter doesn't declare one. */
+const DEFAULT_ADAPTER_KIND: AdapterKind = "hypervisor";
+
+/** Returns the adapter kind, defaulting to "hypervisor" for legacy adapters. */
+export function adapterKind(adapter: InfraAdapter): AdapterKind {
+  return adapter.kind ?? DEFAULT_ADAPTER_KIND;
+}
 
 export class ToolRegistry {
   private adapters: Map<string, InfraAdapter> = new Map();
@@ -16,6 +25,19 @@ export class ToolRegistry {
     for (const tool of adapter.getTools()) {
       this.tools.set(tool.name, tool);
     }
+  }
+
+  /**
+   * Hypervisor adapters only — i.e. adapters that actually own infra
+   * (nodes, VMs, storage). Excludes "service" and "planner" adapters
+   * such as system, migration, topology, and provisioning.
+   *
+   * Use this for any "providers" listing surfaced to the user.
+   */
+  getHypervisorAdapters(): InfraAdapter[] {
+    return Array.from(this.adapters.values()).filter(
+      (a) => adapterKind(a) === "hypervisor",
+    );
   }
 
   getAdapter(name: string): InfraAdapter | undefined {
@@ -98,12 +120,17 @@ export class ToolRegistry {
   }
 
   /**
-   * Get cluster state from all connected providers.
+   * Get cluster state from all connected hypervisor providers.
+   *
+   * Only adapters with `kind === "hypervisor"` are included. Service
+   * and planner adapters (system, migration, topology, provisioning)
+   * are excluded — they don't own infra so they have no cluster state
+   * worth surfacing.
    */
   async getMultiClusterState(): Promise<MultiClusterState> {
     const providers: MultiClusterState["providers"] = [];
     for (const [, adapter] of this.adapters) {
-      if (adapter.isConnected() && adapter.name !== "system") {
+      if (adapter.isConnected() && adapterKind(adapter) === "hypervisor") {
         try {
           const state = await adapter.getClusterState();
           providers.push({

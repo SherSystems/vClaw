@@ -14,7 +14,7 @@ function createMockAdapter(
   tools: ToolDefinition[] = [],
   overrides: Partial<InfraAdapter> = {}
 ): InfraAdapter {
-  return {
+  const adapter: InfraAdapter = {
     name,
     connect: vi.fn().mockResolvedValue(undefined),
     disconnect: vi.fn().mockResolvedValue(undefined),
@@ -31,6 +31,7 @@ function createMockAdapter(
     }),
     ...overrides,
   };
+  return adapter;
 }
 
 function makeTool(name: string, adapter: string, tier: ToolDefinition["tier"] = "read"): ToolDefinition {
@@ -261,7 +262,7 @@ describe("ToolRegistry", () => {
   });
 
   describe("getMultiClusterState", () => {
-    it("returns state from all connected non-system providers", async () => {
+    it("returns state from all connected hypervisor providers", async () => {
       registry.registerAdapter(createMockAdapter("proxmox", [], {
         getClusterState: vi.fn().mockResolvedValue({
           adapter: "proxmox",
@@ -273,13 +274,67 @@ describe("ToolRegistry", () => {
         }),
       }));
 
-      // system adapter should be excluded
-      registry.registerAdapter(createMockAdapter("system", []));
+      // service-kind adapter (system) should be excluded
+      registry.registerAdapter(createMockAdapter("system", [], { kind: "service" }));
 
       const result = await registry.getMultiClusterState();
       expect(result.providers).toHaveLength(1);
       expect(result.providers[0].name).toBe("proxmox");
       expect(result.timestamp).toBeDefined();
+    });
+
+    it("excludes planner-kind adapters (e.g. provisioning)", async () => {
+      registry.registerAdapter(createMockAdapter("proxmox", [
+        makeTool("list_vms", "proxmox"),
+      ]));
+      registry.registerAdapter(createMockAdapter("provisioning", [
+        makeTool("provision_plan_vm", "provisioning"),
+      ], { kind: "planner" }));
+
+      const result = await registry.getMultiClusterState();
+      const names = result.providers.map((p) => p.name);
+      expect(names).toContain("proxmox");
+      expect(names).not.toContain("provisioning");
+    });
+
+    it("planner adapters are still dispatchable for tool execution", async () => {
+      const provisioningExec = vi.fn().mockResolvedValue({
+        success: true,
+        data: { id: "plan-1" },
+      });
+      registry.registerAdapter(createMockAdapter("provisioning", [
+        makeTool("provision_plan_vm", "provisioning"),
+      ], { kind: "planner", execute: provisioningExec }));
+
+      // Excluded from provider listing...
+      const state = await registry.getMultiClusterState();
+      expect(state.providers.map((p) => p.name)).not.toContain("provisioning");
+
+      // ...but the tool is still resolvable and the registry routes
+      // execution to the adapter normally.
+      expect(registry.getTool("provision_plan_vm")).toBeDefined();
+      const result = await registry.execute("provision_plan_vm", {
+        prompt: "windows 11 vm",
+        hypervisor: "proxmox",
+      });
+      expect(result.success).toBe(true);
+      expect(provisioningExec).toHaveBeenCalledWith("provision_plan_vm", {
+        prompt: "windows 11 vm",
+        hypervisor: "proxmox",
+      });
+    });
+
+    it("getHypervisorAdapters() returns only hypervisor-kind adapters", () => {
+      registry.registerAdapter(createMockAdapter("proxmox", [])); // default = hypervisor
+      registry.registerAdapter(createMockAdapter("vmware", [], { kind: "hypervisor" }));
+      registry.registerAdapter(createMockAdapter("system", [], { kind: "service" }));
+      registry.registerAdapter(createMockAdapter("provisioning", [], { kind: "planner" }));
+
+      const hypervisors = registry.getHypervisorAdapters().map((a) => a.name);
+      expect(hypervisors).toContain("proxmox");
+      expect(hypervisors).toContain("vmware");
+      expect(hypervisors).not.toContain("system");
+      expect(hypervisors).not.toContain("provisioning");
     });
 
     it("skips providers that fail to return state", async () => {

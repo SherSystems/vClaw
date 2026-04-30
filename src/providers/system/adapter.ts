@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import type {
+  AdapterKind,
   InfraAdapter,
   ToolDefinition,
   ToolCallResult,
@@ -12,6 +13,8 @@ export interface SystemAdapterConfig {
 
 export class SystemAdapter implements InfraAdapter {
   name = "system";
+  // System is a generic SSH/utility adapter — not a hypervisor.
+  kind: AdapterKind = "service";
   private _connected = false;
   private readonly sshStrictHostKeyCheck: boolean;
   private static readonly MAX_PACKAGE_INPUT_LENGTH = 512;

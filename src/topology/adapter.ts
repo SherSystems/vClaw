@@ -4,6 +4,7 @@
 // ============================================================
 
 import type {
+  AdapterKind,
   InfraAdapter,
   ToolDefinition,
   ToolCallResult,
@@ -210,6 +211,9 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
 
 export class TopologyAdapter implements InfraAdapter {
   name = "topology";
+  // Topology is a service adapter — it stores app metadata in SQLite
+  // and exposes graph/discovery tools but does not own infra.
+  kind: AdapterKind = "service";
   private config: TopologyAdapterConfig;
   private discovery: ConnectionDiscovery;
   private _connected = false;

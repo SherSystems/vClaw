@@ -245,6 +245,15 @@ export interface AutopilotRule {
   enabled: boolean;
   cooldown_s: number;
   last_triggered_at?: string;
+  /** Per-entity cooldown in seconds (e.g. cooldown per VM/node).
+   * If unset, falls back to cooldown_s. Allows fine-grained dedupe so
+   * that one noisy entity does not block other entities from triggering. */
+  per_entity_cooldown_s?: number;
+  /** Maximum number of fires allowed within rate_limit_window_s seconds.
+   * If unset, no rate limit is enforced. */
+  rate_limit_max?: number;
+  /** Sliding window (seconds) over which rate_limit_max applies. */
+  rate_limit_window_s?: number;
 }
 
 export interface Alert {
@@ -307,6 +316,10 @@ export enum AgentEventType {
   MigrationStep = "migration_step",
   MigrationCompleted = "migration_completed",
   MigrationFailed = "migration_failed",
+  AutopilotRuleEvaluated = "autopilot_rule_evaluated",
+  AutopilotRuleFired = "autopilot_rule_fired",
+  AutopilotRuleSuppressed = "autopilot_rule_suppressed",
+  AutopilotActionGoverned = "autopilot_action_governed",
 }
 
 export interface AgentEvent {

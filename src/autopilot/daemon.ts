@@ -21,6 +21,11 @@ import type { ToolRegistry } from "../tools/registry.js";
 import type { GovernanceEngine } from "../governance/index.js";
 import type { EventBus } from "../agent/events.js";
 import { DEFAULT_RULES, evaluateRules, type RuleMatch } from "./rules.js";
+import {
+  RuleStateTracker,
+  buildEntityKey,
+  type SuppressionInfo,
+} from "./rule-state.js";
 
 // ── Configuration ───────────────────────────────────────────
 
@@ -57,6 +62,7 @@ export class AutopilotDaemon {
   private alerts: Alert[] = [];
   private healthChecks: HealthCheck[] = [];
   private restartRecords: Map<string | number, RestartRecord> = new Map();
+  private ruleState = new RuleStateTracker();
 
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private running = false;
@@ -128,6 +134,18 @@ export class AutopilotDaemon {
     return [...this.healthChecks];
   }
 
+  /**
+   * Snapshot of the per-rule/per-entity dedupe and rate-limit state.
+   * Exposed for the dashboard and tests.
+   */
+  getRuleStateSnapshot(): Array<{
+    key: string;
+    lastFire: number;
+    recentFireCount: number;
+  }> {
+    return this.ruleState.snapshot();
+  }
+
   // ── Core Poll Loop ────────────────────────────────────────
 
   private async poll(): Promise<void> {
@@ -164,8 +182,45 @@ export class AutopilotDaemon {
         now,
       );
 
-      // Process rule matches
+      // Emit a single per-poll evaluation event for observability — easier
+      // than reasoning about N "rule fired" events without a denominator.
+      this.eventBus.emit({
+        type: AgentEventType.AutopilotRuleEvaluated,
+        timestamp: now.toISOString(),
+        data: {
+          rules: this.rules.length,
+          enabled: this.rules.filter((r) => r.enabled).length,
+          matches: matches.length,
+        },
+      });
+
+      // Process rule matches with per-entity dedupe + rate limiting.
       for (const match of matches) {
+        const entityKey = buildEntityKey(match.rule.id, match.params);
+        const admit = this.ruleState.shouldAdmit(match.rule, entityKey, now);
+
+        if (!admit.admitted && admit.suppression) {
+          this.emitSuppressed(match, entityKey, admit.suppression, now);
+          continue;
+        }
+
+        // Record fire BEFORE handling so concurrent admits within the same
+        // tick (e.g. duplicate matches for the same entity) are deduped.
+        this.ruleState.recordFire(match.rule, entityKey, now);
+
+        this.eventBus.emit({
+          type: AgentEventType.AutopilotRuleFired,
+          timestamp: now.toISOString(),
+          data: {
+            rule_id: match.rule.id,
+            rule_name: match.rule.name,
+            action: match.action,
+            entity_key: entityKey,
+            trigger: match.trigger,
+            tier: match.rule.tier,
+          },
+        });
+
         await this.handleRuleMatch(match, now);
       }
 
@@ -318,6 +373,28 @@ export class AutopilotDaemon {
     };
   }
 
+  // ── Suppression Events ────────────────────────────────────
+
+  private emitSuppressed(
+    match: RuleMatch,
+    entityKey: string,
+    suppression: SuppressionInfo,
+    now: Date,
+  ): void {
+    this.eventBus.emit({
+      type: AgentEventType.AutopilotRuleSuppressed,
+      timestamp: now.toISOString(),
+      data: {
+        rule_id: match.rule.id,
+        rule_name: match.rule.name,
+        action: match.action,
+        entity_key: entityKey,
+        reason: suppression.reason,
+        retry_after_ms: suppression.retryAfterMs,
+      },
+    });
+  }
+
   // ── Rule Match Handling ───────────────────────────────────
 
   private async handleRuleMatch(match: RuleMatch, now: Date): Promise<void> {
@@ -325,8 +402,11 @@ export class AutopilotDaemon {
 
     console.log(`[autopilot] Rule "${rule.name}" triggered: ${trigger}`);
 
-    // Update last_triggered_at on the rule
-    rule.last_triggered_at = now.toISOString();
+    // NOTE: per-entity dedupe and rate-limiting are now handled by the
+    // RuleStateTracker in the poll loop. We deliberately no longer mutate
+    // `rule.last_triggered_at` here — doing so blocked OTHER entities from
+    // firing during the cooldown window, which defeats per-entity dedupe.
+    // The tracker handles each entity independently.
 
     if (action === "alert") {
       // Fire an alert
@@ -383,6 +463,19 @@ export class AutopilotDaemon {
       "watch",
       this.toolRegistry.getAllTools(),
     );
+
+    this.eventBus.emit({
+      type: AgentEventType.AutopilotActionGoverned,
+      timestamp: now.toISOString(),
+      data: {
+        rule_id: match.rule.id,
+        action: match.action,
+        vmid,
+        allowed: decision.allowed,
+        tier: decision.tier,
+        reason: decision.reason,
+      },
+    });
 
     if (!decision.allowed) {
       console.log(

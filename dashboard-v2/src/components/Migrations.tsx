@@ -7,43 +7,14 @@ import {
   fetchMigrationHistory,
   fetchMigrationStatus,
 } from "../api/client";
-import type { MigrationVM, MigrationPlan, MigrationDirection, MigrationLiveRun } from "../types";
+import type { MigrationVM, MigrationPlan, MigrationLiveRun } from "../types";
 import { buildMigrationStatusEvent } from "../lib/migration-status";
-
-type MigrationProvider = "vmware" | "proxmox" | "aws" | "azure";
-type RouteExecutionSupport = "full" | "plan_only";
-
-type MigrationRoute = {
-  id: string;
-  label: string;
-  from: MigrationProvider;
-  to: MigrationProvider;
-  direction: MigrationDirection;
-  executionSupport: RouteExecutionSupport;
-  executionNote?: string;
-};
-
-const AZURE_PLAN_ONLY_NOTE =
-  "Execution is not supported yet for this route. Use planning for sizing and preflight checks.";
-
-const ROUTES: MigrationRoute[] = [
-  { id: "vmware_to_proxmox", label: "VMware \u2192 Proxmox", from: "vmware", to: "proxmox", direction: "vmware_to_proxmox", executionSupport: "full" },
-  { id: "proxmox_to_vmware", label: "Proxmox \u2192 VMware", from: "proxmox", to: "vmware", direction: "proxmox_to_vmware", executionSupport: "full" },
-  { id: "vmware_to_aws", label: "VMware \u2192 AWS", from: "vmware", to: "aws", direction: "vmware_to_aws", executionSupport: "full" },
-  { id: "aws_to_vmware", label: "AWS \u2192 VMware", from: "aws", to: "vmware", direction: "aws_to_vmware", executionSupport: "full" },
-  { id: "proxmox_to_aws", label: "Proxmox \u2192 AWS", from: "proxmox", to: "aws", direction: "proxmox_to_aws", executionSupport: "full" },
-  { id: "aws_to_proxmox", label: "AWS \u2192 Proxmox", from: "aws", to: "proxmox", direction: "aws_to_proxmox", executionSupport: "full" },
-  { id: "vmware_to_azure", label: "VMware \u2192 Azure", from: "vmware", to: "azure", direction: "vmware_to_azure", executionSupport: "plan_only", executionNote: AZURE_PLAN_ONLY_NOTE },
-  { id: "azure_to_vmware", label: "Azure \u2192 VMware", from: "azure", to: "vmware", direction: "azure_to_vmware", executionSupport: "plan_only", executionNote: AZURE_PLAN_ONLY_NOTE },
-  { id: "proxmox_to_azure", label: "Proxmox \u2192 Azure", from: "proxmox", to: "azure", direction: "proxmox_to_azure", executionSupport: "plan_only", executionNote: AZURE_PLAN_ONLY_NOTE },
-  { id: "azure_to_proxmox", label: "Azure \u2192 Proxmox", from: "azure", to: "proxmox", direction: "azure_to_proxmox", executionSupport: "plan_only", executionNote: AZURE_PLAN_ONLY_NOTE },
-  { id: "aws_to_azure", label: "AWS \u2192 Azure", from: "aws", to: "azure", direction: "aws_to_azure", executionSupport: "plan_only", executionNote: AZURE_PLAN_ONLY_NOTE },
-  { id: "azure_to_aws", label: "Azure \u2192 AWS", from: "azure", to: "aws", direction: "azure_to_aws", executionSupport: "plan_only", executionNote: AZURE_PLAN_ONLY_NOTE },
-];
-
-function isMigrationProvider(value: string): value is MigrationProvider {
-  return value === "vmware" || value === "proxmox" || value === "aws" || value === "azure";
-}
+import {
+  ALL_MIGRATION_ROUTES,
+  buildRouteAvailability,
+  connectedProvidersFromMultiCluster,
+  decorateRouteLabel,
+} from "../lib/migration-routes";
 
 const STEP_LABELS: Record<string, string> = {
   export_config: "Export Config",
@@ -190,68 +161,59 @@ export default function Migrations() {
   const [error, setError] = useState<string | null>(null);
   const [nowTick, setNowTick] = useState(() => Date.now());
 
-  const availableRoutes = useMemo(() => {
-    const connected = new Set<MigrationProvider>();
-    for (const provider of multiCluster?.providers ?? []) {
-      if (isMigrationProvider(provider.type)) {
-        connected.add(provider.type);
-      }
-    }
-
-    // Keep existing non-Azure routes visible even before multi-provider data arrives.
-    const defaultRoutes = ROUTES.filter((routeItem) => routeItem.from !== "azure" && routeItem.to !== "azure");
-    if (connected.size === 0) {
-      return defaultRoutes;
-    }
-
-    const connectedRoutes = ROUTES.filter(
-      (routeItem) => connected.has(routeItem.from) && connected.has(routeItem.to),
-    );
-
-    if (!connected.has("azure")) {
-      return connectedRoutes.length > 0 ? connectedRoutes : defaultRoutes;
-    }
-
-    const azureRoutes = ROUTES.filter(
-      (routeItem) => routeItem.from === "azure" || routeItem.to === "azure",
-    );
-    const merged = [...connectedRoutes];
-    for (const routeItem of azureRoutes) {
-      if (!merged.some((item) => item.id === routeItem.id)) {
-        merged.push(routeItem);
-      }
-    }
-    return merged.length > 0 ? merged : defaultRoutes;
+  const routeAvailability = useMemo(() => {
+    const connected = connectedProvidersFromMultiCluster(multiCluster);
+    return buildRouteAvailability(ALL_MIGRATION_ROUTES, connected, {
+      hasMultiClusterData: multiCluster != null,
+    });
   }, [multiCluster]);
+
+  // Always offer every supported route in the picker. We never hide a route
+  // when its provider is offline — instead the dropdown label gets a suffix
+  // and the actions get disabled with an inline explanation. See lib/migration-routes.
+  const availableRoutes = useMemo(
+    () => routeAvailability.map((entry) => entry.route),
+    [routeAvailability],
+  );
 
   useEffect(() => {
     if (availableRoutes.some((routeItem) => routeItem.id === routeId)) return;
     setRouteId(availableRoutes[0]?.id ?? "vmware_to_proxmox");
   }, [availableRoutes, routeId]);
 
-  const route = availableRoutes.find((item) => item.id === routeId) ?? availableRoutes[0] ?? ROUTES[0];
+  const currentEntry =
+    routeAvailability.find((entry) => entry.route.id === routeId) ??
+    routeAvailability[0];
+  const route = currentEntry?.route ?? ALL_MIGRATION_ROUTES[0];
   const sourceProvider = route.from;
   const targetProvider = route.to;
   const selectedDirection = route.direction;
   const isExecutionSupported = route.executionSupport === "full";
+  const sourceConnected = currentEntry?.sourceConnected ?? true;
+  const blockedReason = currentEntry?.blockedReason ?? null;
   const hasPlanDisks = (plan?.vmConfig?.disks?.length ?? 0) > 0;
   const executeDisabledReason =
-    !isExecutionSupported
-      ? route.executionNote ?? "Execution is not supported for this route."
-      : plan && !hasPlanDisks
-        ? "Source VM has no attached disks. Nothing to migrate."
-        : null;
+    blockedReason
+      ? blockedReason
+      : !isExecutionSupported
+        ? route.executionNote ?? "Execution is not supported for this route."
+        : plan && !hasPlanDisks
+          ? "Source VM has no attached disks. Nothing to migrate."
+          : null;
 
-  // Load VMs for selected direction
+  // Load VMs for selected direction. Skip the fetch when the source provider
+  // is known to be disconnected — otherwise we'd surface a generic "Failed to
+  // load VMs" error that hides the real "X is not connected" diagnosis.
   useEffect(() => {
     setVMs([]);
     setSelectedVM("");
     setPlan(null);
     setError(null);
+    if (!sourceConnected) return;
     fetchMigrationVMs(sourceProvider)
       .then((res) => setVMs(res.vms || []))
       .catch(() => setError("Failed to load VMs"));
-  }, [sourceProvider]);
+  }, [sourceProvider, sourceConnected]);
 
   // Load migration history on mount
   useEffect(() => {
@@ -379,11 +341,9 @@ export default function Migrations() {
               }}
               disabled={loading}
             >
-              {availableRoutes.map((routeOption) => (
-                <option key={routeOption.id} value={routeOption.id}>
-                  {routeOption.executionSupport === "plan_only"
-                    ? `${routeOption.label} (plan only)`
-                    : routeOption.label}
+              {routeAvailability.map((entry) => (
+                <option key={entry.route.id} value={entry.route.id}>
+                  {decorateRouteLabel(entry)}
                 </option>
               ))}
             </select>
@@ -410,7 +370,8 @@ export default function Migrations() {
 
           <button
             className="btn-mig-plan"
-            disabled={!selectedVM || loading}
+            disabled={!selectedVM || loading || !sourceConnected}
+            title={blockedReason ?? "Build migration plan"}
             onClick={handlePlan}
           >
             {loading && !plan ? "Planning..." : "Plan"}
@@ -426,7 +387,13 @@ export default function Migrations() {
           </button>
         </div>
 
-        {!isExecutionSupported && (
+        {blockedReason && (
+          <div className="mig-error" data-testid="mig-blocked-reason">
+            {blockedReason}
+          </div>
+        )}
+
+        {!blockedReason && !isExecutionSupported && (
           <div className="mig-error">
             {route.executionNote}
           </div>

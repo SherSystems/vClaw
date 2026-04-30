@@ -4,6 +4,7 @@
 // ============================================================
 
 import type {
+  AdapterKind,
   InfraAdapter,
   ToolDefinition,
   ToolCallResult,
@@ -49,6 +50,9 @@ export interface MigrationAdapterConfig {
 
 export class MigrationAdapter implements InfraAdapter {
   name = "migration";
+  // Migration orchestrates VM moves between hypervisors — it's a
+  // service adapter, not a hypervisor itself.
+  kind: AdapterKind = "service";
   private config: MigrationAdapterConfig;
   private _connected = false;
 

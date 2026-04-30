@@ -15,10 +15,12 @@ function createMockAdapter(
     throwOnConnect?: boolean;
     throwOnDisconnect?: boolean;
     connected?: boolean;
+    kind?: InfraAdapter["kind"];
   } = {},
 ): InfraAdapter {
   return {
     name,
+    kind: config.kind,
     getTools: () => tools,
     isConnected: () => config.connected ?? true,
     connect: async () => {
@@ -358,8 +360,8 @@ describe("ToolRegistry — Edge Cases", () => {
       expect(state.providers[0].name).toBe("a2");
     });
 
-    it("getMultiClusterState() excludes system adapter", async () => {
-      const system = createMockAdapter("system", [], { connected: true });
+    it("getMultiClusterState() excludes service-kind adapters (e.g. system)", async () => {
+      const system = createMockAdapter("system", [], { connected: true, kind: "service" });
       const proxmox = createMockAdapter("proxmox", [], { connected: true });
 
       registry.registerAdapter(system);
@@ -369,6 +371,19 @@ describe("ToolRegistry — Edge Cases", () => {
       const names = state.providers.map((p) => p.name);
       expect(names).toContain("proxmox");
       expect(names).not.toContain("system");
+    });
+
+    it("getMultiClusterState() excludes planner-kind adapters (e.g. provisioning)", async () => {
+      const provisioning = createMockAdapter("provisioning", [], { connected: true, kind: "planner" });
+      const proxmox = createMockAdapter("proxmox", [], { connected: true });
+
+      registry.registerAdapter(provisioning);
+      registry.registerAdapter(proxmox);
+
+      const state = await registry.getMultiClusterState();
+      const names = state.providers.map((p) => p.name);
+      expect(names).toContain("proxmox");
+      expect(names).not.toContain("provisioning");
     });
   });
 

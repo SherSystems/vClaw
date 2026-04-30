@@ -92,8 +92,28 @@ export interface StorageInfo {
 
 // ── Provider Interface ──────────────────────────────────────
 
+/**
+ * Discriminator for what an adapter actually represents.
+ *
+ * - "hypervisor": owns infrastructure (nodes, VMs, storage). Shows up
+ *   in the dashboard's provider overview and in `getMultiClusterState`.
+ *   Examples: proxmox, vmware, aws, azure, kubernetes.
+ * - "service": utility adapter that provides tools but does NOT own
+ *   cluster state (returns an empty ClusterState). Hidden from the
+ *   provider overview. Examples: system, migration, topology.
+ * - "planner": planning/orchestration adapter — produces plans, never
+ *   touches infra directly. Hidden from the provider overview.
+ *   Examples: provisioning.
+ *
+ * Default is "hypervisor" if omitted (preserves the historical contract
+ * for the existing infra providers).
+ */
+export type AdapterKind = "hypervisor" | "service" | "planner";
+
 export interface InfraAdapter {
   name: string;
+  /** What kind of adapter this is. Defaults to "hypervisor" if omitted. */
+  kind?: AdapterKind;
   connect(): Promise<void>;
   disconnect(): Promise<void>;
   isConnected(): boolean;

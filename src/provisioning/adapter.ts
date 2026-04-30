@@ -8,6 +8,7 @@
 // ============================================================
 
 import type {
+  AdapterKind,
   ClusterState,
   InfraAdapter,
   ToolCallResult,
@@ -37,6 +38,11 @@ export interface ProvisioningAdapterConfig {
 
 export class ProvisioningAdapter implements InfraAdapter {
   name = "provisioning";
+  // Provisioning is a planner module — it produces ProvisioningPlans
+  // and does not own any infra. It must NOT show up in the dashboard's
+  // provider overview, but its tools are still dispatched through the
+  // registry like any other adapter.
+  kind: AdapterKind = "planner";
   private _connected = false;
   private readonly config: ProvisioningAdapterConfig;
   private readonly isoResolver: IsoResolverDispatcher;

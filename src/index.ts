@@ -26,12 +26,9 @@ import { ChaosEngine } from "./chaos/engine.js";
 import { RunTelemetryCollector } from "./monitoring/run-telemetry.js";
 import { MigrationAdapter } from "./migration/adapter.js";
 import { ProvisioningAdapter } from "./provisioning/adapter.js";
-import { VSphereClient } from "./providers/vmware/client.js";
-import { ProxmoxClient } from "./providers/proxmox/client.js";
 import { AWSAdapter } from "./providers/aws/adapter.js";
-import { AWSClient } from "./providers/aws/client.js";
 import { AzureAdapter } from "./providers/azure/adapter.js";
-import { AzureClient } from "./providers/azure/client.js";
+import { createMigrationAdapter } from "./bootstrap/migration.js";
 import { spawn } from "node:child_process";
 import type { SSHExecResult } from "./migration/types.js";
 import { join } from "path";
@@ -154,77 +151,7 @@ async function main() {
     });
   };
 
-  // Create migration adapter if both providers are configured
-  let migrationAdapter: MigrationAdapter | undefined;
-  if (
-    config.proxmox.tokenId && config.proxmox.tokenSecret &&
-    config.vmware.host &&
-    config.migration.esxiHost && config.migration.proxmoxHost
-  ) {
-    const migVsphere = new VSphereClient({
-      host: config.vmware.host,
-      user: config.vmware.user,
-      password: config.vmware.password,
-      insecure: config.vmware.insecure,
-    });
-    await migVsphere.createSession();
-
-    const migProxmox = new ProxmoxClient({
-      host: config.proxmox.host,
-      port: config.proxmox.port,
-      tokenId: config.proxmox.tokenId,
-      tokenSecret: config.proxmox.tokenSecret,
-      allowSelfSignedCerts: config.proxmox.allowSelfSignedCerts,
-    });
-    await migProxmox.connect();
-
-    // Create AWS client for migration if configured
-    let awsClient: AWSClient | undefined;
-    if (config.aws.accessKeyId && config.aws.secretAccessKey) {
-      awsClient = new AWSClient({
-        accessKeyId: config.aws.accessKeyId,
-        secretAccessKey: config.aws.secretAccessKey,
-        region: config.aws.region,
-        sessionToken: config.aws.sessionToken || undefined,
-      });
-      await awsClient.connect();
-    }
-
-    // Create Azure client for migration if configured
-    let azureClient: AzureClient | undefined;
-    if (
-      config.azure.tenantId &&
-      config.azure.clientId &&
-      config.azure.clientSecret &&
-      config.azure.subscriptionId
-    ) {
-      azureClient = new AzureClient({
-        tenantId: config.azure.tenantId,
-        clientId: config.azure.clientId,
-        clientSecret: config.azure.clientSecret,
-        subscriptionId: config.azure.subscriptionId,
-        defaultLocation: config.azure.defaultLocation,
-      });
-      await azureClient.connect();
-    }
-
-    migrationAdapter = new MigrationAdapter({
-      vsphereClient: migVsphere,
-      proxmoxClient: migProxmox,
-      sshExec,
-      esxiHost: config.migration.esxiHost,
-      esxiUser: config.migration.esxiUser,
-      proxmoxHost: config.migration.proxmoxHost,
-      proxmoxUser: config.migration.proxmoxUser,
-      proxmoxNode: config.migration.proxmoxNode,
-      proxmoxStorage: config.migration.proxmoxStorage,
-      awsClient,
-      azureClient,
-      awsS3Bucket: config.aws.s3MigrationBucket,
-      awsS3Prefix: config.aws.s3MigrationPrefix,
-    });
-    await migrationAdapter.connect();
-  }
+  const migrationAdapter = await createMigrationAdapter(config, sshExec);
 
   // Register provisioning adapter (always — pure planning, no upstream creds needed)
   const provisioningAdapter = new ProvisioningAdapter({

@@ -275,6 +275,15 @@ function normalizeChaosRun(payload: unknown): import("../types").ChaosRun {
     actual_recovery_time_s: Number(run.actual_recovery_time_s ?? actual?.recovery_time_s ?? 0) || undefined,
     resilience_score: Number(run.resilience_score ?? score?.resilience_pct ?? 0) || undefined,
     verdict: (run.verdict ?? score?.verdict ?? undefined) as import("../types").ChaosRun["verdict"],
+    predicted_vs_actual_recovery:
+      typeof score?.predicted_vs_actual_recovery === "string"
+        ? score.predicted_vs_actual_recovery
+        : undefined,
+    incidents_created: Array.isArray(actual?.incidents_created)
+      ? actual.incidents_created.map((i: unknown) => String(i))
+      : undefined,
+    steps_executed: typeof actual?.steps_executed === "number" ? actual.steps_executed : undefined,
+    all_recovered: typeof actual?.all_recovered === "boolean" ? actual.all_recovered : undefined,
   };
 }
 
@@ -292,6 +301,19 @@ export const fetchIncidents = () =>
     recent: import("../types").Incident[];
     patterns: unknown[];
   }>("/api/incidents");
+
+export interface IncidentTimelineEntry {
+  timestamp: string;
+  event: "detected" | "action" | "resolved" | "failed" | string;
+  detail: string;
+  success?: boolean;
+}
+
+export const fetchIncidentTimeline = (incidentId: string) =>
+  request<{
+    incident: import("../types").Incident;
+    timeline: IncidentTimelineEntry[];
+  }>(`/api/incidents/${encodeURIComponent(incidentId)}/timeline`);
 
 // Audit
 export const fetchAudit = (limit = 100) =>

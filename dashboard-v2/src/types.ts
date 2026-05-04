@@ -214,6 +214,10 @@ export interface ChaosRun {
   actual_recovery_time_s?: number;
   resilience_score?: number;
   verdict?: "pass" | "partial" | "fail";
+  predicted_vs_actual_recovery?: string;
+  incidents_created?: string[];
+  steps_executed?: number;
+  all_recovered?: boolean;
   events?: AgentEvent[];
 }
 

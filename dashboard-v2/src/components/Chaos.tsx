@@ -4,10 +4,12 @@ import {
   fetchChaosScenarios,
   fetchChaosStatus,
   fetchChaosHistory,
+  fetchIncidentTimeline,
   simulateChaos,
   executeChaos,
 } from "../api/client";
-import type { ChaosScenario, ChaosSimulation, ChaosRun } from "../types";
+import type { IncidentTimelineEntry } from "../api/client";
+import type { ChaosScenario, ChaosSimulation, ChaosRun, Incident } from "../types";
 
 const PHASES = ["Executing", "Recovering", "Verifying", "Complete"] as const;
 
@@ -52,6 +54,12 @@ export default function Chaos() {
   const [execStartTime, setExecStartTime] = useState<number | null>(null);
   const [execTimer, setExecTimer] = useState("00:00");
   const [logEntries, setLogEntries] = useState<{ time: string; msg: string }[]>([]);
+  const [auditRunId, setAuditRunId] = useState<string | null>(null);
+  const [auditTimelines, setAuditTimelines] = useState<
+    Record<string, { incident: Incident; timeline: IncidentTimelineEntry[] }>
+  >({});
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditError, setAuditError] = useState<string | null>(null);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const logEndRef = useRef<HTMLDivElement | null>(null);
@@ -159,6 +167,50 @@ export default function Chaos() {
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [logEntries]);
+
+  // When the user selects a run, fetch its associated incident timelines.
+  useEffect(() => {
+    if (!auditRunId) {
+      setAuditTimelines({});
+      setAuditError(null);
+      return;
+    }
+    const run = history.find((r) => r.id === auditRunId);
+    const ids = run?.incidents_created ?? [];
+    if (ids.length === 0) {
+      setAuditTimelines({});
+      return;
+    }
+    let cancelled = false;
+    setAuditLoading(true);
+    setAuditError(null);
+    Promise.all(
+      ids.map((id) =>
+        fetchIncidentTimeline(id)
+          .then((data) => [id, data] as const)
+          .catch((err) => [id, err instanceof Error ? err.message : String(err)] as const),
+      ),
+    ).then((results) => {
+      if (cancelled) return;
+      const next: Record<string, { incident: Incident; timeline: IncidentTimelineEntry[] }> = {};
+      const errors: string[] = [];
+      for (const [id, payload] of results) {
+        if (typeof payload === "string") {
+          errors.push(`${id.slice(0, 8)}: ${payload}`);
+        } else {
+          next[id] = payload;
+        }
+      }
+      setAuditTimelines(next);
+      setAuditError(errors.length > 0 ? errors.join("; ") : null);
+      setAuditLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [auditRunId, history]);
+
+  const auditRun = auditRunId ? history.find((r) => r.id === auditRunId) ?? null : null;
 
   const runningVMs = cluster?.vms?.filter((v) => v.status === "running") || [];
 
@@ -365,17 +417,195 @@ export default function Chaos() {
         {history.length === 0 ? (
           <div className="empty-state">No chaos runs yet</div>
         ) : (
-          history.map((run) => (
-            <div key={run.id} className="chaos-history-item">
-              <span>{run.scenario?.name || (run as unknown as Record<string, unknown>).scenario_id as string || "Unknown"}</span>
-              <span className={`chaos-verdict-value ${run.verdict || ""}`}>
-                {run.verdict?.toUpperCase() || run.status}
-              </span>
-              <span>{new Date(run.started_at).toLocaleString()}</span>
-            </div>
-          ))
+          history.map((run) => {
+            const isSelected = auditRunId === run.id;
+            return (
+              <div
+                key={run.id}
+                className={`chaos-history-item${isSelected ? " selected" : ""}`}
+                role="button"
+                tabIndex={0}
+                onClick={() => setAuditRunId(isSelected ? null : run.id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setAuditRunId(isSelected ? null : run.id);
+                  }
+                }}
+                style={{ cursor: "pointer" }}
+              >
+                <span>{run.scenario?.name || (run as unknown as Record<string, unknown>).scenario_id as string || "Unknown"}</span>
+                <span className={`chaos-verdict-value ${run.verdict || ""}`}>
+                  {run.verdict?.toUpperCase() || run.status}
+                </span>
+                <span>{new Date(run.started_at).toLocaleString()}</span>
+              </div>
+            );
+          })
         )}
       </div>
+
+      {/* Audit detail panel for the selected run */}
+      {auditRun && (
+        <div className="card chaos-audit-card">
+          <div className="card-head">
+            <span>Run Audit · {auditRun.scenario?.name || "Unknown"}</span>
+            <button
+              type="button"
+              className="btn-link"
+              onClick={() => setAuditRunId(null)}
+              aria-label="Close audit"
+              style={{ background: "transparent", border: "none", color: "var(--fg-muted, #9ca3af)", cursor: "pointer", fontSize: 18 }}
+            >
+              ×
+            </button>
+          </div>
+
+          {/* Top-line stats */}
+          <div className="chaos-audit-stats" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 16, padding: "12px 0" }}>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--fg-muted, #9ca3af)", textTransform: "uppercase", letterSpacing: 0.5 }}>Verdict</div>
+              <div className={`chaos-verdict-value ${auditRun.verdict || ""}`} style={{ fontSize: 18, fontWeight: 600 }}>
+                {auditRun.verdict?.toUpperCase() || auditRun.status}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--fg-muted, #9ca3af)", textTransform: "uppercase", letterSpacing: 0.5 }}>Resilience</div>
+              <div style={{ fontSize: 18, fontWeight: 600 }}>{auditRun.resilience_score ?? "—"}%</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--fg-muted, #9ca3af)", textTransform: "uppercase", letterSpacing: 0.5 }}>Predicted</div>
+              <div style={{ fontSize: 18, fontWeight: 600 }}>{auditRun.blast_radius?.predicted_recovery_time_s ?? "—"}s</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--fg-muted, #9ca3af)", textTransform: "uppercase", letterSpacing: 0.5 }}>Actual</div>
+              <div style={{ fontSize: 18, fontWeight: 600 }}>{auditRun.actual_recovery_time_s ?? "—"}s</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--fg-muted, #9ca3af)", textTransform: "uppercase", letterSpacing: 0.5 }}>Risk Score</div>
+              <div style={{ fontSize: 18, fontWeight: 600 }}>{auditRun.blast_radius?.risk_score ?? "—"}</div>
+            </div>
+          </div>
+
+          {auditRun.predicted_vs_actual_recovery && (
+            <div style={{ padding: "8px 12px", background: "rgba(255,255,255,0.03)", borderRadius: 6, fontSize: 13, color: "var(--fg-muted, #d1d5db)", marginBottom: 12 }}>
+              {auditRun.predicted_vs_actual_recovery}
+            </div>
+          )}
+
+          {/* Scenario meta */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 11, color: "var(--fg-muted, #9ca3af)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
+              Scenario
+            </div>
+            <div style={{ fontSize: 13, lineHeight: 1.5 }}>
+              <strong>{auditRun.scenario?.name}</strong>
+              {auditRun.scenario?.severity && (
+                <span style={{ marginLeft: 8, padding: "2px 8px", borderRadius: 4, background: "rgba(255,255,255,0.06)", fontSize: 11, textTransform: "uppercase" }}>
+                  {auditRun.scenario.severity}
+                </span>
+              )}
+              {auditRun.scenario?.description && (
+                <div style={{ color: "var(--fg-muted, #9ca3af)", marginTop: 4 }}>{auditRun.scenario.description}</div>
+              )}
+            </div>
+          </div>
+
+          {/* Blast radius */}
+          {auditRun.blast_radius && auditRun.blast_radius.affected_vms.length > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 11, color: "var(--fg-muted, #9ca3af)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
+                Blast Radius
+              </div>
+              {auditRun.blast_radius.affected_vms.map((vm) => (
+                <div key={vm.vmid} style={{ display: "flex", gap: 12, padding: "4px 0", fontSize: 13 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 4, background: "var(--red, #ef4444)", marginTop: 6 }} />
+                  <span style={{ flex: 1 }}>
+                    {vm.name} <span style={{ color: "var(--fg-muted, #9ca3af)" }}>(vmid {vm.vmid})</span>
+                  </span>
+                  <span style={{ color: "var(--fg-muted, #9ca3af)" }}>{vm.impact}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Incidents + timeline */}
+          <div>
+            <div style={{ fontSize: 11, color: "var(--fg-muted, #9ca3af)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
+              Incidents Triggered ({auditRun.incidents_created?.length ?? 0})
+            </div>
+            {auditLoading && <div style={{ fontSize: 13, color: "var(--fg-muted, #9ca3af)" }}>Loading timelines…</div>}
+            {auditError && (
+              <div style={{ fontSize: 13, color: "var(--red, #ef4444)" }}>Some timelines failed: {auditError}</div>
+            )}
+            {!auditLoading && (auditRun.incidents_created ?? []).length === 0 && (
+              <div style={{ fontSize: 13, color: "var(--fg-muted, #9ca3af)" }}>
+                No incidents recorded for this run.
+              </div>
+            )}
+            {(auditRun.incidents_created ?? []).map((id) => {
+              const entry = auditTimelines[id];
+              if (!entry) return null;
+              const { incident, timeline } = entry;
+              return (
+                <div key={id} style={{ marginTop: 12, padding: 12, background: "rgba(255,255,255,0.03)", borderRadius: 6, border: "1px solid rgba(255,255,255,0.06)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8 }}>
+                    <div style={{ fontSize: 13 }}>
+                      <strong>{incident.description || incident.metric_name || "Incident"}</strong>
+                      <span style={{ marginLeft: 8, color: "var(--fg-muted, #9ca3af)", fontSize: 11 }}>
+                        id {id.slice(0, 8)}
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, fontSize: 11 }}>
+                      <span style={{ padding: "2px 8px", borderRadius: 4, background: "rgba(255,255,255,0.06)", textTransform: "uppercase" }}>
+                        {incident.status}
+                      </span>
+                      {incident.playbook_id && (
+                        <span style={{ padding: "2px 8px", borderRadius: 4, background: "rgba(255,255,255,0.06)" }}>
+                          playbook: {incident.playbook_id}
+                        </span>
+                      )}
+                      {incident.duration_ms !== undefined && (
+                        <span style={{ padding: "2px 8px", borderRadius: 4, background: "rgba(255,255,255,0.06)" }}>
+                          {Math.round(incident.duration_ms / 100) / 10}s to resolve
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {incident.rca?.summary && (
+                    <div style={{ marginTop: 8, fontSize: 12, lineHeight: 1.5, color: "var(--fg-muted, #d1d5db)" }}>
+                      <strong style={{ color: "var(--fg, #f3f4f6)" }}>RCA:</strong> {incident.rca.summary}
+                    </div>
+                  )}
+
+                  {/* Timeline */}
+                  <div style={{ marginTop: 10, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12 }}>
+                    {timeline.map((entry, i) => {
+                      const time = new Date(entry.timestamp).toLocaleTimeString();
+                      const colour =
+                        entry.event === "failed" || entry.success === false
+                          ? "var(--red, #ef4444)"
+                          : entry.event === "resolved"
+                          ? "var(--green, #22c55e)"
+                          : entry.event === "detected"
+                          ? "var(--orange, #f59e0b)"
+                          : "var(--fg-muted, #9ca3af)";
+                      return (
+                        <div key={i} style={{ display: "grid", gridTemplateColumns: "84px 80px 1fr", gap: 12, padding: "3px 0" }}>
+                          <span style={{ color: "var(--fg-muted, #9ca3af)" }}>{time}</span>
+                          <span style={{ color: colour, textTransform: "uppercase", fontSize: 11 }}>{entry.event}</span>
+                          <span>{entry.detail}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </>
   );
 }

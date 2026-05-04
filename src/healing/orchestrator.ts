@@ -16,6 +16,7 @@ export interface HealingOrchestratorConfig {
   pollIntervalMs: number;
   healingEnabled: boolean;
   maxConcurrentHeals: number;
+  fastPathEnabled?: boolean;
 }
 
 export interface HealingOrchestratorOptions {
@@ -81,6 +82,7 @@ export class HealingOrchestrator {
         agentCore: options.agentCore,
         playbookEngine: this.playbookEngine,
         rcaAnalyzer: this.rcaAnalyzer,
+        toolRegistry: options.toolRegistry,
       },
     );
   }

@@ -239,7 +239,9 @@ async function main() {
       await dashboard.start();
 
       // Self-healing orchestrator — needed for /api/healing/* routes and as a
-      // dependency of the chaos engine.
+      // dependency of the chaos engine. Use a tighter poll than autopilot's
+      // default so detection lag stays under the chaos scenarios' recovery
+      // budgets (e.g. vm_kill: 120s).
       const healer = new HealingOrchestrator({
         agentCore,
         toolRegistry: registry,
@@ -247,9 +249,10 @@ async function main() {
         governance,
         dataDir: join(dataDir, "healing"),
         config: {
-          pollIntervalMs: config.autopilot.pollIntervalMs || 60000,
+          pollIntervalMs: Number(process.env.HEALING_POLL_INTERVAL_MS) || 10000,
           healingEnabled: true,
           maxConcurrentHeals: 2,
+          fastPathEnabled: true,
         },
       });
       healer.start();

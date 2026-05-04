@@ -7,10 +7,18 @@ import { AnomalyDetector } from "../monitoring/anomaly.js";
 import type { Anomaly } from "../monitoring/anomaly.js";
 import { HealthMonitor } from "../monitoring/health.js";
 import { PlaybookEngine } from "./playbooks.js";
-import type { Playbook } from "./playbooks.js";
+import type { Playbook, HealingAction } from "./playbooks.js";
 import { IncidentCoordinator } from "./incident-coordinator.js";
 import type { Incident } from "./incidents.js";
 import { RCAAnalyzer } from "./rca-analyzer.js";
+import type { ToolRegistry } from "../tools/registry.js";
+
+interface FastPathResult {
+  success: boolean;
+  steps_completed: number;
+  duration_ms: number;
+  errors: string[];
+}
 
 const ESCALATION_THRESHOLD = 3;
 const ESCALATION_WINDOW_MINUTES = 30;
@@ -46,6 +54,14 @@ export interface HealingEngineConfig {
   pollIntervalMs: number;
   healingEnabled: boolean;
   maxConcurrentHeals: number;
+  /**
+   * When true, healing actions that map to a single registered tool
+   * (e.g. `restart_vm` → `start_vm`) bypass the LLM agent and call the
+   * tool directly. Cuts typical recovery from ~60s to ~2s on simple
+   * playbooks. Defaults to false to preserve agent-loop semantics
+   * unless the host explicitly opts in.
+   */
+  fastPathEnabled?: boolean;
 }
 
 export interface HealingEngineStatus {
@@ -72,6 +88,7 @@ class HealingExecutor {
     private readonly rcaAnalyzer: RCAAnalyzer,
     private readonly healthMonitor: HealthMonitor,
     private readonly config: HealingEngineConfig,
+    private readonly toolRegistry: ToolRegistry,
   ) {}
 
   getStatusParts(): {
@@ -185,6 +202,59 @@ class HealingExecutor {
 
     summary.healingsStarted++;
 
+    // Fast-path: if every action in the playbook maps directly to a registered
+    // tool call, execute the tools synchronously and skip the LLM round-trip.
+    // This is the difference between ~2s and ~60s on a vm restart. Opt-in via
+    // config so tests that exercise the agent path are unaffected.
+    const fastPath = this.config.fastPathEnabled
+      ? this.tryFastPath(playbook, anomaly)
+      : null;
+    if (fastPath) {
+      try {
+        const fastResult = await fastPath();
+        if (fastResult.success) {
+          this.circuitBreaker.consecutiveFailures = 0;
+          summary.healingsCompleted++;
+          this.incidentCoordinator.incidentManager.recordAction(
+            incident.id,
+            `Playbook "${playbook.name}" succeeded (fast-path)`,
+            true,
+            `${fastResult.steps_completed} step(s) completed in ${fastResult.duration_ms}ms`,
+          );
+          this.incidentCoordinator.incidentManager.resolve(
+            incident.id,
+            `Healed by playbook "${playbook.name}" — ${fastResult.steps_completed} step(s) completed via direct tool call`,
+          );
+          this.playbookEngine.recordExecution(playbook.id, anomaly.id, true);
+          this.emitEvent(AgentEventType.HealingCompleted, {
+            heal_id: healId,
+            incident_id: incident.id,
+            playbook_id: playbook.id,
+            steps_completed: fastResult.steps_completed,
+            duration_ms: fastResult.duration_ms,
+            fast_path: true,
+          });
+          return;
+        }
+        // Fast-path failed — fall through to LLM agent as a backstop. Record
+        // the failure so it shows up in the incident timeline.
+        this.incidentCoordinator.incidentManager.recordAction(
+          incident.id,
+          `Fast-path failed, falling back to agent`,
+          false,
+          fastResult.errors.join("; "),
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.incidentCoordinator.incidentManager.recordAction(
+          incident.id,
+          `Fast-path threw, falling back to agent`,
+          false,
+          message,
+        );
+      }
+    }
+
     const promise = this.agentCore.run(goal);
     this.activeHeals.set(healId, { id: healId, anomalyKey, incidentId: incident.id, goal, startedAt, promise });
 
@@ -272,6 +342,83 @@ class HealingExecutor {
       data,
     });
   }
+
+  // ── Fast-Path ──────────────────────────────────────────────
+  //
+  // For playbooks whose actions all map cleanly to a single tool call, skip
+  // the LLM agent and call tools directly. This drops typical recovery from
+  // ~60-90s (LLM thinking + tool calls) to ~1-3s (pure API). The agent
+  // remains the fallback for anything we don't recognize, and `custom_goal`
+  // actions in the playbook are quietly dropped under fast-path because they
+  // are notify-only (alerts, advisories) and not load-bearing for recovery.
+
+  private tryFastPath(
+    playbook: Playbook,
+    anomaly: Anomaly,
+  ): (() => Promise<FastPathResult>) | null {
+    const actionable = playbook.actions.filter(
+      (a) => a.type !== "custom_goal",
+    );
+    if (actionable.length === 0) return null;
+
+    const calls: Array<() => Promise<{ ok: boolean; error?: string }>> = [];
+    for (const action of actionable) {
+      const call = this.fastPathCall(action, anomaly);
+      if (!call) return null; // any unrecognised action disqualifies the whole playbook
+      calls.push(call);
+    }
+
+    return async () => {
+      const start = Date.now();
+      const errors: string[] = [];
+      let stepsCompleted = 0;
+      for (const call of calls) {
+        const r = await call();
+        if (!r.ok) {
+          if (r.error) errors.push(r.error);
+          break;
+        }
+        stepsCompleted++;
+      }
+      return {
+        success: errors.length === 0 && stepsCompleted === calls.length,
+        steps_completed: stepsCompleted,
+        duration_ms: Date.now() - start,
+        errors,
+      };
+    };
+  }
+
+  private fastPathCall(
+    action: HealingAction,
+    anomaly: Anomaly,
+  ): (() => Promise<{ ok: boolean; error?: string }>) | null {
+    switch (action.type) {
+      case "restart_vm": {
+        const node = anomaly.labels.node;
+        const vmid = anomaly.labels.vmid;
+        if (!node || !vmid) return null;
+        // Anomaly value 0 means VM is stopped — start it. For any other state
+        // we'd need to stop-then-start, which the LLM agent can sequence; keep
+        // fast-path conservative.
+        if (anomaly.metric !== "vm_status" || anomaly.current_value !== 0) {
+          return null;
+        }
+        return async () => {
+          const result = await this.toolRegistry.execute("start_vm", {
+            node,
+            vmid: Number(vmid),
+          });
+          return {
+            ok: result.success,
+            error: result.success ? undefined : result.error,
+          };
+        };
+      }
+      default:
+        return null;
+    }
+  }
 }
 
 export class HealingEngine {
@@ -291,6 +438,7 @@ export class HealingEngine {
       agentCore: AgentCore;
       playbookEngine: PlaybookEngine;
       rcaAnalyzer: RCAAnalyzer;
+      toolRegistry: ToolRegistry;
     },
   ) {
     this.executor = new HealingExecutor(
@@ -301,6 +449,7 @@ export class HealingEngine {
       executorDeps.rcaAnalyzer,
       healthMonitor,
       config,
+      executorDeps.toolRegistry,
     );
   }
 

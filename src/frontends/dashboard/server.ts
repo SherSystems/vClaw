@@ -83,7 +83,14 @@ export class DashboardServer {
   private clients: Map<number, SSEClient> = new Map();
   private clientIdCounter = 0;
   private eventListener: ((event: AgentEvent) => void) | null = null;
-  private incidentManager: IncidentManager;
+  // Read-only fallback used when no healer is wired (e.g. mcp/cli modes).
+  // When `healer` is attached, `incidentManager` resolves to the healer's
+  // live instance so /api/incidents reflects in-memory state, not a stale
+  // copy of the on-disk file.
+  private readonly fallbackIncidentManager: IncidentManager;
+  private get incidentManager(): IncidentManager {
+    return this.healer?.incidentManager ?? this.fallbackIncidentManager;
+  }
   healer?: HealingOrchestrator;
   chaosEngine?: ChaosEngine;
   migrationAdapter?: MigrationAdapter;
@@ -102,8 +109,9 @@ export class DashboardServer {
     private readonly audit: AuditLog,
     private readonly runTelemetry?: RunTelemetryCollector,
   ) {
-    // Create a read-only IncidentManager that loads persisted incidents from disk
-    this.incidentManager = new IncidentManager(eventBus, join(getDataDir(), "healing"));
+    // Read-only fallback that loads persisted incidents from disk, used only
+    // when no healer is attached.
+    this.fallbackIncidentManager = new IncidentManager(eventBus, join(getDataDir(), "healing"));
   }
 
   async start(): Promise<void> {

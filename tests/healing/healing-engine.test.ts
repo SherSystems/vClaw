@@ -102,6 +102,7 @@ interface TestContext {
   dataDir: string;
   eventBus: EventBus;
   healthMonitor: HealthMonitor;
+  toolRegistry: ToolRegistry;
   detectMock: ReturnType<typeof vi.fn>;
   incidentCoordinator: IncidentCoordinator;
   playbookEngine: PlaybookEngine;
@@ -139,11 +140,13 @@ function makeContext(configOverrides: Partial<HealingEngineConfig> = {}): TestCo
       pollIntervalMs: configOverrides.pollIntervalMs ?? 100,
       healingEnabled: configOverrides.healingEnabled ?? true,
       maxConcurrentHeals: configOverrides.maxConcurrentHeals ?? 2,
+      fastPathEnabled: configOverrides.fastPathEnabled,
     },
     {
       agentCore,
       playbookEngine,
       rcaAnalyzer,
+      toolRegistry,
     },
   );
 
@@ -151,6 +154,7 @@ function makeContext(configOverrides: Partial<HealingEngineConfig> = {}): TestCo
     dataDir,
     eventBus,
     healthMonitor,
+    toolRegistry,
     detectMock,
     incidentCoordinator,
     playbookEngine,
@@ -382,5 +386,44 @@ describe("HealingEngine", () => {
     expect(
       errorSpy.mock.calls.some((call) => String(call[0]).includes("[healing] Tick error: string failure")),
     ).toBe(true);
+  });
+
+  it("fast-path: runs restart_vm via toolRegistry without invoking the agent", async () => {
+    const context = makeContext({ fastPathEnabled: true });
+    tempDirs.push(context.dataDir);
+
+    // Playbook with a single restart_vm action plus a notify-only custom_goal,
+    // matching the real DEFAULT_PLAYBOOKS[vm_crashed] shape.
+    context.playbookEngine.register(
+      makePlaybook({
+        actions: [
+          { type: "restart_vm", params: { force: true }, description: "Restart" },
+          { type: "custom_goal", params: { goal: "alert" }, description: "Notify" },
+        ],
+      }),
+    );
+
+    const executeMock = context.toolRegistry.execute as ReturnType<typeof vi.fn>;
+    executeMock.mockResolvedValue({ success: true });
+
+    await context.engine.handleAnomaly(makeAnomaly(), makeSummary());
+
+    expect(executeMock).toHaveBeenCalledWith("start_vm", { node: "pve1", vmid: 101 });
+    expect(context.runMock).not.toHaveBeenCalled();
+    expect(context.engine.getStatus().openIncidents).toHaveLength(0);
+  });
+
+  it("fast-path: falls back to agent when the direct tool call fails", async () => {
+    const context = makeContext({ fastPathEnabled: true });
+    tempDirs.push(context.dataDir);
+    context.playbookEngine.register(makePlaybook());
+
+    const executeMock = context.toolRegistry.execute as ReturnType<typeof vi.fn>;
+    executeMock.mockResolvedValue({ success: false, error: "node unreachable" });
+
+    await context.engine.handleAnomaly(makeAnomaly(), makeSummary());
+
+    expect(executeMock).toHaveBeenCalledWith("start_vm", { node: "pve1", vmid: 101 });
+    expect(context.runMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Azure ARM Resource Types
+// RHODES — Azure ARM Resource Types
 // Typed interfaces matching @azure/arm-* response shapes
 // ============================================================
 

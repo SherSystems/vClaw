@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — VMware VM Importer
+// RHODES — VMware VM Importer
 // Creates a VM on vSphere and uploads a vmdk to the ESXi datastore
 // ============================================================
 

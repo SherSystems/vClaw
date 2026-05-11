@@ -116,7 +116,7 @@ function makePolicy(overrides: Partial<PolicyConfig> = {}): PolicyConfig {
 }
 
 function dbPathFor(id: string): string {
-  return `/tmp/vclaw-deterministic-harness-${id}-${Date.now()}-${Math.random()
+  return `/tmp/rhodes-deterministic-harness-${id}-${Date.now()}-${Math.random()
     .toString(36)
     .slice(2)}.db`;
 }

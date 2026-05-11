@@ -1,6 +1,6 @@
 // ============================================================
-// vClaw — Topology Adapter
-// Exposes application topology tools to the vClaw agent
+// RHODES — Topology Adapter
+// Exposes application topology tools to the RHODES agent
 // ============================================================
 
 import type {

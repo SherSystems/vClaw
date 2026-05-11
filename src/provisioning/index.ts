@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Provisioning Module
+// RHODES — Provisioning Module
 // End-to-end VM provisioning planning (scaffold).
 // ============================================================
 
@@ -148,7 +148,7 @@ export const provisioningTools: ToolDefinition[] = [
         name: "username",
         type: "string",
         required: false,
-        description: "Initial admin / cloud-init user (default: vclaw)",
+        description: "Initial admin / cloud-init user (default: rhodes)",
       },
       {
         name: "ssh_public_key",

@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — VMware vSphere Adapter
+// RHODES — VMware vSphere Adapter
 // Implements InfraAdapter and registers all VMware tools
 // ============================================================
 

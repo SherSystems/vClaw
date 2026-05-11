@@ -124,8 +124,8 @@ describe("getConfig", () => {
     expect(getOrCreateVault()).toBeNull();
   });
 
-  it("creates and caches vault instance when VCLAW_VAULT_KEY is set", async () => {
-    vi.stubEnv("VCLAW_VAULT_KEY", "unit-test-master-key");
+  it("creates and caches vault instance when RHODES_VAULT_KEY is set", async () => {
+    vi.stubEnv("RHODES_VAULT_KEY", "unit-test-master-key");
 
     const { getOrCreateVault } = await import("../src/config.js");
     const first = getOrCreateVault();

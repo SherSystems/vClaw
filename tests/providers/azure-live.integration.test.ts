@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AzureAdapter } from "../../src/providers/azure/adapter.js";
 
-const RUN_LIVE = process.env.VCLAW_RUN_LIVE === "1";
+const RUN_LIVE = process.env.RHODES_RUN_LIVE === "1";
 const REQUIRED_ENV = [
   "AZURE_TENANT_ID",
   "AZURE_CLIENT_ID",
@@ -11,7 +11,7 @@ const REQUIRED_ENV = [
 
 const hasRequiredCreds = REQUIRED_ENV.every((key) => Boolean(process.env[key]));
 const describeLive = RUN_LIVE && hasRequiredCreds ? describe : describe.skip;
-const CANARY_RESOURCE_GROUP = process.env.AZURE_TEST_RESOURCE_GROUP ?? "vclaw-qa";
+const CANARY_RESOURCE_GROUP = process.env.AZURE_TEST_RESOURCE_GROUP ?? "rhodes-qa";
 const CANARY_VM_NAME = process.env.AZURE_TEST_VM_NAME ?? "Migration-TestVM";
 const EMPTY_SUBSCRIPTION_MESSAGE = `Live Azure tests need at least one VM. Provision canary ${CANARY_VM_NAME} in ${CANARY_RESOURCE_GROUP} or set AZURE_TEST_RESOURCE_GROUP/AZURE_TEST_VM_NAME to an existing VM.`;
 

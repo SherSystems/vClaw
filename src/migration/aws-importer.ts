@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — AWS EC2 VM Importer
+// RHODES — AWS EC2 VM Importer
 // Uploads disk to S3, imports as AMI, and launches EC2 instance
 // ============================================================
 
@@ -95,7 +95,7 @@ export class AWSImporter {
     const fallbackToImportImage = config.fallbackToImportImage ?? true;
     const preferSnapshotImport = importMode === "snapshot" ||
       (importMode === "auto" && diskFormat === "raw");
-    const importDescription = `vClaw import: ${vmConfig.name}`;
+    const importDescription = `RHODES import: ${vmConfig.name}`;
 
     let amiId: string;
     if (preferSnapshotImport) {
@@ -327,7 +327,7 @@ export class AWSImporter {
 
   /**
    * Upload a disk image from a staging host to S3 by streaming it over SSH
-   * and sending directly with the AWS SDK on the vClaw host.
+   * and sending directly with the AWS SDK on the RHODES host.
    */
   async uploadDiskToS3(
     stagingHost: string,

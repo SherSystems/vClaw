@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Autopilot Rule-State Tracker
+// RHODES — Autopilot Rule-State Tracker
 // In-memory state for per-entity cooldowns and per-rule rate
 // limits. Lifted out of the daemon so it can be exercised
 // independently and reasoned about with test fixtures.

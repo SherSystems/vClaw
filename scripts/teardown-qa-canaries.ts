@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — QA Canary Teardown
+// RHODES — QA Canary Teardown
 // Terminates the AWS canary EC2 instance and deletes the
 // Azure resource group provisioned by provision-qa-canaries.ts.
 // ============================================================
@@ -14,9 +14,9 @@ import {
 } from "@aws-sdk/client-ec2";
 
 const AZURE_SUBSCRIPTION = "23e4afd3-0c4d-4b76-b460-e43f196052fd";
-const AZURE_RG = "vclaw-qa";
+const AZURE_RG = "rhodes-qa";
 const AWS_REGION = "us-east-2";
-const CANARY_NAME = "vclaw-qa-canary";
+const CANARY_NAME = "rhodes-qa-canary";
 
 async function teardownAws(): Promise<void> {
   const ec2 = new EC2Client({ region: AWS_REGION });

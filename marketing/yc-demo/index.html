@@ -1,0 +1,724 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>vClaw — The AI brain for infrastructure</title>
+  <style>
+    html, body { margin: 0; padding: 0; background: #0B1120; }
+  </style>
+</head>
+<body>
+  <div data-composition-id="vclaw-yc" data-width="1920" data-height="1080" data-start="0" data-duration="62">
+
+    <!-- ════════════════════════════════════════════════════════════════
+         SCENE 1 — Cold open. The problem. (0–7s)
+         ──────────────────────────────────────────────────────────────── -->
+    <div id="s1" class="scene clip" data-start="0" data-duration="7" data-track-index="0">
+      <div class="scene-bg s1-bg"></div>
+      <div class="scene-content s1-content">
+        <div class="s1-eyebrow"><span class="dot"></span> 2026 &middot; THE STATE OF INFRASTRUCTURE</div>
+        <div class="s1-headline">Your stack already<br/>lives everywhere.</div>
+        <div class="s1-stack">
+          <span class="s1-chip">vCenter</span>
+          <span class="s1-chip">Proxmox</span>
+          <span class="s1-chip">AWS</span>
+          <span class="s1-chip">Azure</span>
+        </div>
+        <div class="s1-sub">You&rsquo;re an expert in one of them.</div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════════════
+         SCENE 2 — Logo reveal. (7–14s)
+         ──────────────────────────────────────────────────────────────── -->
+    <div id="s2" class="scene clip" data-start="7" data-duration="7" data-track-index="0">
+      <div class="scene-bg s2-bg"><div class="s2-glow"></div></div>
+      <div class="scene-content s2-content">
+        <div class="s2-mark"><span>v</span><span>C</span><span>l</span><span>a</span><span>w</span></div>
+        <div class="s2-rule"></div>
+        <div class="s2-tag">The AI brain for infrastructure.</div>
+        <div class="s2-sub">An infra engineer types a sentence.<br/>The estate listens.</div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════════════
+         SCENE 3 — Migration #1: vCenter → Proxmox  (14–28s)
+         ──────────────────────────────────────────────────────────────── -->
+    <div id="s3" class="scene clip" data-start="14" data-duration="14" data-track-index="0">
+      <div class="scene-bg s3-bg"></div>
+      <div class="scene-content s3-content">
+
+        <div class="s3-route">
+          <div class="route-node node-vmware">
+            <div class="node-tag">SOURCE</div>
+            <div class="node-name">vCenter</div>
+            <div class="node-meta">prod-cluster · esxi-01</div>
+          </div>
+          <div class="route-arrow">
+            <svg viewBox="0 0 200 24" preserveAspectRatio="none"><path class="route-path" d="M2 12 H190" /></svg>
+            <span class="route-arrow-head">›</span>
+          </div>
+          <div class="route-node node-pve">
+            <div class="node-tag">TARGET</div>
+            <div class="node-name">Proxmox</div>
+            <div class="node-meta">pve-cluster-01</div>
+          </div>
+        </div>
+
+        <div class="s3-terminal">
+          <div class="term-chrome">
+            <span class="term-dot r"></span><span class="term-dot y"></span><span class="term-dot g"></span>
+            <span class="term-title">~/ops · vclaw</span>
+          </div>
+          <div class="term-body">
+            <div class="term-line"><span class="term-prompt">$</span> <span class="term-cmd s3-cmd"></span><span class="term-caret"></span></div>
+            <div class="term-log s3-log">
+              <div class="log-row" data-agent="discovery"><span class="log-tag tag-disc">DISCOVERY</span><span class="log-msg">read VM <b>db-prod-04</b> · 8 vCPU · 32 GB · 240 GB · vlan-204</span></div>
+              <div class="log-row" data-agent="planner"><span class="log-tag tag-plan">PLANNER</span><span class="log-msg">map vSwitch &rarr; vmbr0 · datastore &rarr; local-zfs · keep MAC</span></div>
+              <div class="log-row" data-agent="migrator"><span class="log-tag tag-mig">MIGRATOR</span><span class="log-msg">stream 240 GB · vmdk &rarr; qcow2 · live cutover</span></div>
+              <div class="log-row" data-agent="verifier"><span class="log-tag tag-ver">VERIFIER</span><span class="log-msg">postgres up · replication healthy · saves <b>$91/mo</b> (-60%)</span></div>
+              <div class="log-row log-done"><span class="log-tag tag-done">DONE</span><span class="log-msg">db-prod-04 running on pve-cluster-01 &middot; 11m 42s</span></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════════════
+         SCENE 4 — Migration #2: same engineer, AWS this time. (28–42s)
+         ──────────────────────────────────────────────────────────────── -->
+    <div id="s4" class="scene clip" data-start="28" data-duration="14" data-track-index="0">
+      <div class="scene-bg s4-bg"></div>
+      <div class="scene-content s4-content">
+
+        <div class="s4-banner">
+          <span class="s4-banner-eyebrow">SAME ENGINEER · SAME TERMINAL</span>
+          <span class="s4-banner-title">Different planet.</span>
+        </div>
+
+        <div class="s4-route">
+          <div class="route-node node-pve">
+            <div class="node-tag">SOURCE</div>
+            <div class="node-name">Proxmox</div>
+            <div class="node-meta">pve-cluster-01</div>
+          </div>
+          <div class="route-arrow">
+            <svg viewBox="0 0 200 24" preserveAspectRatio="none"><path class="route-path" d="M2 12 H190" /></svg>
+            <span class="route-arrow-head">›</span>
+          </div>
+          <div class="route-node node-aws">
+            <div class="node-tag">TARGET</div>
+            <div class="node-name">AWS</div>
+            <div class="node-meta">us-east-1 · vpc-prod</div>
+          </div>
+        </div>
+
+        <div class="s4-terminal">
+          <div class="term-chrome">
+            <span class="term-dot r"></span><span class="term-dot y"></span><span class="term-dot g"></span>
+            <span class="term-title">~/ops · vclaw</span>
+          </div>
+          <div class="term-body">
+            <div class="term-line"><span class="term-prompt">$</span> <span class="term-cmd s4-cmd"></span><span class="term-caret"></span></div>
+            <div class="term-log s4-log">
+              <div class="log-row"><span class="log-tag tag-disc">DISCOVERY</span><span class="log-msg">3-tier app · web (2) · api (3) · db (1) · 7 vols · 1 vpc</span></div>
+              <div class="log-row"><span class="log-tag tag-plan">PLANNER</span><span class="log-msg">map &rarr; t3.large &middot; gp3 &middot; alb &middot; sg-prod &middot; iam role &times; 4</span></div>
+              <div class="log-row"><span class="log-tag tag-mig">MIGRATOR</span><span class="log-msg">qcow2 &rarr; ebs snapshot · register AMI · launch fleet</span></div>
+              <div class="log-row"><span class="log-tag tag-ver">VERIFIER</span><span class="log-msg">health 6/6 · alb 200 · est cost <b>$615/mo</b> + $105 one-time</span></div>
+              <div class="log-row log-done"><span class="log-tag tag-done">DONE</span><span class="log-msg">app live in us-east-1 &middot; 27m 09s</span></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════════════
+         SCENE 5 — The pitch slams. (42–52s)
+         ──────────────────────────────────────────────────────────────── -->
+    <div id="s5" class="scene clip" data-start="42" data-duration="10" data-track-index="0">
+      <div class="scene-bg s5-bg"></div>
+      <div class="scene-content s5-content">
+        <div class="s5-line s5-l1">You&rsquo;re a <b>VMware</b> expert.</div>
+        <div class="s5-line s5-l2">Now you&rsquo;re a <b>Proxmox</b> expert.</div>
+        <div class="s5-line s5-l3">And an <b>AWS</b> expert.</div>
+        <div class="s5-line s5-l4">Without learning either.</div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════════════
+         SCENE 6 — End card. (52–62s)
+         ──────────────────────────────────────────────────────────────── -->
+    <div id="s6" class="scene clip" data-start="52" data-duration="10" data-track-index="0">
+      <div class="scene-bg s6-bg"><div class="s6-glow"></div></div>
+      <div class="scene-content s6-content">
+        <div class="s6-mark"><span>v</span><span>C</span><span>l</span><span>a</span><span>w</span></div>
+        <div class="s6-tag">The AI brain for infrastructure.</div>
+        <div class="s6-meta">
+          <span>Sher Systems</span>
+          <span class="s6-sep">·</span>
+          <span>NVIDIA Inception</span>
+          <span class="s6-sep">·</span>
+          <span class="s6-url">shersystems.com</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <style>
+    /* ── Composition canvas ─────────────────────────────────── */
+    [data-composition-id="vclaw-yc"] {
+      width: 1920px;
+      height: 1080px;
+      background: #0B1120;
+      color: #EEF2F7;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      font-feature-settings: "ss01", "cv01", "cv11";
+      overflow: hidden;
+      position: relative;
+    }
+    [data-composition-id="vclaw-yc"] .scene {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+    }
+    [data-composition-id="vclaw-yc"] .scene-bg {
+      position: absolute; inset: 0; z-index: 0;
+    }
+    [data-composition-id="vclaw-yc"] .scene-content {
+      position: relative; z-index: 1;
+      width: 100%; height: 100%;
+      display: flex; flex-direction: column;
+      box-sizing: border-box;
+    }
+
+    /* ── Scene 1 ────────────────────────────────────────────── */
+    .s1-bg {
+      background:
+        radial-gradient(1200px 700px at 18% 22%, rgba(59, 158, 255, 0.08), transparent 60%),
+        radial-gradient(1400px 800px at 88% 88%, rgba(255, 149, 0, 0.07), transparent 65%),
+        #0B1120;
+    }
+    .s1-content {
+      justify-content: center;
+      padding: 140px 180px;
+      gap: 40px;
+    }
+    .s1-eyebrow {
+      font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+      font-size: 22px;
+      letter-spacing: 0.22em;
+      color: #FF9500;
+      text-transform: uppercase;
+      display: flex; align-items: center; gap: 16px;
+    }
+    .s1-eyebrow .dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: #FF9500; box-shadow: 0 0 12px rgba(255, 149, 0, 0.6);
+    }
+    .s1-headline {
+      font-family: 'Inter', sans-serif;
+      font-weight: 700; font-size: 138px; line-height: 0.98;
+      letter-spacing: -0.025em;
+      color: #EEF2F7; max-width: 1500px;
+    }
+    .s1-stack {
+      display: flex; gap: 18px; flex-wrap: wrap;
+      margin-top: 4px;
+    }
+    .s1-chip {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 32px; font-weight: 600;
+      padding: 14px 26px; border-radius: 10px;
+      background: #111928;
+      border: 1px solid rgba(255,255,255,0.10);
+      color: #EEF2F7;
+      letter-spacing: 0.01em;
+    }
+    .s1-chip:nth-child(1) { border-color: rgba(255,255,255,0.18); }
+    .s1-chip:nth-child(2) { border-color: rgba(255, 149, 0, 0.45); color: #FF9500; }
+    .s1-chip:nth-child(3) { border-color: rgba(59, 158, 255, 0.45); color: #3b9eff; }
+    .s1-chip:nth-child(4) { border-color: rgba(167, 139, 250, 0.45); color: #a78bfa; }
+    .s1-sub {
+      font-family: 'Inter', sans-serif;
+      font-weight: 500; font-size: 44px; line-height: 1.3;
+      color: #8899B0; max-width: 1100px;
+      margin-top: 8px;
+    }
+
+    /* ── Scene 2 ────────────────────────────────────────────── */
+    .s2-bg { background: #0B1120; overflow: hidden; }
+    .s2-glow {
+      position: absolute; inset: 0;
+      background: radial-gradient(900px 500px at 50% 52%, rgba(255, 149, 0, 0.18), transparent 65%);
+    }
+    .s2-content {
+      align-items: center; justify-content: center;
+      padding: 140px 180px;
+      gap: 28px; text-align: center;
+    }
+    .s2-mark {
+      font-family: 'Syne', 'Inter', sans-serif;
+      font-weight: 800; font-size: 240px; line-height: 0.92;
+      letter-spacing: -0.03em;
+      color: #FF9500;
+      text-shadow: 0 0 60px rgba(255, 149, 0, 0.35);
+      display: inline-flex;
+    }
+    .s2-mark span { display: inline-block; will-change: transform, opacity; }
+    .s2-rule {
+      width: 120px; height: 2px; background: rgba(255, 149, 0, 0.5);
+      margin: 8px 0;
+    }
+    .s2-tag {
+      font-family: 'Inter', sans-serif;
+      font-weight: 600; font-size: 56px; letter-spacing: -0.01em;
+      color: #EEF2F7;
+    }
+    .s2-sub {
+      font-family: 'Inter', sans-serif;
+      font-weight: 400; font-size: 30px; line-height: 1.45;
+      color: #8899B0;
+    }
+
+    /* ── Scene 3 / 4 — terminals ────────────────────────────── */
+    .s3-bg, .s4-bg {
+      background:
+        radial-gradient(1100px 700px at 86% 14%, rgba(255, 149, 0, 0.08), transparent 60%),
+        radial-gradient(1100px 700px at 14% 92%, rgba(59, 158, 255, 0.06), transparent 60%),
+        #0B1120;
+    }
+    .s3-bg::after, .s4-bg::after {
+      content: ''; position: absolute; inset: 0;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+      background-size: 64px 64px;
+      mask-image: radial-gradient(900px 600px at 50% 50%, #000 0%, transparent 75%);
+      -webkit-mask-image: radial-gradient(900px 600px at 50% 50%, #000 0%, transparent 75%);
+      pointer-events: none;
+    }
+    .s3-content, .s4-content {
+      padding: 80px 120px;
+      gap: 48px;
+      justify-content: center;
+    }
+
+    /* Route bar */
+    .s3-route, .s4-route {
+      display: grid;
+      grid-template-columns: 1fr 240px 1fr;
+      align-items: center;
+      gap: 32px;
+      max-width: 1480px; width: 100%;
+      margin: 0 auto;
+    }
+    .route-node {
+      background: #111928;
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 12px;
+      padding: 24px 32px;
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .node-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 18px; letter-spacing: 0.18em;
+      color: #5A7491; text-transform: uppercase;
+    }
+    .node-name {
+      font-family: 'Inter', sans-serif;
+      font-weight: 700; font-size: 56px; letter-spacing: -0.015em;
+      color: #EEF2F7;
+    }
+    .node-meta {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 22px; color: #8899B0;
+    }
+    .node-vmware { border-color: rgba(255,255,255,0.15); }
+    .node-pve { border-color: rgba(229, 112, 0, 0.4); }
+    .node-pve .node-name { color: #FF9500; }
+    .node-aws { border-color: rgba(59, 158, 255, 0.4); }
+    .node-aws .node-name { color: #3b9eff; }
+
+    .route-arrow {
+      position: relative;
+      display: flex; align-items: center; justify-content: center;
+      height: 24px;
+    }
+    .route-arrow svg {
+      width: 100%; height: 24px;
+    }
+    .route-arrow svg path {
+      fill: none;
+      stroke: rgba(255, 149, 0, 0.7);
+      stroke-width: 2;
+      stroke-dasharray: 8 6;
+      stroke-linecap: round;
+    }
+    .route-arrow-head {
+      position: absolute; right: -2px; top: 50%;
+      transform: translateY(-50%);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 56px; line-height: 1;
+      color: #FF9500;
+      font-weight: 700;
+    }
+
+    /* Terminal */
+    .s3-terminal, .s4-terminal {
+      background: #0d1322;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 14px;
+      max-width: 1480px; width: 100%;
+      margin: 0 auto;
+      overflow: hidden;
+      box-shadow: 0 20px 80px rgba(0,0,0,0.4);
+    }
+    .term-chrome {
+      display: flex; align-items: center; gap: 10px;
+      padding: 16px 22px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      background: rgba(255,255,255,0.02);
+    }
+    .term-dot {
+      width: 12px; height: 12px; border-radius: 50%;
+      display: inline-block;
+    }
+    .term-dot.r { background: #ef4444; }
+    .term-dot.y { background: #eab308; }
+    .term-dot.g { background: #22c55e; }
+    .term-title {
+      margin-left: 16px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 18px; color: #5A7491;
+    }
+    .term-body {
+      padding: 32px 40px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 28px; line-height: 1.55;
+    }
+    .term-line {
+      display: flex; align-items: baseline; gap: 14px;
+      margin-bottom: 26px;
+    }
+    .term-prompt { color: #FF9500; font-weight: 700; }
+    .term-cmd { color: #EEF2F7; white-space: pre; }
+    .term-caret {
+      display: inline-block; width: 10px; height: 30px;
+      background: #FF9500; margin-left: 4px;
+      transform: translateY(4px);
+    }
+    .term-log {
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .log-row {
+      display: flex; align-items: baseline; gap: 18px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 24px;
+    }
+    .log-tag {
+      flex: 0 0 auto;
+      font-size: 16px; letter-spacing: 0.16em;
+      padding: 4px 10px; border-radius: 4px;
+      font-weight: 700;
+    }
+    .tag-disc { background: rgba(167, 139, 250, 0.14); color: #a78bfa; }
+    .tag-plan { background: rgba(59, 158, 255, 0.14); color: #3b9eff; }
+    .tag-mig  { background: rgba(255, 149, 0, 0.16); color: #FF9500; }
+    .tag-ver  { background: rgba(34, 197, 94, 0.14); color: #22c55e; }
+    .tag-done { background: rgba(34, 197, 94, 0.20); color: #22c55e; }
+    .log-msg { color: #C7D0DC; }
+    .log-msg b { color: #EEF2F7; font-weight: 700; }
+    .log-done .log-msg { color: #EEF2F7; }
+
+    /* ── Scene 4 banner ─────────────────────────────────────── */
+    .s4-banner {
+      max-width: 1480px; width: 100%;
+      margin: 0 auto;
+      display: flex; align-items: baseline; gap: 28px;
+    }
+    .s4-banner-eyebrow {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 20px; letter-spacing: 0.18em;
+      color: #FF9500; text-transform: uppercase;
+    }
+    .s4-banner-title {
+      font-family: 'Inter', sans-serif;
+      font-weight: 700; font-size: 44px; letter-spacing: -0.01em;
+      color: #EEF2F7;
+    }
+
+    /* ── Scene 5 — pitch slams ──────────────────────────────── */
+    .s5-bg {
+      background:
+        radial-gradient(1200px 800px at 50% 50%, rgba(255, 149, 0, 0.10), transparent 65%),
+        #0B1120;
+    }
+    .s5-content {
+      justify-content: center; align-items: flex-start;
+      padding: 140px 180px;
+      gap: 22px;
+    }
+    .s5-line {
+      font-family: 'Inter', sans-serif;
+      font-weight: 700; font-size: 96px; line-height: 1.04;
+      letter-spacing: -0.02em;
+      color: #EEF2F7;
+    }
+    .s5-line b { color: #FF9500; font-weight: 800; }
+    .s5-l4 { color: #8899B0; font-weight: 600; font-size: 84px; margin-top: 14px; }
+    .s5-l4 { color: #EEF2F7; }
+
+    /* ── Scene 6 — end card ─────────────────────────────────── */
+    .s6-bg { background: #0B1120; overflow: hidden; }
+    .s6-glow {
+      position: absolute; inset: 0;
+      background: radial-gradient(800px 500px at 50% 48%, rgba(255, 149, 0, 0.16), transparent 70%);
+    }
+    .s6-content {
+      align-items: center; justify-content: center;
+      padding: 140px 180px;
+      gap: 36px; text-align: center;
+    }
+    .s6-mark {
+      font-family: 'Syne', 'Inter', sans-serif;
+      font-weight: 800; font-size: 280px; line-height: 0.9;
+      color: #FF9500; letter-spacing: -0.03em;
+      text-shadow: 0 0 80px rgba(255, 149, 0, 0.35);
+      display: inline-flex;
+    }
+    .s6-mark span { display: inline-block; will-change: transform, opacity, filter; }
+    .s6-tag {
+      font-family: 'Inter', sans-serif;
+      font-weight: 500; font-size: 48px; letter-spacing: -0.01em;
+      color: #EEF2F7;
+    }
+    .s6-meta {
+      display: flex; align-items: center; gap: 20px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 24px; letter-spacing: 0.04em;
+      color: #8899B0; margin-top: 18px;
+    }
+    .s6-sep { color: #5A7491; }
+    .s6-url { color: #FF9500; }
+  </style>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script>
+    window.__timelines = window.__timelines || {};
+    const tl = gsap.timeline({ paused: true });
+
+    // ── Helpers ───────────────────────────────────────────────────────
+    // Initialize SVG path draw-on (set dasharray = pathLength, dashoffset = -pathLength)
+    function initPathDraw(selector) {
+      document.querySelectorAll(selector).forEach(p => {
+        const len = p.getTotalLength();
+        p.style.strokeDasharray = len;
+        p.style.strokeDashoffset = len;
+      });
+    }
+    initPathDraw('.route-path');
+
+    // ── Ambient: subtle drift on scene-3/4 grid for life ──────────────
+    tl.fromTo('#s3 .scene-bg',
+      { backgroundPosition: '0px 0px, 0px 0px' },
+      { backgroundPosition: '64px 0px, 0px 64px', duration: 14, ease: 'none' }, 14);
+    tl.fromTo('#s4 .scene-bg',
+      { backgroundPosition: '0px 0px, 0px 0px' },
+      { backgroundPosition: '-64px 0px, 0px -64px', duration: 14, ease: 'none' }, 28);
+
+    // ════════════════════════════════════════════════════════════════
+    // SCENE 1 — Hybrid-cloud reality (0–7s)
+    // ════════════════════════════════════════════════════════════════
+    tl.from('#s1 .s1-eyebrow',     { y: 18, opacity: 0, duration: 0.55, ease: 'power2.out' }, 0.15);
+    tl.from('#s1 .s1-eyebrow .dot',{ scale: 0, duration: 0.4, ease: 'back.out(2.4)' }, 0.5);
+    tl.fromTo('#s1 .s1-eyebrow .dot',
+      { boxShadow: '0 0 0 rgba(255,149,0,0)' },
+      { boxShadow: '0 0 18px rgba(255,149,0,0.85)', duration: 1.0, repeat: 4, yoyo: true, ease: 'sine.inOut' }, 0.9);
+
+    // Headline mask-reveal (clip-path) — feels like text materializing
+    tl.fromTo('#s1 .s1-headline',
+      { clipPath: 'inset(0 100% 0 0)', y: 30, opacity: 0 },
+      { clipPath: 'inset(0 0% 0 0)',   y: 0,  opacity: 1, duration: 1.0, ease: 'expo.out' }, 0.5);
+
+    // Stack chips cascade with rotation kick
+    tl.from('#s1 .s1-chip',
+      { y: 50, opacity: 0, scale: 0.8, rotateZ: -4,
+        duration: 0.65, ease: 'back.out(1.7)', stagger: 0.10 }, 1.6);
+
+    tl.from('#s1 .s1-sub', { y: 24, opacity: 0, duration: 0.6, ease: 'power3.out' }, 2.6);
+
+    // ════════════════════════════════════════════════════════════════
+    // SCENE 2 — Logo reveal (7–14s)
+    // ════════════════════════════════════════════════════════════════
+    tl.fromTo('#s2 .s2-glow',
+      { opacity: 0, scale: 0.5 },
+      { opacity: 1, scale: 1.0, duration: 1.4, ease: 'power2.out' }, 7.05);
+
+    // Letter-by-letter slam
+    tl.from('#s2 .s2-mark span', {
+      y: 120, opacity: 0, scale: 0.7, rotateX: -45,
+      transformOrigin: '50% 100%',
+      duration: 0.85, ease: 'expo.out', stagger: 0.07
+    }, 7.25);
+
+    // Glow pulse on mark
+    tl.fromTo('#s2 .s2-mark',
+      { textShadow: '0 0 20px rgba(255,149,0,0.20)' },
+      { textShadow: '0 0 80px rgba(255,149,0,0.60)', duration: 0.5, yoyo: true, repeat: 1, ease: 'sine.inOut' }, 8.4);
+
+    // Underline draws out from center
+    tl.from('#s2 .s2-rule', { scaleX: 0, transformOrigin: '50% 50%', duration: 0.55, ease: 'power3.out' }, 8.7);
+    tl.from('#s2 .s2-tag',  { y: 24, opacity: 0, duration: 0.6, ease: 'power3.out' }, 8.95);
+    tl.from('#s2 .s2-sub',  { y: 18, opacity: 0, duration: 0.55, ease: 'power2.out' }, 9.3);
+
+    // ════════════════════════════════════════════════════════════════
+    // SCENE 3 — vCenter → Proxmox (14–28s)
+    // ════════════════════════════════════════════════════════════════
+    // Source / target nodes glide in
+    tl.from('#s3 .node-vmware', { x: -80, opacity: 0, scale: 0.94, duration: 0.7, ease: 'expo.out' }, 14.15);
+    tl.from('#s3 .node-pve',    { x:  80, opacity: 0, scale: 0.94, duration: 0.7, ease: 'expo.out' }, 14.25);
+
+    // SVG path draws across (stroke-dashoffset → 0)
+    tl.to('#s3 .route-path', { strokeDashoffset: 0, duration: 0.9, ease: 'power2.inOut' }, 14.7);
+    tl.from('#s3 .route-arrow-head',
+      { opacity: 0, x: -28, scale: 0.6, duration: 0.55, ease: 'back.out(1.8)' }, 15.45);
+
+    // Terminal materializes (subtle scale + fade)
+    tl.from('#s3 .s3-terminal',
+      { y: 60, scale: 0.97, opacity: 0, duration: 0.85, ease: 'expo.out' }, 14.55);
+
+    // Type the command
+    tl.to({ p: 0 }, {
+      p: 1, duration: 1.6, ease: 'none',
+      onUpdate: function () {
+        const full = 'vclaw "migrate db-prod-04 from vCenter to proxmox-cluster-01"';
+        const p = this.targets()[0].p;
+        document.querySelector('.s3-cmd').textContent = full.slice(0, Math.floor(full.length * p));
+      }
+    }, 15.7);
+
+    tl.fromTo('#s3 .term-caret',
+      { opacity: 1 },
+      { opacity: 0.15, duration: 0.5, repeat: 7, yoyo: true, ease: 'power1.inOut' }, 15.8);
+
+    // Log rows: each row's TAG pops, then MSG slides in
+    for (let i = 1; i <= 5; i++) {
+      const at = 17.5 + (i - 1) * 0.95;
+      tl.from(`#s3 .s3-log .log-row:nth-child(${i}) .log-tag`,
+        { scale: 0, opacity: 0, duration: 0.35, ease: 'back.out(2.2)' }, at);
+      tl.from(`#s3 .s3-log .log-row:nth-child(${i}) .log-msg`,
+        { x: 16, opacity: 0, duration: 0.4, ease: 'power3.out' }, at + 0.05);
+    }
+
+    // DONE row: success glow pulse + slight scale kiss on the whole row
+    tl.fromTo('#s3 .log-done',
+      { scale: 1 },
+      { scale: 1.015, duration: 0.4, yoyo: true, repeat: 1, ease: 'power2.inOut' }, 21.6);
+    tl.fromTo('#s3 .log-done .tag-done',
+      { boxShadow: '0 0 0 rgba(34,197,94,0)' },
+      { boxShadow: '0 0 28px rgba(34,197,94,0.55)', duration: 0.5, yoyo: true, repeat: 1, ease: 'power2.inOut' }, 21.6);
+
+    // ════════════════════════════════════════════════════════════════
+    // SCENE 4 — same engineer, → AWS (28–42s)
+    // ════════════════════════════════════════════════════════════════
+    tl.from('#s4 .s4-banner-eyebrow', { x: -30, opacity: 0, duration: 0.55, ease: 'power3.out' }, 28.15);
+    tl.from('#s4 .s4-banner-title',
+      { x: -20, opacity: 0, duration: 0.6, ease: 'expo.out' }, 28.32);
+    tl.fromTo('#s4 .s4-banner-title',
+      { textShadow: '0 0 0 rgba(255,149,0,0)' },
+      { textShadow: '0 0 24px rgba(255,149,0,0.5)', duration: 0.5, yoyo: true, repeat: 1, ease: 'sine.inOut' }, 28.85);
+
+    tl.from('#s4 .node-pve', { x: -80, opacity: 0, scale: 0.94, duration: 0.7, ease: 'expo.out' }, 28.6);
+    tl.from('#s4 .node-aws', { x:  80, opacity: 0, scale: 0.94, duration: 0.7, ease: 'expo.out' }, 28.7);
+
+    tl.to('#s4 .route-path', { strokeDashoffset: 0, duration: 0.9, ease: 'power2.inOut' }, 29.1);
+    tl.from('#s4 .route-arrow-head',
+      { opacity: 0, x: -28, scale: 0.6, duration: 0.55, ease: 'back.out(1.8)' }, 29.85);
+
+    tl.from('#s4 .s4-terminal',
+      { y: 60, scale: 0.97, opacity: 0, duration: 0.85, ease: 'expo.out' }, 29.0);
+
+    tl.to({ p: 0 }, {
+      p: 1, duration: 1.5, ease: 'none',
+      onUpdate: function () {
+        const full = 'vclaw "now move the whole 3-tier app to AWS us-east-1"';
+        const p = this.targets()[0].p;
+        document.querySelector('.s4-cmd').textContent = full.slice(0, Math.floor(full.length * p));
+      }
+    }, 30.0);
+
+    tl.fromTo('#s4 .term-caret',
+      { opacity: 1 },
+      { opacity: 0.15, duration: 0.5, repeat: 7, yoyo: true, ease: 'power1.inOut' }, 30.1);
+
+    for (let i = 1; i <= 5; i++) {
+      const at = 31.7 + (i - 1) * 0.95;
+      tl.from(`#s4 .s4-log .log-row:nth-child(${i}) .log-tag`,
+        { scale: 0, opacity: 0, duration: 0.35, ease: 'back.out(2.2)' }, at);
+      tl.from(`#s4 .s4-log .log-row:nth-child(${i}) .log-msg`,
+        { x: 16, opacity: 0, duration: 0.4, ease: 'power3.out' }, at + 0.05);
+    }
+
+    tl.fromTo('#s4 .log-done',
+      { scale: 1 },
+      { scale: 1.015, duration: 0.4, yoyo: true, repeat: 1, ease: 'power2.inOut' }, 35.8);
+    tl.fromTo('#s4 .log-done .tag-done',
+      { boxShadow: '0 0 0 rgba(34,197,94,0)' },
+      { boxShadow: '0 0 28px rgba(34,197,94,0.55)', duration: 0.5, yoyo: true, repeat: 1, ease: 'power2.inOut' }, 35.8);
+
+    // ════════════════════════════════════════════════════════════════
+    // SCENE 5 — Pitch slams (42–52s)
+    // ════════════════════════════════════════════════════════════════
+    // Each line clips in horizontally then settles (cinematic slam)
+    [
+      ['#s5 .s5-l1', 42.2],
+      ['#s5 .s5-l2', 43.55],
+      ['#s5 .s5-l3', 44.85]
+    ].forEach(([sel, at]) => {
+      tl.fromTo(sel,
+        { clipPath: 'inset(0 100% 0 0)', x: -20, opacity: 0 },
+        { clipPath: 'inset(0 0% 0 0)',   x: 0,   opacity: 1, duration: 0.75, ease: 'expo.out' }, at);
+      tl.fromTo(sel + ' b',
+        { color: '#EEF2F7' },
+        { color: '#FF9500', duration: 0.4, ease: 'power2.out' }, at + 0.45);
+    });
+
+    tl.fromTo('#s5 .s5-l4',
+      { y: 50, opacity: 0, scale: 0.94 },
+      { y: 0,  opacity: 1, scale: 1,    duration: 0.95, ease: 'expo.out' }, 46.7);
+
+    // ════════════════════════════════════════════════════════════════
+    // SCENE 6 — End card (52–62s)
+    // ════════════════════════════════════════════════════════════════
+    tl.fromTo('#s6 .s6-glow',
+      { opacity: 0, scale: 0.5 },
+      { opacity: 1, scale: 1, duration: 1.5, ease: 'power2.out' }, 52.05);
+
+    // Big mark — letters drop with stagger and a parallax kick
+    tl.from('#s6 .s6-mark span', {
+      y: 140, opacity: 0, scale: 0.78, rotateX: -55,
+      transformOrigin: '50% 100%',
+      duration: 1.0, ease: 'expo.out', stagger: 0.08
+    }, 52.25);
+
+    // Subtle continuous breathing on the mark
+    tl.fromTo('#s6 .s6-mark',
+      { filter: 'drop-shadow(0 0 24px rgba(255,149,0,0.30))' },
+      { filter: 'drop-shadow(0 0 60px rgba(255,149,0,0.55))',
+        duration: 1.6, repeat: 2, yoyo: true, ease: 'sine.inOut' }, 53.5);
+
+    tl.from('#s6 .s6-tag',  { y: 26, opacity: 0, duration: 0.7, ease: 'power3.out' }, 53.4);
+    tl.from('#s6 .s6-meta', { y: 18, opacity: 0, duration: 0.6, ease: 'power2.out' }, 53.85);
+    tl.fromTo('#s6 .s6-url',
+      { textShadow: '0 0 0 rgba(255,149,0,0)' },
+      { textShadow: '0 0 18px rgba(255,149,0,0.6)', duration: 0.5, yoyo: true, repeat: 1, ease: 'sine.inOut' }, 54.3);
+
+    // Final allowed fade-out
+    tl.to('#s6 .s6-mark', { opacity: 0.88, duration: 1.5, ease: 'power2.inOut' }, 60.0);
+
+    window.__timelines['vclaw-yc'] = tl;
+  </script>
+</body>
+</html>

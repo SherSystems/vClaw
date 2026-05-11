@@ -8,7 +8,7 @@ This guide documents the VMware adapter exactly as implemented in:
 
 ## 1. Authentication and registration
 
-vClaw auto-registers the VMware adapter in `src/index.ts` when this value is present:
+RHODES auto-registers the VMware adapter in `src/index.ts` when this value is present:
 
 - `VMWARE_HOST`
 
@@ -430,7 +430,7 @@ await adapter.execute("vmware_delete_vm", { vm_id: "vm-42" });
 
 ## 5. Cluster state mapping
 
-`getClusterState()` in `src/providers/vmware/adapter.ts` maps vCenter inventory into vClaw state:
+`getClusterState()` in `src/providers/vmware/adapter.ts` maps vCenter inventory into RHODES state:
 
 1. Reads hosts, VMs, and datastores.
 2. Maps hosts to `NodeInfo` with two paths:

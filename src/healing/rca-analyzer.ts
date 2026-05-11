@@ -89,7 +89,7 @@ export class RCAAnalyzer {
   }
 
   private buildSystemPrompt(): string {
-    return `You are an infrastructure root cause analysis (RCA) engine for an infrastructure environment managed by vClaw.
+    return `You are an infrastructure root cause analysis (RCA) engine for an infrastructure environment managed by RHODES.
 Given an anomaly, recent metric history, and recent system events, determine the most likely root cause.
 
 Respond with a JSON object:

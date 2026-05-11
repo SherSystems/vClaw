@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Agent Core
+// RHODES — Agent Core
 // The main plan/execute/observe/replan loop
 // ============================================================
 
@@ -19,6 +19,7 @@ import { Planner, type PlanningContext } from "./planner.js";
 import { Executor } from "./executor.js";
 import { Observer, type ObservationResult } from "./observer.js";
 import { Investigator, type InvestigationContext } from "./investigator.js";
+import { resolveStepReferences, type CapturedStepOutput } from "./step-references.js";
 import { AgentMemory } from "./memory.js";
 import { EventBus } from "./events.js";
 import { MultiProviderOrchestrator, type PlanResult } from "./orchestrator.js";
@@ -300,6 +301,38 @@ export class AgentCore {
       // Execute ready steps sequentially (could be parallelized for independent steps)
       for (const step of readySteps) {
         step.status = "running";
+
+        // Resolve any ${step_X.field} references in this step's params
+        // against the outputs captured from prior steps. If resolution
+        // fails (unknown step, bad path, prior step failed), surface a
+        // descriptive error so the next replan can self-correct.
+        try {
+          step.params = resolveStepReferences(
+            step.params,
+            outputs as CapturedStepOutput[],
+            step.id,
+          ) as typeof step.params;
+        } catch (refErr) {
+          const message = refErr instanceof Error ? refErr.message : String(refErr);
+          const result = {
+            success: false,
+            error: `Step reference resolution failed: ${message}`,
+            duration_ms: 0,
+            timestamp: new Date().toISOString(),
+          };
+          step.result = result;
+          step.status = "failed";
+          outputs.push({
+            step_id: step.id,
+            action: step.action,
+            description: step.description,
+            success: false,
+            data: undefined,
+            error: result.error,
+          });
+          executed.add(step.id);
+          continue;
+        }
 
         // Inject plan ID into params so governance can check plan-level approval
         step.params._plan_id = activePlan.id;

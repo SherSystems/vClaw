@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Dashboard HTML Template
+// RHODES — Dashboard HTML Template
 // Clean, premium SaaS-grade real-time agent dashboard
 // Inspired by Vercel, Linear, and Grafana design systems
 // ============================================================
@@ -10,7 +10,7 @@ export function getHTML(): string {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>vClaw — Infrastructure Agent</title>
+<title>RHODES — Infrastructure Agent</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230B1120'/%3E%3Cpath d='M8 8 L8 24 M8 8 L14 8 M8 24 L14 24 M8 16 L12 16' stroke='%230ACDAA' stroke-width='2.5' stroke-linecap='round' fill='none'/%3E%3Cpath d='M24 8 L24 24 M24 8 L18 8 M24 24 L18 24 M24 16 L20 16' stroke='%230ACDAA' stroke-width='2.5' stroke-linecap='round' fill='none'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -3052,11 +3052,11 @@ tbody tr:last-child td {
       <line x1="26" y1="36" x2="46" y2="36" stroke="white" stroke-width="3.5" stroke-linecap="round"/>
       <line x1="26" y1="43" x2="46" y2="43" stroke="white" stroke-width="3.5" stroke-linecap="round"/>
     </svg>
-    infra<span class="brand-accent">wrap</span>
+    RHO<span class="brand-accent">DES</span>
   </div>
   <div class="header-right">
     <button class="cmd-k-trigger" id="cmdKTrigger" title="Command Palette">
-      Ask vClaw
+      Ask RHODES
       <kbd>\u2318K</kbd>
     </button>
     <div class="conn-status">
@@ -3074,7 +3074,7 @@ tbody tr:last-child td {
       <svg class="cmd-palette-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
       </svg>
-      <input type="text" class="cmd-palette-input" id="cmdPaletteInput" placeholder="Ask vClaw anything..." autocomplete="off" spellcheck="false">
+      <input type="text" class="cmd-palette-input" id="cmdPaletteInput" placeholder="Ask RHODES anything..." autocomplete="off" spellcheck="false">
       <span class="cmd-palette-kbd">ESC</span>
     </div>
     <div class="cmd-palette-chips" id="cmdPaletteChips">
@@ -3086,14 +3086,14 @@ tbody tr:last-child td {
     </div>
     <div class="cmd-palette-loading" id="cmdPaletteLoading">
       <div class="cmd-palette-spinner"></div>
-      <span>vClaw is thinking...</span>
+      <span>RHODES is thinking...</span>
     </div>
     <div class="cmd-palette-response" id="cmdPaletteResponse">
       <div class="cmd-palette-response-label">Response</div>
       <div class="cmd-palette-response-body" id="cmdPaletteResponseBody"></div>
     </div>
     <div class="cmd-palette-footer">
-      <span>vClaw Agent</span>
+      <span>RHODES Agent</span>
       <div class="cmd-palette-footer-keys">
         <span><kbd>\u21B5</kbd> Run</span>
         <span><kbd>ESC</kbd> Close</span>

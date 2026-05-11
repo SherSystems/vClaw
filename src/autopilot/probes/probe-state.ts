@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Probe State Tracker
+// RHODES — Probe State Tracker
 // In-memory state for service-health probes:
 //   - consecutive_failures per (probe, target)
 //   - last fire / last success times for transition detection

@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Proxmox VE Adapter
+// RHODES — Proxmox VE Adapter
 // Implements InfraAdapter and registers all Proxmox tools
 // ============================================================
 

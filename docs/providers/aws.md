@@ -8,7 +8,7 @@ This guide documents the AWS adapter exactly as implemented in:
 
 ## 1. Authentication and registration
 
-vClaw auto-registers the AWS adapter in `src/index.ts` only when both values are present:
+RHODES auto-registers the AWS adapter in `src/index.ts` only when both values are present:
 
 - `AWS_ACCESS_KEY_ID`
 - `AWS_SECRET_ACCESS_KEY`
@@ -312,7 +312,7 @@ await adapter.execute("aws_deregister_ami", {
 
 ## 5. Cluster state mapping
 
-`getClusterState()` in `src/providers/aws/adapter.ts` maps AWS inventory into vClaw state:
+`getClusterState()` in `src/providers/aws/adapter.ts` maps AWS inventory into RHODES state:
 
 1. Reads instances and EBS volumes.
 2. Maps EC2 instances into `vms[]`:

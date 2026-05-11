@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Core Types
+// RHODES — Core Types
 // The type system that powers the autonomous infrastructure agent
 // ============================================================
 

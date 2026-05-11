@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Proxmox VE REST API Client
+// RHODES — Proxmox VE REST API Client
 // Comprehensive typed client using native Node.js https module
 // ============================================================
 

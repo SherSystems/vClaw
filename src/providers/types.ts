@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Provider Types
+// RHODES — Provider Types
 // Shared interfaces for all infrastructure providers
 // ============================================================
 

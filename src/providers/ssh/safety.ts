@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — SSH Command Safety Classifier
+// RHODES — SSH Command Safety Classifier
 //
 // Given a raw shell command string, determine which governance tier
 // applies. Conservative by design: anything we don't recognise is

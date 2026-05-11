@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — VMware vSphere 8.0 REST API Types
+// RHODES — VMware vSphere 8.0 REST API Types
 // Typed interfaces matching the vSphere Automation REST API
 // ============================================================
 

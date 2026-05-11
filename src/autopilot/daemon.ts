@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Autopilot Daemon
+// RHODES — Autopilot Daemon
 // Continuous monitoring loop that polls cluster state, runs
 // health checks, detects issues, and triggers self-healing
 // actions through the governance pipeline.

@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Multi-Provider Orchestrator
+// RHODES — Multi-Provider Orchestrator
 // Coordinates cross-provider operations: enriches planning context
 // with multi-cluster state, handles cross-provider dependencies,
 // and aggregates results across providers.

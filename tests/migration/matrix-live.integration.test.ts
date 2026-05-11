@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-const RUN_LIVE = process.env.VCLAW_RUN_LIVE === "1";
-const BASE_URL = process.env.VCLAW_MIGRATION_API_BASE_URL ?? "http://localhost:3000";
+const RUN_LIVE = process.env.RHODES_RUN_LIVE === "1";
+const BASE_URL = process.env.RHODES_MIGRATION_API_BASE_URL ?? "http://localhost:3000";
 const describeLive = RUN_LIVE ? describe : describe.skip;
 
 type DirectionCase = {
@@ -35,7 +35,7 @@ function getSourceId(source: DirectionCase["source"]): string | number {
   if (source === "vmware") return process.env.VMWARE_TEST_VM_ID ?? "vm-54";
   if (source === "proxmox") return Number(process.env.PROXMOX_TEST_VM_ID ?? "112");
   if (source === "aws") return process.env.AWS_TEST_INSTANCE_ID ?? "i-missing-canary";
-  return process.env.AZURE_TEST_VM_ID ?? "vclaw-qa/Migration-TestVM";
+  return process.env.AZURE_TEST_VM_ID ?? "rhodes-qa/Migration-TestVM";
 }
 
 async function postJson(path: string, body: Record<string, unknown>): Promise<ApiResponse> {

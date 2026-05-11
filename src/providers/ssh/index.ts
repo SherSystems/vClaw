@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — SSH Adapter exports
+// RHODES — SSH Adapter exports
 // ============================================================
 
 export { SshAdapter } from "./adapter.js";

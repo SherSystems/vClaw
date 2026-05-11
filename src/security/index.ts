@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Security Module
+// RHODES — Security Module
 // NemoClaw-inspired security features:
 //   - Credential Vault (AES-256-GCM encrypted secret storage)
 //   - Privacy Router (redact sensitive data before LLM calls)

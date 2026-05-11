@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Azure ARM API Client
+// RHODES — Azure ARM API Client
 // Wraps @azure/arm-* SDKs for Compute, Network, and Resources
 // ============================================================
 

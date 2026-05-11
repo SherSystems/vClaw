@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — AWS EC2 & Related Service Types
+// RHODES — AWS EC2 & Related Service Types
 // Typed interfaces matching the AWS SDK v3 response shapes
 // ============================================================
 

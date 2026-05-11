@@ -2,7 +2,7 @@
 
 ## What it is
 
-`SshAdapter` is a first-class shell-execution surface for vClaw. It lets the agent log into any **registered** SSH target the same way a human SRE would: open a session, run a command, capture stdout/stderr/exit-code, hand the result back. It complements (not replaces) the existing API-based provider adapters (Proxmox REST, vSphere, AWS, Azure, Kubernetes).
+`SshAdapter` is a first-class shell-execution surface for RHODES. It lets the agent log into any **registered** SSH target the same way a human SRE would: open a session, run a command, capture stdout/stderr/exit-code, hand the result back. It complements (not replaces) the existing API-based provider adapters (Proxmox REST, vSphere, AWS, Azure, Kubernetes).
 
 It lives at `src/providers/ssh/` and registers as a `kind: "service"` adapter — so it does **not** show up as a hypervisor in the dashboard provider list (no nodes/VMs/storage to surface).
 
@@ -14,7 +14,7 @@ The autopilot can't fix everything via API.
 - A wedged Proxmox node responds to `qm stop 200 --skiplock` over SSH long after the REST API gives up.
 - Most "diagnose this weird symptom" loops are five `cat`/`grep`/`journalctl` commands away from a root cause.
 
-Without an SSH surface vClaw has to escalate to a human for the "boring" 80% of incident response. With one, it can investigate, gather evidence, and propose remediation — all under the same governance regime as every other tool call.
+Without an SSH surface RHODES has to escalate to a human for the "boring" 80% of incident response. With one, it can investigate, gather evidence, and propose remediation — all under the same governance regime as every other tool call.
 
 ## Safety model
 
@@ -39,16 +39,16 @@ Targets are loaded from a JSON file (preferred — keeps secrets out of `process
 
 ```bash
 # Recommended: file
-export VCLAW_SSH_TARGETS_FILE=/etc/vclaw/ssh-targets.json
+export RHODES_SSH_TARGETS_FILE=/etc/rhodes/ssh-targets.json
 
 # Acceptable for one-off scripts
-export VCLAW_SSH_TARGETS='[{"id":"self","host":"127.0.0.1","user":"vclaw"}]'
+export RHODES_SSH_TARGETS='[{"id":"self","host":"127.0.0.1","user":"rhodes"}]'
 
 # Optional knobs (sensible defaults)
-export VCLAW_SSH_MAX_OUTPUT_BYTES=65536
-export VCLAW_SSH_DEFAULT_TIMEOUT_S=30
-export VCLAW_SSH_ALLOW_DESTRUCTIVE=false
-export VCLAW_SSH_STRICT_HOST_KEY_CHECKING=true
+export RHODES_SSH_MAX_OUTPUT_BYTES=65536
+export RHODES_SSH_DEFAULT_TIMEOUT_S=30
+export RHODES_SSH_ALLOW_DESTRUCTIVE=false
+export RHODES_SSH_STRICT_HOST_KEY_CHECKING=true
 ```
 
 The targets file looks like:
@@ -59,7 +59,7 @@ The targets file looks like:
     "id": "pve-01",
     "host": "10.0.0.10",
     "user": "root",
-    "identity_file": "/etc/vclaw/keys/pve-01",
+    "identity_file": "/etc/rhodes/keys/pve-01",
     "description": "Lab Proxmox primary"
   },
   {
@@ -67,7 +67,7 @@ The targets file looks like:
     "host": "esxi.lab.internal",
     "user": "root",
     "jump_host": "bastion@10.0.0.99",
-    "identity_file": "/etc/vclaw/keys/esxi"
+    "identity_file": "/etc/rhodes/keys/esxi"
   }
 ]
 ```
@@ -101,10 +101,10 @@ The adapter registers three tools:
 
 ## Security warnings
 
-- Commands run with whatever shell power the configured user has on the remote host. **Don't run as `root`** if you can avoid it. Most diagnostic tasks work fine as a dedicated `vclaw` user with `sudo` on a small allowlist.
+- Commands run with whatever shell power the configured user has on the remote host. **Don't run as `root`** if you can avoid it. Most diagnostic tasks work fine as a dedicated `rhodes` user with `sudo` on a small allowlist.
 - Configure `identity_file` per target. SSH-agent forwarding is not enabled (`BatchMode=yes`) — passwords aren't even prompted for, so a misconfigured target fails fast instead of hanging.
 - The adapter uses the system `ssh` binary (no third-party SSH library), inheriting your `~/.ssh/config` and known-hosts behaviour. Set `strict_host_key_checking: true` (the default) for any target you actually care about.
-- Never put real secrets in `VCLAW_SSH_TARGETS` (process env is world-readable on shared hosts via `/proc/<pid>/environ`). Use the file form.
+- Never put real secrets in `RHODES_SSH_TARGETS` (process env is world-readable on shared hosts via `/proc/<pid>/environ`). Use the file form.
 - Audit logs (when wired in — see TODO list) will capture command + classification + target_id; redact accordingly.
 
 ## Hello world

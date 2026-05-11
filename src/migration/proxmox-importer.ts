@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Proxmox VM Importer
+// RHODES — Proxmox VM Importer
 // Creates a VM shell on Proxmox and imports converted disks
 // ============================================================
 

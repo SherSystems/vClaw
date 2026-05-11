@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — LLM Abstraction Layer
+// RHODES — LLM Abstraction Layer
 // Routes calls to Anthropic or OpenAI based on configuration
 // ============================================================
 

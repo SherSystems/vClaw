@@ -1,8 +1,8 @@
 // ============================================================
-// vClaw — SSH Client
+// RHODES — SSH Client
 //
 // Thin wrapper around the system `ssh` binary. We deliberately do NOT
-// pull in an SSH library — vclaw already shells out via `spawn('ssh', ...)`
+// pull in an SSH library — rhodes already shells out via `spawn('ssh', ...)`
 // in src/migration/vmware-importer.ts and src/index.ts, so we follow
 // the same precedent.
 //
@@ -52,7 +52,7 @@ interface NodeReadable {
 }
 
 // Marker appended to truncated output so callers can see the cap fired.
-const TRUNCATION_MARKER = "\n...[truncated by vclaw at max_output_bytes]";
+const TRUNCATION_MARKER = "\n...[truncated by rhodes at max_output_bytes]";
 
 /**
  * Build the argv to invoke ssh.
@@ -70,7 +70,7 @@ export function buildSshArgs(
   const args: string[] = [];
 
   // Strict-host-key handling — match the convention used elsewhere
-  // in vclaw (StrictHostKeyChecking + UserKnownHostsFile=/dev/null
+  // in rhodes (StrictHostKeyChecking + UserKnownHostsFile=/dev/null
   // when relaxed).
   if (strictHostKeyChecking) {
     args.push("-o", "StrictHostKeyChecking=yes");

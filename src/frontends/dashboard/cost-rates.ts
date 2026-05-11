@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Cost Rate Maps
+// RHODES — Cost Rate Maps
 // Static, defensible per-instance hourly rates used to derive
 // monthly cost estimates from current provider state.
 //

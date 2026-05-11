@@ -8,7 +8,7 @@ This guide documents the Azure adapter exactly as implemented in:
 
 ## 1. Authentication and registration
 
-vClaw auto-registers the Azure adapter only when all four required credentials are present in `src/index.ts`:
+RHODES auto-registers the Azure adapter only when all four required credentials are present in `src/index.ts`:
 
 - `AZURE_TENANT_ID`
 - `AZURE_CLIENT_ID`
@@ -38,7 +38,7 @@ az login
 az account set --subscription "<subscription-id>"
 
 az ad sp create-for-rbac \
-  --name vclaw-sp \
+  --name rhodes-sp \
   --role Contributor \
   --scopes /subscriptions/<subscription-id>
 ```
@@ -54,7 +54,7 @@ Use your subscription id for `AZURE_SUBSCRIPTION_ID`.
 ### Option B: Azure Portal (Microsoft Entra)
 
 1. Go to `Microsoft Entra ID -> App registrations -> New registration`.
-2. Create an app registration for vClaw.
+2. Create an app registration for RHODES.
 3. Go to `Certificates & secrets` and create a client secret.
 4. Go to `Subscriptions -> <your-subscription> -> Access control (IAM)`.
 5. Add role assignment (`Contributor`) for the app registration.
@@ -374,9 +374,9 @@ await adapter.execute("azure_delete_image", {
 });
 ```
 
-## 6. Cluster state mapping (Azure regions -> vClaw nodes)
+## 6. Cluster state mapping (Azure regions -> RHODES nodes)
 
-`getClusterState()` in `src/providers/azure/adapter.ts` maps Azure inventory into vClaw state like this:
+`getClusterState()` in `src/providers/azure/adapter.ts` maps Azure inventory into RHODES state like this:
 
 1. Fetches all VMs (`listVMs`) and disks (`listDisks`).
 2. Builds `vms[]`:
@@ -397,7 +397,7 @@ await adapter.execute("azure_delete_image", {
    - `type` = `skuName` or `managed-disk`
    - `content` = `[attachedVmId]` when attached, else `[]`
 
-From tests, if VMs are in `eastus` and `westus`, and an unattached disk is in `centralus`, vClaw creates three nodes: `eastus`, `westus`, `centralus`.
+From tests, if VMs are in `eastus` and `westus`, and an unattached disk is in `centralus`, RHODES creates three nodes: `eastus`, `westus`, `centralus`.
 
 ## 7. Source-of-truth checks before doc updates
 

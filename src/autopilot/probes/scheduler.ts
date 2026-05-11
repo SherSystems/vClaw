@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Probe Scheduler
+// RHODES — Probe Scheduler
 //
 // A small subsystem that:
 //   - Loads probe definitions from config

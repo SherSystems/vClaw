@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 // ============================================================
-// vClaw — Live Migration Smoke Test
+// RHODES — Live Migration Smoke Test
 // Creates a dummy VM on vSphere, then migrates it to Proxmox
 // ============================================================
 

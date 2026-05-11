@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — AWS EC2 Adapter
+// RHODES — AWS EC2 Adapter
 // Implements InfraAdapter and registers all AWS EC2 tools
 // ============================================================
 
@@ -110,11 +110,11 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     instanceIdParam,
   ], "void"),
 
-  tool("aws_launch_instance", "Launch a new EC2 instance from an AMI", "risky_write", [
+  tool("aws_launch_instance", "Launch a new EC2 instance from an AMI. If subnet_id is omitted, the default VPC's first subnet is used automatically — DO NOT invent subnet IDs like 'subnet-12345678'. If you need a specific subnet, call aws_list_subnets first to discover real ones; otherwise omit the parameter entirely.", "risky_write", [
     param("ami_id", "string", true, "AMI identifier to launch from"),
     param("instance_type", "string", true, "Instance type (e.g. t3.micro, m5.large)"),
-    param("subnet_id", "string", false, "Subnet to launch into"),
-    param("security_group_ids", "string", false, "Comma-separated security group IDs"),
+    param("subnet_id", "string", false, "Subnet to launch into. OMIT this parameter to use the default VPC's first subnet automatically. NEVER use placeholder values like 'subnet-12345678' — call aws_list_subnets first if you need a specific one."),
+    param("security_group_ids", "string", false, "Comma-separated security group IDs. OMIT to use the default security group."),
     param("key_name", "string", false, "SSH key pair name"),
     param("name", "string", false, "Name tag for the instance"),
   ], "EC2InstanceSummary"),

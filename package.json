@@ -1,10 +1,12 @@
 {
-  "name": "vclaw",
-  "version": "0.2.0",
-  "description": "Open-source autonomous AI agent for infrastructure management. Multi-provider (Proxmox, VMware), 5-tier safety governance, self-healing, chaos engineering.",
+  "name": "rhodes",
+  "version": "0.3.0",
+  "description": "Agentic infrastructure operations across hybrid environments.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
+    "rhodes": "dist/index.js",
+    "rho": "dist/index.js",
     "vclaw": "dist/index.js"
   },
   "scripts": {
@@ -20,6 +22,7 @@
     "start:mcp": "node dist/index.js mcp",
     "start:autopilot": "node dist/index.js autopilot",
     "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"

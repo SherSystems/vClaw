@@ -65,7 +65,7 @@ describe("AWSImporter", () => {
       headObject: vi.fn(async () => ({ exists: true, size: 1024 * 1024 })),
     } as unknown as AWSClient;
 
-    const importer = new AWSImporter(mockClient, "migration-bucket", "vclaw/");
+    const importer = new AWSImporter(mockClient, "migration-bucket", "rhodes/");
     const result = await importer.importVM(
       {
         vmConfig,
@@ -113,7 +113,7 @@ describe("AWSImporter", () => {
       headObject: vi.fn(async () => ({ exists: true, size: 1024 * 1024 })),
     } as unknown as AWSClient;
 
-    const importer = new AWSImporter(mockClient, "migration-bucket", "vclaw/");
+    const importer = new AWSImporter(mockClient, "migration-bucket", "rhodes/");
     const result = await importer.importVM(
       {
         vmConfig,
@@ -152,7 +152,7 @@ describe("AWSImporter", () => {
       headObject: vi.fn(async () => ({ exists: true, size: 1024 * 1024 })),
     } as unknown as AWSClient;
 
-    const importer = new AWSImporter(mockClient, "migration-bucket", "vclaw/");
+    const importer = new AWSImporter(mockClient, "migration-bucket", "rhodes/");
     const result = await importer.importVM(
       {
         vmConfig,

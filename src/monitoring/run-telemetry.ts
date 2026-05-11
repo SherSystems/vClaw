@@ -285,8 +285,20 @@ export class PersistentRunTelemetryStore {
       ? ((counts?.complete_envelopes ?? 0) / (counts?.runs_started ?? 0)) * 100
       : 100;
 
-    const p95Target = parseInt(process.env.VCLAW_SLO_P95_LATENCY_MS || "", 10) || DEFAULT_P95_SLO_MS;
-    const successTarget = parseInt(process.env.VCLAW_SLO_SUCCESS_RATE_PCT || "", 10) || DEFAULT_SUCCESS_RATE_SLO_PCT;
+    const p95Target =
+      parseInt(
+        process.env.RHODES_SLO_P95_LATENCY_MS ??
+          process.env.VCLAW_SLO_P95_LATENCY_MS ??
+          "",
+        10,
+      ) || DEFAULT_P95_SLO_MS;
+    const successTarget =
+      parseInt(
+        process.env.RHODES_SLO_SUCCESS_RATE_PCT ??
+          process.env.VCLAW_SLO_SUCCESS_RATE_PCT ??
+          "",
+        10,
+      ) || DEFAULT_SUCCESS_RATE_SLO_PCT;
 
     const latencyBreached = p95 !== null && p95 > p95Target;
     const successBreached = successRate < successTarget;

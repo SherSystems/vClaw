@@ -1,6 +1,6 @@
 // ============================================================
-// vClaw — Provisioning Adapter
-// Exposes VM provisioning planning tools to the vClaw agent.
+// RHODES — Provisioning Adapter
+// Exposes VM provisioning planning tools to the RHODES agent.
 //
 // SCAFFOLD: Only the planner tool is partially wired (it can
 // call the LLM and return a plan once an LLM config is provided).

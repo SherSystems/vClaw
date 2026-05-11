@@ -589,7 +589,7 @@ export default function Chaos() {
                           : entry.event === "resolved"
                           ? "var(--green, #22c55e)"
                           : entry.event === "detected"
-                          ? "var(--orange, #f59e0b)"
+                          ? "var(--orange, #F5A623)"
                           : "var(--fg-muted, #9ca3af)";
                       return (
                         <div key={i} style={{ display: "grid", gridTemplateColumns: "84px 80px 1fr", gap: 12, padding: "3px 0" }}>

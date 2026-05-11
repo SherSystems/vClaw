@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — ISO Resolver
+// RHODES — ISO Resolver
 // Per-OS strategies for resolving an OsTarget to a concrete
 // download URL + metadata (sha256, size, fwlink/form gates).
 //

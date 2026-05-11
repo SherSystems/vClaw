@@ -1,4 +1,4 @@
-# vClaw Provider Guides
+# RHODES Provider Guides
 
 Provider guides are the source-of-truth reference for adapter behavior.
 

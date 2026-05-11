@@ -1,6 +1,6 @@
-# vClaw Architecture Guide
+# RHODES Architecture Guide
 
-This guide explains how vClaw is wired end to end, with a focus on adding a new provider adapter safely.
+This guide explains how RHODES is wired end to end, with a focus on adding a new provider adapter safely.
 
 Canonical implementation sources:
 

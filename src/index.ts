@@ -1,9 +1,30 @@
 #!/usr/bin/env node
 
 // ============================================================
-// vClaw — Autonomous Infrastructure Agent
-// Plan. Deploy. Monitor. Heal. Govern.
+// RHODES — Reasoning, Hybrid Orchestration, Deployment & Execution System
+// Infrastructure, executed.
 // ============================================================
+
+// Silence Node deprecation warnings (e.g. DEP0040 punycode from transitive
+// deps) so they don't interleave with the interactive readline prompt and
+// corrupt user input. Real errors still propagate normally.
+(process as unknown as { noDeprecation: boolean }).noDeprecation = true;
+process.removeAllListeners("warning");
+process.on("warning", (warning: Error & { code?: string }) => {
+  if (warning.name === "DeprecationWarning") return;
+  console.warn(warning.stack || warning.message);
+});
+
+// Deprecation notice when invoked under the legacy `vclaw` binary alias.
+// argv[1] is the path to the launcher; check its basename.
+{
+  const launcher = (process.argv[1] || "").split("/").pop() ?? "";
+  if (launcher === "vclaw") {
+    console.warn(
+      "[deprecation] The `vclaw` command is a temporary alias for `rhodes`. Update scripts to use `rhodes` (or `rho`).",
+    );
+  }
+}
 
 import { getConfig, getDataDir, getPoliciesDir } from "./config.js";
 import { loadPolicy } from "./governance/policy.js";
@@ -12,14 +33,15 @@ import { ToolRegistry } from "./providers/registry.js";
 import { ProxmoxAdapter } from "./providers/proxmox/adapter.js";
 import { VMwareAdapter } from "./providers/vmware/adapter.js";
 import { SystemAdapter } from "./providers/system/adapter.js";
+import { CostAdapter } from "./providers/cost/adapter.js";
 import { SshAdapter } from "./providers/ssh/adapter.js";
 import { TopologyStore } from "./topology/store.js";
 import { TopologyAdapter } from "./topology/adapter.js";
 import { AgentCore } from "./agent/core.js";
 import { EventBus } from "./agent/events.js";
-import { vClawCLI } from "./frontends/cli.js";
+import { RhodesCLI } from "./frontends/cli.js";
 import { DashboardServer } from "./frontends/dashboard/server.js";
-import { vClawMCP } from "./frontends/mcp.js";
+import { RhodesMCP } from "./frontends/mcp.js";
 import { AutopilotDaemon } from "./autopilot/daemon.js";
 import { HealingOrchestrator } from "./healing/orchestrator.js";
 import { ChaosEngine } from "./chaos/engine.js";
@@ -114,10 +136,15 @@ async function main() {
   });
   registry.registerAdapter(system);
 
+  // Register cost adapter — pure pricing service, no infra ownership.
+  // Always on; pricing tables are static.
+  const cost = new CostAdapter();
+  registry.registerAdapter(cost);
+
   // Register SSH adapter — only if any targets are configured.
   // Adapter has kind="service" so it doesn't pollute the dashboard
-  // provider list. Targets come from VCLAW_SSH_TARGETS_FILE (a JSON
-  // file) or VCLAW_SSH_TARGETS (inline JSON) — see src/config.ts.
+  // provider list. Targets come from RHODES_SSH_TARGETS_FILE (a JSON
+  // file) or RHODES_SSH_TARGETS (inline JSON) — see src/config.ts.
   if (config.ssh.targets.length > 0) {
     const sshAdapter = new SshAdapter({
       targets: config.ssh.targets,
@@ -204,7 +231,7 @@ async function main() {
 
   // Handle shutdown
   const shutdown = async () => {
-    console.log("\nShutting down vClaw...");
+    console.log("\nShutting down RHODES...");
     runTelemetry.close();
     await registry.disconnectAll();
     process.exit(0);
@@ -215,7 +242,7 @@ async function main() {
 
   switch (mode) {
     case "cli": {
-      const cli = new vClawCLI(agentCore, registry, eventBus, governance);
+      const cli = new RhodesCLI(agentCore, registry, eventBus, governance);
 
       // If there's additional text after "cli", treat as one-shot
       const input = args.slice(1).join(" ");
@@ -294,7 +321,7 @@ async function main() {
     }
 
     case "mcp": {
-      const mcp = new vClawMCP(agentCore, registry, eventBus, governance);
+      const mcp = new RhodesMCP(agentCore, registry, eventBus, governance);
       await mcp.start();
       break;
     }
@@ -329,7 +356,7 @@ async function main() {
 
     case "full": {
       // Start everything
-      console.log("Starting vClaw in full mode...\n");
+      console.log("Starting RHODES in full mode...\n");
 
       // Dashboard
       const dashboard = new DashboardServer(
@@ -406,7 +433,7 @@ async function main() {
     case "dev": {
       // Dashboard + CLI — all sharing the same event bus
       // Type goals in the CLI and watch them stream live on the dashboard
-      console.log("Starting vClaw in dev mode (Dashboard + CLI)...\n");
+      console.log("Starting RHODES in dev mode (Dashboard + CLI)...\n");
 
       const dashboard = new DashboardServer(
         config.dashboard.port,
@@ -453,31 +480,36 @@ async function main() {
       // Topology store
       (dashboard as unknown as { topologyStore: TopologyStore }).topologyStore = topologyStore;
 
-      const cli = new vClawCLI(agentCore, registry, eventBus, governance);
+      const cli = new RhodesCLI(agentCore, registry, eventBus, governance);
       await cli.start();
       break;
     }
 
     default: {
       // Treat as one-shot command
-      const cli = new vClawCLI(agentCore, registry, eventBus, governance);
+      const cli = new RhodesCLI(agentCore, registry, eventBus, governance);
       const oneShot = args.join(" ");
       if (oneShot) {
         await cli.runOnce(oneShot);
       } else {
         console.log(`
-vClaw — Autonomous Infrastructure Agent
+RHODES — Reasoning, Hybrid Orchestration, Deployment & Execution System
+Infrastructure, executed.
 
-Usage:
-  vclaw                         Interactive CLI (REPL)
-  vclaw cli                     Interactive CLI (REPL)
-  vclaw cli "goal"              One-shot: plan and execute a goal
-  vclaw "goal"                  One-shot: plan and execute a goal
-  vclaw dashboard               Start web dashboard
-  vclaw mcp                     Start MCP server (for Claude Code)
-  vclaw autopilot               Start autopilot daemon + dashboard
-  vclaw dev                     CLI + Dashboard (best for testing)
-  vclaw full                    Start all services (no CLI)
+OPERATIONS
+  rhodes                         Interactive CLI (REPL)
+  rhodes cli                     Interactive CLI (REPL)
+  rhodes cli "goal"              One-shot: build and execute a plan
+  rhodes "goal"                  One-shot: build and execute a plan
+
+PROVIDERS
+  rhodes dashboard               Start web dashboard
+  rhodes mcp                     Start MCP server (for Claude Code)
+  rhodes autopilot               Start autopilot daemon + dashboard
+
+WORKSPACES
+  rhodes dev                     CLI + Dashboard (best for testing)
+  rhodes full                    Start all services (no CLI)
 
 Environment (Proxmox):
   PROXMOX_HOST                  Proxmox VE host (default: localhost)

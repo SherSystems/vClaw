@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — SSH Adapter hello-world driver
+// RHODES — SSH Adapter hello-world driver
 //
 // Loads config, instantiates an SshAdapter against a target named
 // "self" pointing at 127.0.0.1 (user = $USER), and runs `uptime`.

@@ -162,7 +162,7 @@ describe("runRemoteCommand", () => {
     expect(result.truncated).toBe(true);
     // First 16 bytes plus the truncation marker
     expect(result.stdout.startsWith("A".repeat(16))).toBe(true);
-    expect(result.stdout).toContain("[truncated by vclaw");
+    expect(result.stdout).toContain("[truncated by rhodes");
     expect(lastProc().killed).toBe(true);
   });
 

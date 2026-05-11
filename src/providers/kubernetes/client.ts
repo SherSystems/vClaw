@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Kubernetes API Client
+// RHODES — Kubernetes API Client
 // Minimal read-only REST client over the kube-apiserver.
 // Uses native node:https + kubeconfig parsing (js-yaml) so we
 // don't pull in the heavyweight @kubernetes/client-node.

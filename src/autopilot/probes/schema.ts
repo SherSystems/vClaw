@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Service-Health Probe Schema
+// RHODES — Service-Health Probe Schema
 // Zod schemas for validating probe definitions before they
 // are loaded into the scheduler. Catches malformed kinds,
 // missing fields, and bad cooldowns up front.
@@ -160,7 +160,7 @@ export function validateProbes(probes: unknown[]): ProbeValidationResult {
 // ── Default probes ──────────────────────────────────────────
 
 /**
- * Ships with vclaw out of the box. Two example probes:
+ * Ships with rhodes out of the box. Two example probes:
  *  1. ESXi management endpoint at 192.168.86.46:443 — the real incident
  *     that motivated this subsystem (nested ESXi VM whose mgmt service
  *     crashes while Proxmox still reports the VM as running).
@@ -182,7 +182,7 @@ export const DEFAULT_PROBES: ProbeDef[] = [
     enabled: false,
   }),
   validateProbe({
-    id: "vclaw_dashboard_self",
+    id: "rhodes_dashboard_self",
     target_host: "localhost",
     kind: "tcp",
     host: "127.0.0.1",

@@ -326,7 +326,7 @@ export default function AppTopology() {
               color: "var(--teal)",
               fontSize: 12,
             }}>
-              vclaw cli 'add vm-123 to app {selectedApp.name} as web server'
+              rhodes cli 'add vm-123 to app {selectedApp.name} as web server'
             </code>
           </div>
         )}

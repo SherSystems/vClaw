@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Credential Vault
+// RHODES — Credential Vault
 // AES-256-GCM encrypted secret storage with key derivation
 // Inspired by NemoClaw's credential isolation model
 // ============================================================

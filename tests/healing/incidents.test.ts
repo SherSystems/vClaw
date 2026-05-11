@@ -12,7 +12,7 @@ import { rmSync } from "node:fs";
 let tmpDir: string;
 
 function freshDir(): string {
-  tmpDir = `/tmp/vclaw-test-incidents-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  tmpDir = `/tmp/rhodes-test-incidents-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   return tmpDir;
 }
 

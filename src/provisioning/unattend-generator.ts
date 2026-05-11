@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Unattend Generator
+// RHODES — Unattend Generator
 // Per-OS strategies for generating unattended-install payloads:
 //   Windows -> autounattend.xml
 //   Ubuntu/Debian/Fedora cloud images -> cloud-init user-data
@@ -21,7 +21,7 @@ import type {
 const DEFAULT_LOCALE = "en-US";
 const DEFAULT_KEYBOARD = "us";
 const DEFAULT_TIMEZONE = "UTC";
-const DEFAULT_USERNAME = "vclaw";
+const DEFAULT_USERNAME = "rhodes";
 
 function resolveCommonFields(hints?: ProvisioningHints) {
   return {

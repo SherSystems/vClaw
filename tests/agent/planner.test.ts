@@ -305,4 +305,52 @@ describe("Planner", () => {
       containers_created: 0,
     });
   });
+
+  // ── Markdown-fence resilience ─────────────────────────────
+  // LLMs frequently wrap JSON output in ```json ... ``` fences even when
+  // the prompt forbids them. The parser must still accept the response.
+
+  it("strips ```json``` fences from LLM responses", async () => {
+    const inner = JSON.stringify({
+      steps: [
+        { id: "s1", action: "list_vms", params: {}, description: "List", depends_on: [] },
+      ],
+      reasoning: "fenced response",
+    });
+    callLLMMock.mockResolvedValue("```json\n" + inner + "\n```");
+
+    const plan = await planner.plan(makeGoal(), makeContext());
+    expect(plan.steps).toHaveLength(1);
+    expect(plan.steps[0].action).toBe("list_vms");
+    expect(plan.reasoning).toBe("fenced response");
+  });
+
+  it("strips bare ``` fences (no language tag)", async () => {
+    const inner = JSON.stringify({
+      steps: [
+        { id: "s1", action: "list_vms", params: {}, description: "List", depends_on: [] },
+      ],
+      reasoning: "bare fence",
+    });
+    callLLMMock.mockResolvedValue("```\n" + inner + "\n```");
+
+    const plan = await planner.plan(makeGoal(), makeContext());
+    expect(plan.steps).toHaveLength(1);
+  });
+
+  it("recovers when the model emits prose before the JSON object", async () => {
+    const inner = JSON.stringify({
+      steps: [
+        { id: "s1", action: "list_vms", params: {}, description: "List", depends_on: [] },
+      ],
+      reasoning: "prose then json",
+    });
+    callLLMMock.mockResolvedValue(
+      "Sure — here is the plan you requested:\n\n" + inner + "\n\nLet me know!",
+    );
+
+    const plan = await planner.plan(makeGoal(), makeContext());
+    expect(plan.steps).toHaveLength(1);
+    expect(plan.reasoning).toBe("prose then json");
+  });
 });

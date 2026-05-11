@@ -8,7 +8,7 @@ export function Header() {
     <header className="header">
       <div className="header-right" style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
         <button className="cmd-k-trigger">
-          Ask vClaw
+          Ask RHODES
           <span className="cmd-palette-kbd">&#x2318;K</span>
         </button>
 

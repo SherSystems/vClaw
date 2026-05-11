@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — QA Canary Provisioner
+// RHODES — QA Canary Provisioner
 // Registers Azure Microsoft.Storage provider, provisions
 // Azure (eastus / Standard_B1s) and AWS (us-east-2 / t3.nano)
 // canary VMs for SHEA-45 QA matrix testing.
@@ -23,14 +23,14 @@ import {
 } from "@aws-sdk/client-ec2";
 
 const AZURE_SUBSCRIPTION = "23e4afd3-0c4d-4b76-b460-e43f196052fd";
-const AZURE_RG = "vclaw-qa";
+const AZURE_RG = "rhodes-qa";
 const AZURE_LOCATION = "eastus";
-const AZURE_VM_NAME = "vclaw-qa-canary";
+const AZURE_VM_NAME = "rhodes-qa-canary";
 const AZURE_VM_SIZE = "Standard_B1s";
 
 const AWS_REGION = "us-east-2";
 const AWS_INSTANCE_TYPE = "t3.nano";
-const AWS_INSTANCE_NAME = "vclaw-qa-canary";
+const AWS_INSTANCE_NAME = "rhodes-qa-canary";
 
 // ── Azure helpers ────────────────────────────────────────────
 
@@ -81,7 +81,7 @@ async function provisionAzureCanary(
   console.log(`Ensuring resource group: ${AZURE_RG} (${AZURE_LOCATION})...`);
   await resources.resourceGroups.createOrUpdate(AZURE_RG, {
     location: AZURE_LOCATION,
-    tags: { purpose: "vclaw-qa" },
+    tags: { purpose: "rhodes-qa" },
   });
   console.log("  ✓ Resource group ready\n");
 
@@ -93,7 +93,7 @@ async function provisionAzureCanary(
     location: AZURE_LOCATION,
     addressSpace: { addressPrefixes: ["10.0.0.0/16"] },
     subnets: [{ name: subnetName, addressPrefix: "10.0.0.0/24" }],
-    tags: { purpose: "vclaw-qa" },
+    tags: { purpose: "rhodes-qa" },
   });
   const vnet = await vnetPoller.pollUntilDone();
   const subnet = vnet.subnets?.[0];
@@ -112,14 +112,14 @@ async function provisionAzureCanary(
         privateIPAllocationMethod: "Dynamic",
       },
     ],
-    tags: { purpose: "vclaw-qa" },
+    tags: { purpose: "rhodes-qa" },
   });
   const nic = await nicPoller.pollUntilDone();
   if (!nic.id) throw new Error("Failed to create NIC");
   console.log("  ✓ NIC ready\n");
 
   // VM — Ubuntu 22.04 LTS, password auth, no public IP (QA only)
-  const adminPassword = `VclawQA!${Math.random().toString(36).slice(2, 10)}`;
+  const adminPassword = `RhodesQA!${Math.random().toString(36).slice(2, 10)}`;
   // Try sizes in order: some may be capacity-constrained in eastus
   const sizesToTry = ["Standard_B1s", "Standard_B1ms", "Standard_B2s", "Standard_D2s_v3"];
   let vm: any = null;
@@ -150,13 +150,13 @@ async function provisionAzureCanary(
           },
           osProfile: {
             computerName: AZURE_VM_NAME,
-            adminUsername: "vclaw",
+            adminUsername: "rhodes",
             adminPassword,
           },
           networkProfile: {
             networkInterfaces: [{ id: nic.id, primary: true, deleteOption: "Delete" }],
           },
-          tags: { purpose: "vclaw-qa" },
+          tags: { purpose: "rhodes-qa" },
         },
       );
       vm = await vmPoller.pollUntilDone();
@@ -219,14 +219,14 @@ async function provisionAWSCanary(ec2: EC2Client): Promise<string> {
   console.log(`  ✓ Subnet: ${subnet.SubnetId}\n`);
 
   // Create a minimal security group (no inbound, outbound only)
-  const sgName = "vclaw-qa-canary-sg";
+  const sgName = "rhodes-qa-canary-sg";
   let sgId: string;
   console.log(`Creating security group: ${sgName}...`);
   try {
     const sgResp = await ec2.send(
       new CreateSecurityGroupCommand({
         GroupName: sgName,
-        Description: "vclaw QA canary - no inbound",
+        Description: "rhodes QA canary - no inbound",
         VpcId: defaultVpc.VpcId,
       }),
     );
@@ -236,7 +236,7 @@ async function provisionAWSCanary(ec2: EC2Client): Promise<string> {
         Resources: [sgId],
         Tags: [
           { Key: "Name", Value: sgName },
-          { Key: "purpose", Value: "vclaw-qa" },
+          { Key: "purpose", Value: "rhodes-qa" },
         ],
       }),
     );
@@ -273,7 +273,7 @@ async function provisionAWSCanary(ec2: EC2Client): Promise<string> {
           ResourceType: "instance",
           Tags: [
             { Key: "Name", Value: AWS_INSTANCE_NAME },
-            { Key: "purpose", Value: "vclaw-qa" },
+            { Key: "purpose", Value: "rhodes-qa" },
           ],
         },
       ],

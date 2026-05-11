@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Service-Health Probe Primitives
+// RHODES — Service-Health Probe Primitives
 // Low-level probe runners for tcp / https / ping. Each runner
 // returns a normalized `ProbeResult` and never throws.
 //

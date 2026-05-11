@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Kubernetes Provider Types
+// RHODES — Kubernetes Provider Types
 // Trimmed shapes for the read-only resources the adapter exposes.
 // ============================================================
 

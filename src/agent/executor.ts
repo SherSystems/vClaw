@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Executor
+// RHODES — Executor
 // Runs plan steps through governance checks and tool execution
 // ============================================================
 

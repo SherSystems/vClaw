@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Multi-Cluster Aggregator
+// RHODES — Multi-Cluster Aggregator
 // Sums totals (VMs, cores, RAM, disk) across all connected
 // providers in a single, unit-normalized summary. Designed to
 // be tested in isolation against mocked provider state.

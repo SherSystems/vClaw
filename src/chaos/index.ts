@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Chaos Engineering (barrel export)
+// RHODES — Chaos Engineering (barrel export)
 // ============================================================
 
 export { ChaosEngine } from "./engine.js";

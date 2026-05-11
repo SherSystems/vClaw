@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Disk Format Converter
+// RHODES — Disk Format Converter
 // Converts between disk formats (vmdk, qcow2, raw) via qemu-img
 // Runs on the target host via SSH
 // ============================================================

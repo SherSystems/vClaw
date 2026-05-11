@@ -1,6 +1,6 @@
 // ============================================================
-// vClaw — CLI / REPL Frontend
-// Rich terminal interface for the autonomous infrastructure agent
+// RHODES — CLI / REPL Frontend
+// Rich terminal interface for the agentic infrastructure operations system
 // ============================================================
 
 import * as readline from "node:readline";
@@ -59,6 +59,27 @@ function cyan(text: string): string {
 
 function magenta(text: string): string {
   return color(text, "35");
+}
+
+// RHODES Rhodes Blue (#4DA3F7). Truecolor (24-bit) — falls back gracefully
+// on terminals that don't render it.
+function brand(text: string): string {
+  return `\x1b[38;2;77;163;247m${text}\x1b[0m`;
+}
+
+// Subtle gray for box borders. Truecolor.
+function rule(text: string): string {
+  return `\x1b[38;2;90;116;145m${text}\x1b[0m`;
+}
+
+const RHODES_VERSION = "0.3.0";
+
+// Truncate long strings to keep terminal output scannable. Adds an ellipsis
+// suffix and a hint that /plan shows the full version.
+function truncate(s: string, max = 160): string {
+  if (!s) return "";
+  if (s.length <= max) return s;
+  return s.slice(0, max - 1).trimEnd() + "…  " + dim("(/plan for full)");
 }
 
 // ── Formatting Helpers ──────────────────────────────────────
@@ -188,8 +209,100 @@ function formatStepData(action: string, data: unknown): string {
       );
     }
 
-    if ((action === "get_vm_status" || action === "get_vm_config" || action === "get_node_stats") && typeof data === "object" && data !== null) {
+    // ── VM config — curated summary instead of full Proxmox dump ──
+    if (action === "get_vm_config" && typeof data === "object" && data !== null) {
+      const c = data as Record<string, unknown>;
+      const name = (c.name as string) ?? "—";
+      const vmid = c.vmid !== undefined ? `#${c.vmid}` : "";
+      const cores = (c.cores as number) ?? (c.cpus as number) ?? 0;
+      const sockets = (c.sockets as number) ?? 1;
+      const totalCpu = cores * sockets;
+      const memMB = (c.memory as number) ?? 0;
+      const memGB = memMB > 0 ? `${(memMB / 1024).toFixed(memMB >= 10240 ? 0 : 1)} GB` : "—";
+      // Find primary disk from virtio0/scsi0/sata0/ide0 — pull "size=NNNG"
+      const diskStr = ["virtio0", "scsi0", "sata0", "ide0"]
+        .map((k) => c[k])
+        .find((v): v is string => typeof v === "string");
+      const diskMatch = diskStr ? /size=(\d+[GMT])/.exec(diskStr) : null;
+      const disk = diskMatch ? diskMatch[1].replace("G", " GB").replace("T", " TB").replace("M", " MB") : "—";
+      // Network bridge from net0 — "virtio=MAC,bridge=vmbrN"
+      const net0 = (c.net0 as string) ?? "";
+      const bridgeMatch = /bridge=(\w+)/.exec(net0);
+      const bridge = bridgeMatch ? bridgeMatch[1] : "—";
+      const ostype = (c.ostype as string) ?? "—";
+      const lines = [
+        `  ${bold(name)} ${dim(vmid)}  ${dim("·")}  ${green(`${totalCpu} vCPU`)}  ${dim("·")}  ${green(memGB + " RAM")}  ${dim("·")}  ${green(disk + " disk")}`,
+        `  ${dim("net")} ${bridge}  ${dim("·")}  ${dim("ostype")} ${ostype}`,
+      ];
+      return lines.join("\n");
+    }
+
+    // ── VM status — runtime essentials only ──
+    if (action === "get_vm_status" && typeof data === "object" && data !== null) {
+      const s = data as Record<string, unknown>;
+      const name = (s.name as string) ?? "—";
+      const vmid = s.vmid !== undefined ? `#${s.vmid}` : "";
+      const status = (s.status as string) ?? (s.qmpstatus as string) ?? "unknown";
+      const statusColored = status === "running" ? green(status) : status === "stopped" ? red(status) : yellow(status);
+      const cpus = (s.cpus as number) ?? 0;
+      const cpuPct = typeof s.cpu === "number" ? (s.cpu * 100).toFixed(1) : "—";
+      const memBytes = (s.mem as number) ?? 0;
+      const maxMemBytes = (s.maxmem as number) ?? 0;
+      const memStr =
+        maxMemBytes > 0
+          ? `${formatBytes(memBytes)} / ${formatBytes(maxMemBytes)} (${((memBytes / maxMemBytes) * 100).toFixed(0)}%)`
+          : "—";
+      const uptime = typeof s.uptime === "number" ? formatSecs(s.uptime) : "—";
+      const lines = [
+        `  ${bold(name)} ${dim(vmid)}  ${dim("·")}  ${statusColored}  ${dim("·")}  up ${uptime}`,
+        `  ${dim("cpu")} ${cpuPct}% ${dim(`(${cpus} vCPU)`)}  ${dim("·")}  ${dim("mem")} ${memStr}`,
+      ];
+      return lines.join("\n");
+    }
+
+    // ── Node stats — keep the existing KV dump (less noisy by nature) ──
+    if (action === "get_node_stats" && typeof data === "object" && data !== null) {
       return renderKV(data as Record<string, unknown>);
+    }
+
+    // ── Cost tools ────────────────────────────────────────────
+    if (action === "estimate_vm_cost" && typeof data === "object" && data !== null) {
+      const d = data as { provider: string; monthly_usd: number; instance: { name: string; vcpu: number; ram_gb: number } | null; breakdown: Record<string, number> };
+      const inst = d.instance ? `${d.instance.name} (${d.instance.vcpu} vCPU / ${d.instance.ram_gb} GB)` : dim("on-prem TCO");
+      const parts = Object.entries(d.breakdown)
+        .filter(([, v]) => v > 0)
+        .map(([k, v]) => `${dim(k)} ${green("$" + v)}`)
+        .join("  ");
+      return `  ${bold(d.provider.toUpperCase())}  ${inst}\n` +
+             `  ${green("$" + d.monthly_usd)}${dim("/mo")}   ${parts}`;
+    }
+
+    if (action === "estimate_migration_cost" && typeof data === "object" && data !== null) {
+      const d = data as { vm_name: string | null; source_provider: string; target_provider: string; source_monthly_usd: number; target_monthly_usd: number; delta_monthly_usd: number; delta_pct: number; one_time_usd: number; payback_months: number | null; recommendation: string };
+      const arrow = brand("→");
+      const deltaStr = d.delta_monthly_usd >= 0
+        ? red(`+$${d.delta_monthly_usd.toFixed(2)}/mo`)
+        : green(`-$${Math.abs(d.delta_monthly_usd).toFixed(2)}/mo`);
+      const pctStr = `(${d.delta_pct >= 0 ? "+" : ""}${d.delta_pct.toFixed(1)}%)`;
+      const name = d.vm_name ? bold(d.vm_name) + " " : "";
+      const lines = [
+        `  ${name}${bold(d.source_provider)}  ${arrow}  ${bold(d.target_provider)}`,
+        `  source ${dim("$" + d.source_monthly_usd)}/mo  ·  target ${dim("$" + d.target_monthly_usd)}/mo  ·  delta ${deltaStr} ${dim(pctStr)}`,
+        `  one-time ${yellow("$" + d.one_time_usd)}` + (d.payback_months !== null ? `  ·  payback ${green(d.payback_months + " mo")}` : ""),
+        `  ${dim(d.recommendation)}`,
+      ];
+      return lines.join("\n");
+    }
+
+    if (action === "compare_providers" && typeof data === "object" && data !== null) {
+      const d = data as { ranked: Array<{ provider: string; monthly_usd: number; instance: { name: string } | null }>; cheapest: { provider: string; monthly_usd: number }; spread_pct: number };
+      const rows = d.ranked.map((r, i) => {
+        const marker = i === 0 ? brand("●") : dim("·");
+        const inst = r.instance ? r.instance.name : dim("on-prem");
+        return [marker, bold(r.provider.padEnd(7)), green(`$${r.monthly_usd}`).padEnd(20) + dim("/mo"), inst];
+      });
+      const body = rows.map(r => "  " + r.join("  ")).join("\n");
+      return body + `\n  ${dim("cheapest:")} ${brand(d.cheapest.provider)} ${dim("·")} ${dim("spread")} ${dim(d.spread_pct.toFixed(0) + "%")}`;
     }
 
     // Fallback: compact display
@@ -307,7 +420,7 @@ function formatPlanTable(plan: Plan): string {
     ),
   );
   lines.push(divider);
-  lines.push(dim("  Reasoning: ") + plan.reasoning);
+  lines.push(dim("  Reasoning: ") + truncate(plan.reasoning, 160));
   lines.push(divider);
 
   // Resource estimate
@@ -524,45 +637,74 @@ function spinner(): { stop: () => void } {
 // ── Banner ──────────────────────────────────────────────────
 
 function printBanner(toolRegistry: ToolRegistry): void {
-  const lines = [
-    "",
-    cyan(bold("  ╦┌┐┌┌─┐┬─┐┌─┐╦ ╦┬─┐┌─┐┌─┐")),
-    cyan(bold("  ║│││├┤ ├┬┘├─┤║║║├┬┘├─┤├─┘")),
-    cyan(bold("  ╩┘└┘└  ┴└─┴ ┴╚╩╝┴└─┴ ┴┴  ")),
-    "",
-    dim("  Autonomous Infrastructure Agent"),
-    "",
-    dim("  Tools:    ") + `${toolRegistry.getAllTools().length} registered`,
-    "",
-    dim("  Type a goal to begin, or use /help for commands."),
-    "",
+  const providerCount = toolRegistry.getHypervisorAdapters().length;
+  const toolCount = toolRegistry.getAllTools().length;
+  const cwd = process.cwd();
+  const cwdDisplay =
+    cwd.length > 64 ? "…" + cwd.slice(cwd.length - 63) : cwd;
+
+  // ASCII wordmark from brand bible §4b
+  const banner = [
+    "██████╗ ██╗  ██╗ ██████╗ ██████╗ ███████╗███████╗",
+    "██╔══██╗██║  ██║██╔═══██╗██╔══██╗██╔════╝██╔════╝",
+    "██████╔╝███████║██║   ██║██║  ██║█████╗  ███████╗",
+    "██╔══██╗██╔══██║██║   ██║██║  ██║██╔══╝  ╚════██║",
+    "██║  ██║██║  ██║╚██████╔╝██████╔╝███████╗███████║",
+    "╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚══════╝╚══════╝",
   ];
-  console.log(lines.join("\n"));
+
+  console.log("");
+  for (const line of banner) {
+    console.log("  " + brand(line));
+  }
+  console.log("");
+  console.log(
+    "  " + bold("Reasoning, Hybrid Orchestration, Deployment & Execution System"),
+  );
+  console.log("  " + dim("Infrastructure, executed."));
+  console.log("");
+  console.log(
+    "  " +
+      dim(`v${RHODES_VERSION}  ·  ${providerCount} provider${providerCount === 1 ? "" : "s"}  ·  ${toolCount} tools`),
+  );
+  console.log("  " + dim(`cwd: ${cwdDisplay}`));
+  console.log("");
+  console.log(
+    "  " +
+      dim("/help for commands  ·  /status for setup  ·  ") +
+      brand("^C") +
+      dim(" to exit"),
+  );
+  console.log("");
 }
 
 // ── Help Text ───────────────────────────────────────────────
 
 const HELP_TEXT = `
-${bold("Commands:")}
-  ${cyan("/help")}          Show this help message
-  ${cyan("/status")}        Show cluster overview
-  ${cyan("/vms")}           List all virtual machines
-  ${cyan("/nodes")}         List all cluster nodes
-  ${cyan("/plan")}          Show the last executed plan
-  ${cyan("/history")}       Show recent agent events
-  ${cyan("/investigate")}   ${dim("<query>")}  Run root cause analysis
-  ${cyan("/audit")}         Show recent audit log entries
-  ${cyan("/clear")}         Clear the screen
-  ${cyan("/exit")}          Exit vClaw
+${bold("OPERATIONS")}
+  ${cyan("/plan")}          Show the last execution plan
+  ${cyan("/investigate")}   ${dim("<query>")}  Build a root-cause plan
+  ${cyan("/audit")}         Review execution audit log
+  ${cyan("/history")}       Show recent runtime events
 
-${bold("Usage:")}
-  Type any text to submit it as a goal to the agent.
-  Example: ${dim("build me a 3-node k8s cluster")}
+${bold("PROVIDERS")}
+  ${cyan("/status")}        Inspect provider and runtime state
+  ${cyan("/vms")}           List virtual machines across providers
+  ${cyan("/nodes")}         List nodes across providers
+
+${bold("WORKSPACES")}
+  ${cyan("/help")}          Show this help
+  ${cyan("/clear")}         Clear the screen
+  ${cyan("/exit")}          Exit RHODES
+
+${bold("USAGE")}
+  State your intent in plain language. RHODES plans and executes.
+  Example: ${dim("provision a 3-node kubernetes cluster across lab capacity")}
 `;
 
 // ── Main CLI Class ──────────────────────────────────────────
 
-export class vClawCLI {
+export class RhodesCLI {
   private agentCore: AgentCore;
   private toolRegistry: ToolRegistry;
   private eventBus: EventBus;
@@ -596,7 +738,7 @@ export class vClawCLI {
     this.rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
-      prompt: cyan(bold("vclaw> ")),
+      prompt: brand("rhodes@mission:~$ "),
       terminal: true,
     });
 
@@ -606,7 +748,7 @@ export class vClawCLI {
         console.log("\n" + cyan(bold("  ┌─ PLAN APPROVAL ─────────────────────────────")));
         console.log(cyan("  │") + ` Goal: ${bold(goal)}`);
         if (reasoning) {
-          console.log(cyan("  │") + dim(` Reasoning: ${reasoning}`));
+          console.log(cyan("  │") + dim(` Reasoning: ${truncate(reasoning, 160)}`));
         }
         console.log(cyan("  │"));
         for (let i = 0; i < steps.length; i++) {
@@ -797,15 +939,18 @@ export class vClawCLI {
         // Show full plan table for multi-step / write operations
         console.log(formatPlanTable(result.plan));
 
-        // Summary
+        // Summary — voice from brand bible §4b
         const summaryColor = result.success ? green : red;
+        const headline = result.success
+          ? "Execution finished with no unresolved dependencies."
+          : "Execution halted. Dependency resolution failed.";
         console.log(
-          summaryColor(
-            bold(
-              `  ${result.success ? "SUCCESS" : "FAILED"}  │  ` +
-                `${result.steps_completed} completed  │  ${result.steps_failed} failed  │  ` +
-                `${result.replans} replans  │  ${result.duration_ms}ms`,
-            ),
+          summaryColor(bold("  " + headline)),
+        );
+        console.log(
+          dim(
+            `  ${result.steps_completed} completed  │  ${result.steps_failed} failed  │  ` +
+              `${result.replans} replans  │  ${result.duration_ms}ms`,
           ),
         );
       }
@@ -835,16 +980,20 @@ export class vClawCLI {
       spin.stop();
 
       if (!state) {
-        console.log(yellow("\n  No cluster connection available.\n"));
+        console.log(
+          yellow(
+            "\n  No workspace configured. Initialize RHODES in this directory or connect to an existing operational environment.\n",
+          ),
+        );
         return;
       }
 
       const divider = dim("─".repeat(78));
       console.log("");
       console.log(divider);
-      console.log(bold(cyan("  Cluster Status")));
+      console.log(bold(cyan("  Runtime State")));
       console.log(divider);
-      console.log(dim("  Adapter:    ") + state.adapter);
+      console.log(dim("  Provider:   ") + state.adapter);
       console.log(dim("  Timestamp:  ") + state.timestamp);
       console.log(dim("  Nodes:      ") + state.nodes.length);
       console.log(dim("  VMs:        ") + state.vms.length);
@@ -879,7 +1028,11 @@ export class vClawCLI {
       spin.stop();
 
       if (!state) {
-        console.log(yellow("\n  No cluster connection available.\n"));
+        console.log(
+          yellow(
+            "\n  No workspace configured. Initialize RHODES in this directory or connect to an existing operational environment.\n",
+          ),
+        );
         return;
       }
 
@@ -904,7 +1057,11 @@ export class vClawCLI {
       spin.stop();
 
       if (!state) {
-        console.log(yellow("\n  No cluster connection available.\n"));
+        console.log(
+          yellow(
+            "\n  No workspace configured. Initialize RHODES in this directory or connect to an existing operational environment.\n",
+          ),
+        );
         return;
       }
 

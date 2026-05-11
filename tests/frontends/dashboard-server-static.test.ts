@@ -139,6 +139,8 @@ describe("Dashboard server static routing", () => {
     const server = makeServer();
     const res = makeRes();
 
+    // NOTE: asset file in dashboard-v2/dist still uses legacy `vclaw-logo.png`
+    // name. Dashboard rebrand is tracked separately — see CHANGELOG.
     server.handleRequest(makeReq("/vclaw-logo.png"), res);
 
     expect(res.getStatusCode()).toBe(200);

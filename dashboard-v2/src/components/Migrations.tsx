@@ -52,7 +52,7 @@ const LIVE_STAGE_LABELS: Record<string, string> = {
   launch_instance: "Launching EC2",
 };
 
-const ACTIVE_MIGRATION_RUNS_STORAGE_KEY = "vclaw.activeMigrationRuns";
+const ACTIVE_MIGRATION_RUNS_STORAGE_KEY = "rhodes.activeMigrationRuns";
 
 function readStoredActiveMigrationRuns(): string[] {
   if (typeof window === "undefined") return [];
@@ -518,7 +518,7 @@ export default function Migrations() {
                     <span className="mig-plan-label">Risks</span>
                     <div style={{ marginTop: 4 }}>
                       {plan.analysis.risks.map((risk: string, i: number) => (
-                        <div key={i} style={{ fontSize: 12, color: "#f59e0b", padding: "2px 0" }}>
+                        <div key={i} style={{ fontSize: 12, color: "#F5A623", padding: "2px 0" }}>
                           ⚠ {risk}
                         </div>
                       ))}

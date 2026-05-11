@@ -112,7 +112,7 @@ interface TestContext {
 }
 
 function makeContext(configOverrides: Partial<HealingEngineConfig> = {}): TestContext {
-  const dataDir = `/tmp/vclaw-healing-engine-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const dataDir = `/tmp/rhodes-healing-engine-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const eventBus = new EventBus();
   const toolRegistry = {
     execute: vi.fn().mockResolvedValue({ success: true, data: [] }),

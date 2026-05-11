@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — System Prompts for the AI Engine
+// RHODES — System Prompts for the AI Engine
 // Template functions that inject dynamic context into LLM calls
 // ============================================================
 
@@ -82,7 +82,7 @@ export function PLANNER_PROMPT(context: {
     ? `\n## Multi-Provider Infrastructure State\n${context.multiClusterSummary}\n`
     : "";
 
-  return `You are the planning engine for vClaw, an autonomous infrastructure agent.
+  return `You are the planning engine for RHODES, an autonomous infrastructure agent.
 Your job is to convert a high-level goal into a concrete, step-by-step execution plan.
 
 ## Available Tools
@@ -142,6 +142,14 @@ When multiple providers are connected, you can plan operations that span them:
    - params: an object with the parameters the tool expects
    - description: a human-readable description of what this step does
    - depends_on: an array of step IDs that must complete before this step runs (empty array if none)
+9. **Chaining outputs between steps:** params support \${step_X.field} references that the executor resolves at runtime. Examples:
+   - "instance_id": "\${step_1.instance_id}"  (single field)
+   - "vmid": "\${step_2.vms[0].id}"            (array index + field)
+   - "data": "\${step_3}"                       (entire step output)
+   When you don't know an ID up front, do NOT invent placeholder IDs (e.g. i-12345678, subnet-12345678, vmid-100). Instead, add a discovery step (e.g. aws_list_instances, aws_list_subnets, list_vms) and reference its output via \${step_X.field}.
+10. **AWS-specific hard rules:**
+    - Real AWS instance IDs look like i- followed by 17 hex characters (e.g. i-0d4f82c2c1125fc80). NEVER construct an ID by prefixing i- to a name (e.g. i-rhodes-test-1 is wrong). If you only have a name, call aws_list_instances first and use \${step_X.field} to thread the real ID.
+    - For aws_launch_instance, omit subnet_id to use the default VPC's first subnet automatically. Only set it when the user named a specific subnet.
 
 Return ONLY valid JSON in this exact format (no markdown fences, no extra text):
 
@@ -179,7 +187,7 @@ export function REPLANNER_PROMPT(context: {
   completedSteps: string;
   remainingSteps: string;
 }): string {
-  return `You are the replanning engine for vClaw, an autonomous infrastructure agent.
+  return `You are the replanning engine for RHODES, an autonomous infrastructure agent.
 A step in the current plan has failed. You must produce a revised plan that works around the failure.
 
 ## Available Tools
@@ -246,7 +254,7 @@ export function INVESTIGATOR_PROMPT(context: {
   recentEvents: string;
   recentAudit: string;
 }): string {
-  return `You are the investigation engine for vClaw, an autonomous infrastructure agent.
+  return `You are the investigation engine for RHODES, an autonomous infrastructure agent.
 Your job is to perform root cause analysis when something goes wrong in the infrastructure.
 
 ## Current Cluster State
@@ -306,7 +314,7 @@ export function OBSERVER_PROMPT(context: {
   stateAfter: string;
   clusterStateSummary: string;
 }): string {
-  return `You are the observation engine for vClaw, an autonomous infrastructure agent.
+  return `You are the observation engine for RHODES, an autonomous infrastructure agent.
 Your job is to verify that an infrastructure action achieved its intended effect.
 
 ## Action Performed

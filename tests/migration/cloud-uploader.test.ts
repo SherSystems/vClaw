@@ -35,7 +35,7 @@ describe("cloud uploader", () => {
         totalBytes?: number,
       ): Promise<void> => {
         expect(bucket).toBe("migration-bucket");
-        expect(key).toBe("vclaw-migration/vm-1/disk.vmdk");
+        expect(key).toBe("rhodes-migration/vm-1/disk.vmdk");
         expect(totalBytes).toBe(10);
 
         const chunks: Buffer[] = [];
@@ -52,7 +52,7 @@ describe("cloud uploader", () => {
       sourceUser: "root",
       sourcePath: "/tmp/disk.vmdk",
       bucket: "migration-bucket",
-      key: "vclaw-migration/vm-1/disk.vmdk",
+      key: "rhodes-migration/vm-1/disk.vmdk",
       totalBytes: 10,
       spawnProcess,
     });
@@ -87,7 +87,7 @@ describe("cloud uploader", () => {
       sourceUser: "root",
       sourcePath: "/tmp/disk.vmdk",
       bucket: "migration-bucket",
-      key: "vclaw-migration/vm-1/disk.vmdk",
+      key: "rhodes-migration/vm-1/disk.vmdk",
       spawnProcess,
     });
 

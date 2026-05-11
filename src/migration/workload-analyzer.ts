@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Cross-Platform Workload Analyzer
+// RHODES — Cross-Platform Workload Analyzer
 // Assesses VMs for migration between VMware vSphere and AWS EC2
 // ============================================================
 

@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Chaos Scenarios
+// RHODES — Chaos Scenarios
 // Built-in failure scenarios for resilience testing
 // ============================================================
 

@@ -87,7 +87,7 @@ vi.mock("@azure/storage-blob", () => {
   }
 
   const pageBlobClient = {
-    url: "https://vclawmig.blob.core.windows.net/vhds/migration-disk.vhd",
+    url: "https://rhodesmig.blob.core.windows.net/vhds/migration-disk.vhd",
     deleteIfExists: blobStorageMocks.deleteIfExists,
   };
 
@@ -254,7 +254,7 @@ describe("MigrationAdapter Azure direction routes", () => {
     const vmPowerOff = vi.fn(async () => undefined);
     const sshExec = vi.fn(async () => ({ stdout: "", stderr: "", exitCode: 0 }));
     const adapter = createAdapter({
-      awsS3Bucket: "vclaw-test-migration",
+      awsS3Bucket: "rhodes-test-migration",
       vsphereClient: { vmPowerOff } as any,
       sshExec: sshExec as any,
     });
@@ -304,7 +304,7 @@ describe("MigrationAdapter Azure direction routes", () => {
 
   it("executes vmware_to_azure migration with Azure disk import path", async () => {
     const pageBlobClient = {
-      url: "https://vclawmig.blob.core.windows.net/vhds/migration-disk.vhd",
+      url: "https://rhodesmig.blob.core.windows.net/vhds/migration-disk.vhd",
       deleteIfExists: vi.fn(async () => undefined),
     };
     const containerClient = {
@@ -348,38 +348,38 @@ describe("MigrationAdapter Azure direction routes", () => {
       datastorePath: "/vmfs/volumes/datastore1",
     });
     vmwareExporterMocks.datastorePathToFs.mockReturnValue("/vmfs/volumes/datastore1/vmware-200/vmware-200.vmdk");
-    vmwareExporterMocks.transferDisk.mockResolvedValue("/tmp/vclaw-migration/vmware-azure-123456/disk.vmdk");
+    vmwareExporterMocks.transferDisk.mockResolvedValue("/tmp/rhodes-migration/vmware-azure-123456/disk.vmdk");
 
     const azureClient = {
       defaultLocation: "eastus",
       subscriptionId: "sub-1234",
       ensureResourceGroup: vi.fn(async () => undefined),
       ensureStorageAccount: vi.fn(async () => ({
-        id: "/subscriptions/sub-1234/resourceGroups/vclaw-migrations/providers/Microsoft.Storage/storageAccounts/vclawmigabc123",
-        name: "vclawmigabc123",
+        id: "/subscriptions/sub-1234/resourceGroups/rhodes-migrations/providers/Microsoft.Storage/storageAccounts/rhodesmigabc123",
+        name: "rhodesmigabc123",
         location: "eastus",
       })),
       ensureBlobContainer: vi.fn(async () => undefined),
       getStorageAccountKey: vi.fn(async () => "storage-account-key"),
       createManagedDiskFromImport: vi.fn(async () => ({
-        id: "/subscriptions/sub-1234/resourceGroups/vclaw-migrations/providers/Microsoft.Compute/disks/vmware-200-osdisk",
+        id: "/subscriptions/sub-1234/resourceGroups/rhodes-migrations/providers/Microsoft.Compute/disks/vmware-200-osdisk",
         name: "vmware-200-osdisk",
-        resourceGroup: "vclaw-migrations",
+        resourceGroup: "rhodes-migrations",
         location: "eastus",
         sizeGB: 20,
         diskState: "Unattached",
         encrypted: false,
       })),
       listVNets: vi.fn(async () => [
-        { id: "vnet-1", name: "default-vnet", resourceGroup: "vclaw-migrations", location: "eastus", addressSpaces: ["10.0.0.0/16"], subnetCount: 1 },
+        { id: "vnet-1", name: "default-vnet", resourceGroup: "rhodes-migrations", location: "eastus", addressSpaces: ["10.0.0.0/16"], subnetCount: 1 },
       ]),
       listSubnets: vi.fn(async () => [
-        { id: "/subscriptions/sub-1234/resourceGroups/vclaw-migrations/providers/Microsoft.Network/virtualNetworks/default-vnet/subnets/default", name: "default", resourceGroup: "vclaw-migrations", vnetName: "default-vnet", addressPrefix: "10.0.0.0/24" },
+        { id: "/subscriptions/sub-1234/resourceGroups/rhodes-migrations/providers/Microsoft.Network/virtualNetworks/default-vnet/subnets/default", name: "default", resourceGroup: "rhodes-migrations", vnetName: "default-vnet", addressPrefix: "10.0.0.0/24" },
       ]),
       createVMFromManagedDisk: vi.fn(async () => ({
-        id: "/subscriptions/sub-1234/resourceGroups/vclaw-migrations/providers/Microsoft.Compute/virtualMachines/vmware-200",
+        id: "/subscriptions/sub-1234/resourceGroups/rhodes-migrations/providers/Microsoft.Compute/virtualMachines/vmware-200",
         name: "vmware-200",
-        resourceGroup: "vclaw-migrations",
+        resourceGroup: "rhodes-migrations",
         location: "eastus",
         vmSize: "Standard_B2s",
         powerState: "unknown",
@@ -408,15 +408,15 @@ describe("MigrationAdapter Azure direction routes", () => {
       "/vmfs/volumes/datastore1/vmware-200/vmware-200.vmdk",
       "192.168.86.50",
       "root",
-      expect.stringContaining("/tmp/vclaw-migration/vmware-azure-"),
+      expect.stringContaining("/tmp/rhodes-migration/vmware-azure-"),
       7_200_000,
     );
     expect(cloudUploaderMocks.uploadDiskFromSSHToAzurePageBlob).toHaveBeenCalledWith(
       expect.objectContaining({
         sourceHost: "192.168.86.50",
         sourceUser: "root",
-        sourcePath: expect.stringContaining("/tmp/vclaw-migration/vmware-azure-"),
-        destinationUrlWithSas: expect.stringContaining("https://vclawmig.blob.core.windows.net"),
+        sourcePath: expect.stringContaining("/tmp/rhodes-migration/vmware-azure-"),
+        destinationUrlWithSas: expect.stringContaining("https://rhodesmig.blob.core.windows.net"),
         diskSizeBytes: 1073741824,
       }),
     );
@@ -426,14 +426,14 @@ describe("MigrationAdapter Azure direction routes", () => {
       expect.objectContaining({
         status: "completed",
         source: expect.objectContaining({ provider: "vmware", vmId: "vm-200" }),
-        target: expect.objectContaining({ provider: "azure", resourceGroup: "vclaw-migrations" }),
+        target: expect.objectContaining({ provider: "azure", resourceGroup: "rhodes-migrations" }),
       }),
     );
   });
 
   it("executes aws_to_azure migration with Azure disk import path", async () => {
     const pageBlobClient = {
-      url: "https://vclawmig.blob.core.windows.net/vhds/migration-disk.vhd",
+      url: "https://rhodesmig.blob.core.windows.net/vhds/migration-disk.vhd",
       deleteIfExists: vi.fn(async () => undefined),
     };
     const containerClient = {
@@ -457,8 +457,8 @@ describe("MigrationAdapter Azure direction routes", () => {
     awsExporterMocks.exportInstance.mockResolvedValue({
       instanceId: "i-0123",
       amiId: "ami-0123",
-      s3Bucket: "vclaw-migration",
-      s3Key: "vclaw-migration/i-0123/disk.vmdk",
+      s3Bucket: "rhodes-migration",
+      s3Key: "rhodes-migration/i-0123/disk.vmdk",
       vmConfig: {
         name: "aws-i-0123",
         cpuCount: 2,
@@ -484,31 +484,31 @@ describe("MigrationAdapter Azure direction routes", () => {
       subscriptionId: "sub-1234",
       ensureResourceGroup: vi.fn(async () => undefined),
       ensureStorageAccount: vi.fn(async () => ({
-        id: "/subscriptions/sub-1234/resourceGroups/vclaw-migrations/providers/Microsoft.Storage/storageAccounts/vclawmigabc123",
-        name: "vclawmigabc123",
+        id: "/subscriptions/sub-1234/resourceGroups/rhodes-migrations/providers/Microsoft.Storage/storageAccounts/rhodesmigabc123",
+        name: "rhodesmigabc123",
         location: "eastus",
       })),
       ensureBlobContainer: vi.fn(async () => undefined),
       getStorageAccountKey: vi.fn(async () => "storage-account-key"),
       createManagedDiskFromImport: vi.fn(async () => ({
-        id: "/subscriptions/sub-1234/resourceGroups/vclaw-migrations/providers/Microsoft.Compute/disks/aws-i-0123-osdisk",
+        id: "/subscriptions/sub-1234/resourceGroups/rhodes-migrations/providers/Microsoft.Compute/disks/aws-i-0123-osdisk",
         name: "aws-i-0123-osdisk",
-        resourceGroup: "vclaw-migrations",
+        resourceGroup: "rhodes-migrations",
         location: "eastus",
         sizeGB: 20,
         diskState: "Unattached",
         encrypted: false,
       })),
       listVNets: vi.fn(async () => [
-        { id: "vnet-1", name: "default-vnet", resourceGroup: "vclaw-migrations", location: "eastus", addressSpaces: ["10.0.0.0/16"], subnetCount: 1 },
+        { id: "vnet-1", name: "default-vnet", resourceGroup: "rhodes-migrations", location: "eastus", addressSpaces: ["10.0.0.0/16"], subnetCount: 1 },
       ]),
       listSubnets: vi.fn(async () => [
-        { id: "/subscriptions/sub-1234/resourceGroups/vclaw-migrations/providers/Microsoft.Network/virtualNetworks/default-vnet/subnets/default", name: "default", resourceGroup: "vclaw-migrations", vnetName: "default-vnet", addressPrefix: "10.0.0.0/24" },
+        { id: "/subscriptions/sub-1234/resourceGroups/rhodes-migrations/providers/Microsoft.Network/virtualNetworks/default-vnet/subnets/default", name: "default", resourceGroup: "rhodes-migrations", vnetName: "default-vnet", addressPrefix: "10.0.0.0/24" },
       ]),
       createVMFromManagedDisk: vi.fn(async () => ({
-        id: "/subscriptions/sub-1234/resourceGroups/vclaw-migrations/providers/Microsoft.Compute/virtualMachines/aws-i-0123",
+        id: "/subscriptions/sub-1234/resourceGroups/rhodes-migrations/providers/Microsoft.Compute/virtualMachines/aws-i-0123",
         name: "aws-i-0123",
-        resourceGroup: "vclaw-migrations",
+        resourceGroup: "rhodes-migrations",
         location: "eastus",
         vmSize: "Standard_B2s",
         powerState: "unknown",
@@ -521,8 +521,8 @@ describe("MigrationAdapter Azure direction routes", () => {
 
     const adapter = createAdapter({
       awsClient: {} as any,
-      awsS3Bucket: "vclaw-migration",
-      awsS3Prefix: "vclaw-migration/",
+      awsS3Bucket: "rhodes-migration",
+      awsS3Prefix: "rhodes-migration/",
       sshExec: sshExec as any,
       azureClient,
     });
@@ -534,15 +534,15 @@ describe("MigrationAdapter Azure direction routes", () => {
     expect(sshExec).toHaveBeenCalledWith(
       "192.168.86.50",
       "root",
-      expect.stringContaining("aws s3 cp s3://vclaw-migration/vclaw-migration/i-0123/disk.vmdk"),
+      expect.stringContaining("aws s3 cp s3://rhodes-migration/rhodes-migration/i-0123/disk.vmdk"),
       7_200_000,
     );
     expect(cloudUploaderMocks.uploadDiskFromSSHToAzurePageBlob).toHaveBeenCalledWith(
       expect.objectContaining({
         sourceHost: "192.168.86.50",
         sourceUser: "root",
-        sourcePath: expect.stringContaining("/tmp/vclaw-migration/aws-azure-"),
-        destinationUrlWithSas: expect.stringContaining("https://vclawmig.blob.core.windows.net"),
+        sourcePath: expect.stringContaining("/tmp/rhodes-migration/aws-azure-"),
+        destinationUrlWithSas: expect.stringContaining("https://rhodesmig.blob.core.windows.net"),
         diskSizeBytes: 1073741824,
       }),
     );
@@ -552,14 +552,14 @@ describe("MigrationAdapter Azure direction routes", () => {
       expect.objectContaining({
         status: "completed",
         source: expect.objectContaining({ provider: "aws", instanceId: "i-0123" }),
-        target: expect.objectContaining({ provider: "azure", resourceGroup: "vclaw-migrations" }),
+        target: expect.objectContaining({ provider: "azure", resourceGroup: "rhodes-migrations" }),
       }),
     );
   });
 
   it("executes azure_to_aws migration with snapshot export and AWS import path", async () => {
-    const vmArmId = "/subscriptions/sub-1234/resourceGroups/vclaw-qa/providers/Microsoft.Compute/virtualMachines/Migration-TestVM";
-    const diskArmId = "/subscriptions/sub-1234/resourceGroups/vclaw-disks/providers/Microsoft.Compute/disks/migration-testvm-osdisk";
+    const vmArmId = "/subscriptions/sub-1234/resourceGroups/rhodes-qa/providers/Microsoft.Compute/virtualMachines/Migration-TestVM";
+    const diskArmId = "/subscriptions/sub-1234/resourceGroups/rhodes-disks/providers/Microsoft.Compute/disks/migration-testvm-osdisk";
 
     const sshExec = vi.fn(async () => ({ stdout: "", stderr: "", exitCode: 0 }));
 
@@ -568,7 +568,7 @@ describe("MigrationAdapter Azure direction routes", () => {
       getVM: vi.fn(async () => ({
         id: vmArmId,
         name: "Migration-TestVM",
-        resourceGroup: "vclaw-qa",
+        resourceGroup: "rhodes-qa",
         location: "eastus",
         vmSize: "Standard_B2s",
         powerState: "running",
@@ -583,7 +583,7 @@ describe("MigrationAdapter Azure direction routes", () => {
         {
           id: diskArmId,
           name: "migration-testvm-osdisk",
-          resourceGroup: "vclaw-disks",
+          resourceGroup: "rhodes-disks",
           location: "eastus",
           sizeGB: 64,
           diskState: "Attached",
@@ -592,9 +592,9 @@ describe("MigrationAdapter Azure direction routes", () => {
         },
       ]),
       createSnapshot: vi.fn(async () => ({
-        id: "/subscriptions/sub-1234/resourceGroups/vclaw-disks/providers/Microsoft.Compute/snapshots/migration-testvm-snap",
+        id: "/subscriptions/sub-1234/resourceGroups/rhodes-disks/providers/Microsoft.Compute/snapshots/migration-testvm-snap",
         name: "migration-testvm-snap",
-        resourceGroup: "vclaw-disks",
+        resourceGroup: "rhodes-disks",
         location: "eastus",
         sizeGB: 64,
         sourceDiskId: diskArmId,
@@ -615,13 +615,13 @@ describe("MigrationAdapter Azure direction routes", () => {
 
     const adapter = createAdapter({
       awsClient: {} as any,
-      awsS3Bucket: "vclaw-migration",
-      awsS3Prefix: "vclaw-migration/",
+      awsS3Bucket: "rhodes-migration",
+      awsS3Prefix: "rhodes-migration/",
       azureClient,
       sshExec: sshExec as any,
     });
 
-    const result = await adapter.execute("migrate_azure_to_aws", { vm_id: "vclaw-qa/Migration-TestVM" });
+    const result = await adapter.execute("migrate_azure_to_aws", { vm_id: "rhodes-qa/Migration-TestVM" });
 
     expect(result.success, String(result.error)).toBe(true);
     expect(azureClient.createSnapshot).toHaveBeenCalled();
@@ -635,7 +635,7 @@ describe("MigrationAdapter Azure direction routes", () => {
     expect(awsImporterMocks.importVM).toHaveBeenCalledWith(
       expect.objectContaining({
         diskFormat: "vhd",
-        diskPath: expect.stringContaining("/tmp/vclaw-migration/azure-aws-"),
+        diskPath: expect.stringContaining("/tmp/rhodes-migration/azure-aws-"),
         vmConfig: expect.objectContaining({ name: "Migration-TestVM" }),
       }),
       "192.168.86.50",
@@ -646,15 +646,15 @@ describe("MigrationAdapter Azure direction routes", () => {
     expect(result.data).toEqual(
       expect.objectContaining({
         status: "completed",
-        source: expect.objectContaining({ provider: "azure", vmId: "vclaw-qa/Migration-TestVM" }),
+        source: expect.objectContaining({ provider: "azure", vmId: "rhodes-qa/Migration-TestVM" }),
         target: expect.objectContaining({ provider: "aws", instanceId: "i-0abcdef1234567890" }),
       }),
     );
   });
 
   it("executes azure_to_vmware migration with snapshot export and VMware import path", async () => {
-    const vmArmId = "/subscriptions/sub-1234/resourceGroups/vclaw-qa/providers/Microsoft.Compute/virtualMachines/Migration-TestVM";
-    const diskArmId = "/subscriptions/sub-1234/resourceGroups/vclaw-disks/providers/Microsoft.Compute/disks/migration-testvm-osdisk";
+    const vmArmId = "/subscriptions/sub-1234/resourceGroups/rhodes-qa/providers/Microsoft.Compute/virtualMachines/Migration-TestVM";
+    const diskArmId = "/subscriptions/sub-1234/resourceGroups/rhodes-disks/providers/Microsoft.Compute/disks/migration-testvm-osdisk";
 
     const sshExec = vi.fn(async () => ({ stdout: "", stderr: "", exitCode: 0 }));
 
@@ -663,7 +663,7 @@ describe("MigrationAdapter Azure direction routes", () => {
       getVM: vi.fn(async () => ({
         id: vmArmId,
         name: "Migration-TestVM",
-        resourceGroup: "vclaw-qa",
+        resourceGroup: "rhodes-qa",
         location: "eastus",
         vmSize: "Standard_B2s",
         powerState: "running",
@@ -678,7 +678,7 @@ describe("MigrationAdapter Azure direction routes", () => {
         {
           id: diskArmId,
           name: "migration-testvm-osdisk",
-          resourceGroup: "vclaw-disks",
+          resourceGroup: "rhodes-disks",
           location: "eastus",
           sizeGB: 64,
           diskState: "Attached",
@@ -687,9 +687,9 @@ describe("MigrationAdapter Azure direction routes", () => {
         },
       ]),
       createSnapshot: vi.fn(async () => ({
-        id: "/subscriptions/sub-1234/resourceGroups/vclaw-disks/providers/Microsoft.Compute/snapshots/migration-testvm-snap",
+        id: "/subscriptions/sub-1234/resourceGroups/rhodes-disks/providers/Microsoft.Compute/snapshots/migration-testvm-snap",
         name: "migration-testvm-snap",
-        resourceGroup: "vclaw-disks",
+        resourceGroup: "rhodes-disks",
         location: "eastus",
         sizeGB: 64,
         sourceDiskId: diskArmId,
@@ -719,7 +719,7 @@ describe("MigrationAdapter Azure direction routes", () => {
       sshExec: sshExec as any,
     });
 
-    const result = await adapter.execute("migrate_azure_to_vmware", { vm_id: "vclaw-qa/Migration-TestVM" });
+    const result = await adapter.execute("migrate_azure_to_vmware", { vm_id: "rhodes-qa/Migration-TestVM" });
 
     expect(result.success, String(result.error)).toBe(true);
     expect(azureClient.createSnapshot).toHaveBeenCalled();
@@ -734,7 +734,7 @@ describe("MigrationAdapter Azure direction routes", () => {
     expect(vmwareImporterMocks.importVM).toHaveBeenCalledWith(
       expect.objectContaining({
         config: expect.objectContaining({ name: "Migration-TestVM" }),
-        vmdkPath: expect.stringContaining("/tmp/vclaw-migration/azure-vmware-"),
+        vmdkPath: expect.stringContaining("/tmp/rhodes-migration/azure-vmware-"),
         esxiHost: "192.168.86.46",
       }),
       "192.168.86.50",
@@ -745,7 +745,7 @@ describe("MigrationAdapter Azure direction routes", () => {
     expect(result.data).toEqual(
       expect.objectContaining({
         status: "completed",
-        source: expect.objectContaining({ provider: "azure", vmId: "vclaw-qa/Migration-TestVM" }),
+        source: expect.objectContaining({ provider: "azure", vmId: "rhodes-qa/Migration-TestVM" }),
         target: expect.objectContaining({ provider: "vmware", vmId: "vm-990" }),
       }),
     );
@@ -753,7 +753,7 @@ describe("MigrationAdapter Azure direction routes", () => {
 
   it("executes proxmox_to_azure migration with Azure disk import path", async () => {
     const pageBlobClient = {
-      url: "https://vclawmig.blob.core.windows.net/vhds/migration-disk.vhd",
+      url: "https://rhodesmig.blob.core.windows.net/vhds/migration-disk.vhd",
       deleteIfExists: vi.fn(async () => undefined),
     };
     const containerClient = {
@@ -805,31 +805,31 @@ describe("MigrationAdapter Azure direction routes", () => {
       subscriptionId: "sub-1234",
       ensureResourceGroup: vi.fn(async () => undefined),
       ensureStorageAccount: vi.fn(async () => ({
-        id: "/subscriptions/sub-1234/resourceGroups/vclaw-migrations/providers/Microsoft.Storage/storageAccounts/vclawmigabc123",
-        name: "vclawmigabc123",
+        id: "/subscriptions/sub-1234/resourceGroups/rhodes-migrations/providers/Microsoft.Storage/storageAccounts/rhodesmigabc123",
+        name: "rhodesmigabc123",
         location: "eastus",
       })),
       ensureBlobContainer: vi.fn(async () => undefined),
       getStorageAccountKey: vi.fn(async () => "storage-account-key"),
       createManagedDiskFromImport: vi.fn(async () => ({
-        id: "/subscriptions/sub-1234/resourceGroups/vclaw-migrations/providers/Microsoft.Compute/disks/proxmox-112-osdisk",
+        id: "/subscriptions/sub-1234/resourceGroups/rhodes-migrations/providers/Microsoft.Compute/disks/proxmox-112-osdisk",
         name: "proxmox-112-osdisk",
-        resourceGroup: "vclaw-migrations",
+        resourceGroup: "rhodes-migrations",
         location: "eastus",
         sizeGB: 20,
         diskState: "Unattached",
         encrypted: false,
       })),
       listVNets: vi.fn(async () => [
-        { id: "vnet-1", name: "default-vnet", resourceGroup: "vclaw-migrations", location: "eastus", addressSpaces: ["10.0.0.0/16"], subnetCount: 1 },
+        { id: "vnet-1", name: "default-vnet", resourceGroup: "rhodes-migrations", location: "eastus", addressSpaces: ["10.0.0.0/16"], subnetCount: 1 },
       ]),
       listSubnets: vi.fn(async () => [
-        { id: "/subscriptions/sub-1234/resourceGroups/vclaw-migrations/providers/Microsoft.Network/virtualNetworks/default-vnet/subnets/default", name: "default", resourceGroup: "vclaw-migrations", vnetName: "default-vnet", addressPrefix: "10.0.0.0/24" },
+        { id: "/subscriptions/sub-1234/resourceGroups/rhodes-migrations/providers/Microsoft.Network/virtualNetworks/default-vnet/subnets/default", name: "default", resourceGroup: "rhodes-migrations", vnetName: "default-vnet", addressPrefix: "10.0.0.0/24" },
       ]),
       createVMFromManagedDisk: vi.fn(async () => ({
-        id: "/subscriptions/sub-1234/resourceGroups/vclaw-migrations/providers/Microsoft.Compute/virtualMachines/proxmox-112",
+        id: "/subscriptions/sub-1234/resourceGroups/rhodes-migrations/providers/Microsoft.Compute/virtualMachines/proxmox-112",
         name: "proxmox-112",
-        resourceGroup: "vclaw-migrations",
+        resourceGroup: "rhodes-migrations",
         location: "eastus",
         vmSize: "Standard_B2s",
         powerState: "unknown",
@@ -855,8 +855,8 @@ describe("MigrationAdapter Azure direction routes", () => {
       expect.objectContaining({
         sourceHost: "192.168.86.50",
         sourceUser: "root",
-        sourcePath: expect.stringContaining("/tmp/vclaw-migration/pve-azure-"),
-        destinationUrlWithSas: expect.stringContaining("https://vclawmig.blob.core.windows.net"),
+        sourcePath: expect.stringContaining("/tmp/rhodes-migration/pve-azure-"),
+        destinationUrlWithSas: expect.stringContaining("https://rhodesmig.blob.core.windows.net"),
         diskSizeBytes: 1073741824,
       }),
     );
@@ -866,14 +866,14 @@ describe("MigrationAdapter Azure direction routes", () => {
       expect.objectContaining({
         status: "completed",
         source: expect.objectContaining({ provider: "proxmox", vmId: "112" }),
-        target: expect.objectContaining({ provider: "azure", resourceGroup: "vclaw-migrations" }),
+        target: expect.objectContaining({ provider: "azure", resourceGroup: "rhodes-migrations" }),
       }),
     );
   });
 
   it("executes azure_to_proxmox migration with snapshot SAS export path", async () => {
-    const vmArmId = "/subscriptions/sub-1234/resourceGroups/vclaw-qa/providers/Microsoft.Compute/virtualMachines/Migration-TestVM";
-    const diskArmId = "/subscriptions/sub-1234/resourceGroups/vclaw-disks/providers/Microsoft.Compute/disks/migration-testvm-osdisk";
+    const vmArmId = "/subscriptions/sub-1234/resourceGroups/rhodes-qa/providers/Microsoft.Compute/virtualMachines/Migration-TestVM";
+    const diskArmId = "/subscriptions/sub-1234/resourceGroups/rhodes-disks/providers/Microsoft.Compute/disks/migration-testvm-osdisk";
 
     const sshExec = vi.fn(async (_host: string, _user: string, cmd: string) => {
       if (cmd.includes("pvesh get /cluster/nextid")) {
@@ -890,7 +890,7 @@ describe("MigrationAdapter Azure direction routes", () => {
       getVM: vi.fn(async () => ({
         id: vmArmId,
         name: "Migration-TestVM",
-        resourceGroup: "vclaw-qa",
+        resourceGroup: "rhodes-qa",
         location: "eastus",
         vmSize: "Standard_B2s",
         powerState: "running",
@@ -905,7 +905,7 @@ describe("MigrationAdapter Azure direction routes", () => {
         {
           id: diskArmId,
           name: "migration-testvm-osdisk",
-          resourceGroup: "vclaw-disks",
+          resourceGroup: "rhodes-disks",
           location: "eastus",
           sizeGB: 64,
           diskState: "Attached",
@@ -914,9 +914,9 @@ describe("MigrationAdapter Azure direction routes", () => {
         },
       ]),
       createSnapshot: vi.fn(async () => ({
-        id: "/subscriptions/sub-1234/resourceGroups/vclaw-disks/providers/Microsoft.Compute/snapshots/migration-testvm-snap",
+        id: "/subscriptions/sub-1234/resourceGroups/rhodes-disks/providers/Microsoft.Compute/snapshots/migration-testvm-snap",
         name: "migration-testvm-snap",
-        resourceGroup: "vclaw-disks",
+        resourceGroup: "rhodes-disks",
         location: "eastus",
         sizeGB: 64,
         sourceDiskId: diskArmId,
@@ -941,7 +941,7 @@ describe("MigrationAdapter Azure direction routes", () => {
       proxmoxStorage: "local-lvm",
     });
 
-    const result = await adapter.execute("migrate_azure_to_proxmox", { vm_id: "vclaw-qa/Migration-TestVM" });
+    const result = await adapter.execute("migrate_azure_to_proxmox", { vm_id: "rhodes-qa/Migration-TestVM" });
 
     expect(result.success, String(result.error)).toBe(true);
     expect(azureClient.createSnapshot).toHaveBeenCalled();
@@ -959,7 +959,7 @@ describe("MigrationAdapter Azure direction routes", () => {
     expect(result.data).toEqual(
       expect.objectContaining({
         status: "completed",
-        source: expect.objectContaining({ provider: "azure", vmId: "vclaw-qa/Migration-TestVM" }),
+        source: expect.objectContaining({ provider: "azure", vmId: "rhodes-qa/Migration-TestVM" }),
         target: expect.objectContaining({ provider: "proxmox", vmId: 205 }),
       }),
     );

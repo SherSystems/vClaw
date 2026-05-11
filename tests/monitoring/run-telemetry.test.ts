@@ -8,7 +8,7 @@ import {
 } from "../../src/monitoring/run-telemetry.js";
 
 function tmpDbPath(): string {
-  return `/tmp/vclaw-test-run-telemetry-${Date.now()}-${Math.random().toString(36).slice(2)}.db`;
+  return `/tmp/rhodes-test-run-telemetry-${Date.now()}-${Math.random().toString(36).slice(2)}.db`;
 }
 
 describe("PersistentRunTelemetryStore", () => {

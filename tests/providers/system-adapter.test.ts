@@ -175,7 +175,7 @@ describe("SystemAdapter", () => {
 
     it("surfaces process spawn errors", async () => {
       const result = await (adapter as any).runProcess(
-        "vclaw-command-that-does-not-exist",
+        "rhodes-command-that-does-not-exist",
         [],
         1000,
       );

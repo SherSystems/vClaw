@@ -17,7 +17,7 @@ Current behavior:
 - `execute()` always returns `success: false` for any tool.
 - `getClusterState()` returns an empty state.
 
-Also important: this adapter is not currently registered in `src/index.ts`, so it is not active in normal vClaw startup flows.
+Also important: this adapter is not currently registered in `src/index.ts`, so it is not active in normal RHODES startup flows.
 
 ## 2. Constructor config surface
 

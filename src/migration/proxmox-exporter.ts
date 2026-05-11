@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Proxmox VM Exporter
+// RHODES — Proxmox VM Exporter
 // Reads VM configuration and extracts disks from Proxmox storage
 // for cross-provider migration
 // ============================================================

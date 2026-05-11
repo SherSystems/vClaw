@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Privacy Router
+// RHODES — Privacy Router
 // Redacts sensitive data before it reaches external LLM APIs.
 // Inspired by NemoClaw's privacy isolation model.
 // ============================================================

@@ -1,7 +1,7 @@
 // ============================================================
 // Security Module Integration Tests
 // Tests end-to-end interaction between security components
-// and the rest of the vClaw system.
+// and the rest of the RHODES system.
 // ============================================================
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -126,7 +126,7 @@ describe("Vault + Config integration", () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "vclaw-vault-test-"));
+    tmpDir = mkdtempSync(join(tmpdir(), "rhodes-vault-test-"));
   });
 
   afterEach(() => {
@@ -221,7 +221,7 @@ describe("Audit + Privacy Router integration", () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "vclaw-audit-test-"));
+    tmpDir = mkdtempSync(join(tmpdir(), "rhodes-audit-test-"));
   });
 
   afterEach(() => {

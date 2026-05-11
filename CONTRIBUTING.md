@@ -1,11 +1,11 @@
-# Contributing to vClaw
+# Contributing to RHODES
 
-Thanks for your interest in contributing to vClaw! We welcome contributions from everyone.
+Thanks for your interest in contributing to RHODES! We welcome contributions from everyone.
 
 ## Getting Started
 
 1. Fork the repository
-2. Clone your fork: `git clone https://github.com/your-username/vclaw.git`
+2. Clone your fork: `git clone https://github.com/your-username/rhodes.git`
 3. Install dependencies: `npm install`
 4. Run tests to make sure everything works: `npm test`
 
@@ -46,7 +46,7 @@ npm run build
 
 ### Adding a New Provider
 
-vClaw uses a plugin architecture for infrastructure providers. To add a new one:
+RHODES uses a plugin architecture for infrastructure providers. To add a new one:
 
 1. Implement the `InfraAdapter` interface in `src/providers/`
 2. Register your provider in the provider registry

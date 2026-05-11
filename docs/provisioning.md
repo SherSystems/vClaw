@@ -1,6 +1,6 @@
 # VM Provisioning
 
-End-to-end VM provisioning planning module for vClaw. Lets a user say
+End-to-end VM provisioning planning module for RHODES. Lets a user say
 "spin up a Windows 11 VM for running a trading bot" and get a concrete,
 type-safe `ProvisioningPlan` that downstream tools can execute on
 Proxmox / vSphere / AWS / Azure.
@@ -112,7 +112,7 @@ Tackle in order. Each step unblocks the next.
 9. **Post-install runner.** Walk `plan.postInstall[]`, ssh in, run each
    step. Hooks into the existing `system` adapter's `ssh_exec` /
    `install_packages` tools.
-10. **CLI / dashboard surfacing.** A `vclaw provision "..."` one-shot
+10. **CLI / dashboard surfacing.** A `rhodes provision "..."` one-shot
     that prints the plan and asks for confirmation before executing.
 
 ## Out of scope for the scaffold

@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Migration Orchestrator
+// RHODES — Migration Orchestrator
 // End-to-end cross-provider VM migration pipeline
 // Phase 1: VMware -> Proxmox | Phase 2: Proxmox -> VMware
 // ============================================================
@@ -36,7 +36,7 @@ export interface MigrationConfig {
   proxmoxStorage?: string; // default: "local-lvm"
 
   // Working directory on Proxmox for staging disk files
-  workDir?: string; // default: "/tmp/vclaw-migration"
+  workDir?: string; // default: "/tmp/rhodes-migration"
 
   // Optional: specific Proxmox VMID (auto-assigned if not provided)
   targetVmId?: number;
@@ -80,7 +80,7 @@ export class MigrationOrchestrator {
     const esxiUser = this.config.esxiUser ?? "root";
     const proxmoxUser = this.config.proxmoxUser ?? "root";
     const proxmoxStorage = this.config.proxmoxStorage ?? "local-lvm";
-    const workDir = this.config.workDir ?? "/tmp/vclaw-migration";
+    const workDir = this.config.workDir ?? "/tmp/rhodes-migration";
     const report = this.config.onProgress ?? (() => {});
 
     const plan: MigrationPlan = {
@@ -282,7 +282,7 @@ export class MigrationOrchestrator {
   async migrateProxmoxToVMware(vmId: number): Promise<MigrationPlan> {
     const proxmoxUser = this.config.proxmoxUser ?? "root";
     const esxiUser = this.config.esxiUser ?? "root";
-    const workDir = this.config.workDir ?? "/tmp/vclaw-migration";
+    const workDir = this.config.workDir ?? "/tmp/rhodes-migration";
     const report = this.config.onProgress ?? (() => {});
 
     const plan: MigrationPlan = {

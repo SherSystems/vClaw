@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — VMware VM Exporter
+// RHODES — VMware VM Exporter
 // Reads VM configuration and locates disk files on ESXi hosts
 // for cross-provider migration
 // ============================================================

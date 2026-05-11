@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Autopilot Rules Engine
+// RHODES — Autopilot Rules Engine
 // Self-healing rules that evaluate cluster state changes and
 // produce actionable matches for the autopilot daemon.
 // ============================================================
@@ -382,7 +382,7 @@ function checkServiceUnreachable(
  * Per the design: there is NO automatic remediation — the rule fires
  * an `alert` action, never a connect/restart. A provider that can't
  * reach its target almost always means the operator must fix
- * credentials or networking outside of vclaw.
+ * credentials or networking outside of rhodes.
  */
 function checkProviderUnreachable(
   rule: AutopilotRule,

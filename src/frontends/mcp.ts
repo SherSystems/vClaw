@@ -1,7 +1,7 @@
 // ============================================================
-// vClaw — MCP Server
+// RHODES — MCP Server
 // Model Context Protocol frontend for Claude Code and other
-// AI tools to interact with vClaw as a tool provider.
+// AI tools to interact with RHODES as a tool provider.
 // ============================================================
 
 import { z } from "zod";
@@ -145,7 +145,7 @@ const pendingPlans = new Map<string, Plan>();
 
 // ── MCP Server Class ────────────────────────────────────────
 
-export class vClawMCP {
+export class RhodesMCP {
   private server: McpServer;
   private agentCore: AgentCore;
   private toolRegistry: ToolRegistry;
@@ -164,7 +164,7 @@ export class vClawMCP {
     this.governance = governance;
 
     this.server = new McpServer({
-      name: "vclaw",
+      name: "rhodes",
       version: "0.2.0",
     });
 
@@ -607,7 +607,7 @@ export class vClawMCP {
     // -- agent_investigate --
     this.server.tool(
       "agent_investigate",
-      "Trigger root cause analysis on a problem. vClaw will gather cluster state, recent events, and audit logs to determine what went wrong and optionally propose a fix.",
+      "Trigger root cause analysis on a problem. RHODES will gather cluster state, recent events, and audit logs to determine what went wrong and optionally propose a fix.",
       {
         problem: z.string().describe("Description of the problem to investigate (e.g. 'VM 102 keeps crashing', 'Network unreachable on vmbr1')"),
       },
@@ -656,7 +656,7 @@ export class vClawMCP {
     // -- agent_status --
     this.server.tool(
       "agent_status",
-      "Get the current state of the vClaw agent including active plans, circuit breaker state, and system health.",
+      "Get the current state of the RHODES agent including active plans, circuit breaker state, and system health.",
       {},
       async () => {
         const cbState = this.governance.getCircuitBreakerState();
@@ -664,7 +664,7 @@ export class vClawMCP {
         const recentEvents = this.eventBus.getHistory(20);
 
         const lines: string[] = [];
-        lines.push("# vClaw Agent Status");
+        lines.push("# RHODES Agent Status");
         lines.push("");
 
         lines.push("## Circuit Breaker");
@@ -771,17 +771,17 @@ export class vClawMCP {
   // ── Resources ───────────────────────────────────────────────
 
   private registerResources(): void {
-    // -- vclaw://cluster/status --
+    // -- rhodes://cluster/status --
     this.server.resource(
       "cluster-status",
-      "vclaw://cluster/status",
+      "rhodes://cluster/status",
       async () => {
         try {
           const state = await this.toolRegistry.getClusterState();
           if (!state) {
             return {
               contents: [{
-                uri: "vclaw://cluster/status",
+                uri: "rhodes://cluster/status",
                 mimeType: "text/plain",
                 text: "No cluster adapter connected. Cannot retrieve cluster status.",
               }],
@@ -790,7 +790,7 @@ export class vClawMCP {
           const text = formatClusterState(state as unknown as Record<string, unknown>);
           return {
             contents: [{
-              uri: "vclaw://cluster/status",
+              uri: "rhodes://cluster/status",
               mimeType: "text/markdown",
               text,
             }],
@@ -799,7 +799,7 @@ export class vClawMCP {
           const msg = err instanceof Error ? err.message : String(err);
           return {
             contents: [{
-              uri: "vclaw://cluster/status",
+              uri: "rhodes://cluster/status",
               mimeType: "text/plain",
               text: `Error retrieving cluster status: ${msg}`,
             }],
@@ -808,10 +808,10 @@ export class vClawMCP {
       },
     );
 
-    // -- vclaw://agent/audit --
+    // -- rhodes://agent/audit --
     this.server.resource(
       "agent-audit",
-      "vclaw://agent/audit",
+      "rhodes://agent/audit",
       async () => {
         try {
           const stats = this.governance.getAuditStats() as {
@@ -822,7 +822,7 @@ export class vClawMCP {
           };
 
           const lines: string[] = [];
-          lines.push("# vClaw Audit Log Summary");
+          lines.push("# RHODES Audit Log Summary");
           lines.push(`Total actions: ${stats.total}`);
           lines.push("");
           lines.push("## Results");
@@ -847,7 +847,7 @@ export class vClawMCP {
 
           return {
             contents: [{
-              uri: "vclaw://agent/audit",
+              uri: "rhodes://agent/audit",
               mimeType: "text/markdown",
               text: lines.join("\n"),
             }],
@@ -856,7 +856,7 @@ export class vClawMCP {
           const msg = err instanceof Error ? err.message : String(err);
           return {
             contents: [{
-              uri: "vclaw://agent/audit",
+              uri: "rhodes://agent/audit",
               mimeType: "text/plain",
               text: `Error retrieving audit data: ${msg}`,
             }],

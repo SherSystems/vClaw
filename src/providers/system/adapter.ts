@@ -342,7 +342,7 @@ export class SystemAdapter implements InfraAdapter {
 
     if (configPath && configContent) {
       const escaped = configContent.replace(/'/g, "'\\''");
-      script += `mkdir -p "$(dirname '${configPath}')" && cat > '${configPath}' << 'VCLAW_EOF'\n${escaped}\nVCLAW_EOF\n`;
+      script += `mkdir -p "$(dirname '${configPath}')" && cat > '${configPath}' << 'RHODES_EOF'\n${escaped}\nRHODES_EOF\n`;
     }
 
     switch (action) {

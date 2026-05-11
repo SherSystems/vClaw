@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Autopilot Rule Schema
+// RHODES — Autopilot Rule Schema
 // Zod schemas for validating AutopilotRule definitions before
 // they are loaded into the engine. Catches typos in condition
 // strings, malformed cooldowns, and bad tier values up front.

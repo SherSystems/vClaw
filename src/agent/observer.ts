@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Observer
+// RHODES — Observer
 // Compares expected vs actual state after action execution
 // ============================================================
 

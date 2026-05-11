@@ -2,7 +2,7 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in vClaw, please report it responsibly.
+If you discover a security vulnerability in RHODES, please report it responsibly.
 
 **Do NOT open a public GitHub issue for security vulnerabilities.**
 
@@ -18,7 +18,7 @@ We will acknowledge your report within 48 hours and provide a detailed response 
 
 ## Security Model
 
-vClaw is designed for managing production infrastructure. Security is not an afterthought.
+RHODES is designed for managing production infrastructure. Security is not an afterthought.
 
 ### Credential Vault
 - All secrets encrypted at rest with AES-256-GCM
@@ -51,7 +51,7 @@ vClaw is designed for managing production infrastructure. Security is not an aft
 
 ## Best Practices for Deployment
 
-1. Run vClaw behind a firewall or VPN. Do not expose the dashboard to the public internet.
+1. Run RHODES behind a firewall or VPN. Do not expose the dashboard to the public internet.
 2. Use API tokens with minimal required permissions for each provider.
 3. Enable approval gates for Tier 2+ operations in production environments.
 4. Regularly rotate credentials stored in the vault.

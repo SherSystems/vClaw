@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — SSH Adapter Types
+// RHODES — SSH Adapter Types
 // First-class shell-execution surface against registered SSH targets.
 // ============================================================
 

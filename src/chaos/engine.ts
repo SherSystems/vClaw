@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Chaos Engine
+// RHODES — Chaos Engine
 // Simulate and execute failure scenarios to validate resilience
 // ============================================================
 
@@ -77,7 +77,7 @@ export interface ChaosEngineOptions {
 
 // ── Constants ───────────────────────────────────────────────
 
-/** VM IDs that must NEVER be targeted by chaos (e.g. the VM running vClaw itself) */
+/** VM IDs that must NEVER be targeted by chaos (e.g. the VM running RHODES itself) */
 const PROTECTED_VMIDS = new Set(
   (process.env.CHAOS_PROTECTED_VMIDS || "").split(",").map((s) => s.trim()).filter(Boolean),
 );
@@ -333,7 +333,7 @@ export class ChaosEngine {
         }
         const targetVmidStr = String(targetVmid);
         if (PROTECTED_VMIDS.has(targetVmidStr)) {
-          throw new Error(`VM ${targetVmid} is protected — it runs vClaw itself and cannot be targeted`);
+          throw new Error(`VM ${targetVmid} is protected — it runs RHODES itself and cannot be targeted`);
         }
         const vm = clusterState.vms.find((v) => String(v.id) === targetVmidStr);
         if (!vm) {
@@ -440,7 +440,7 @@ export class ChaosEngine {
 
         const targetVmidStr = String(targetVmid);
         if (PROTECTED_VMIDS.has(targetVmidStr)) {
-          throw new Error(`VM ${targetVmid} is protected — it runs vClaw itself and cannot be targeted`);
+          throw new Error(`VM ${targetVmid} is protected — it runs RHODES itself and cannot be targeted`);
         }
 
         const vm = clusterState.vms.find((v) => String(v.id) === targetVmidStr);

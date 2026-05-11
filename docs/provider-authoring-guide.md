@@ -1,6 +1,6 @@
-# vClaw Provider Adapter Authoring Guide
+# RHODES Provider Adapter Authoring Guide
 
-This guide explains how to add a new infrastructure provider to vClaw using the current adapter contract in `src/providers/types.ts`.
+This guide explains how to add a new infrastructure provider to RHODES using the current adapter contract in `src/providers/types.ts`.
 
 ## 1. Implement the `InfraAdapter` interface
 

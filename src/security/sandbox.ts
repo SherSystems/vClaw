@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Sandbox Isolation
+// RHODES — Sandbox Isolation
 // Executes tool calls in isolated worker threads with resource
 // limits, timeouts, and crash containment.
 // Inspired by NemoClaw's sandbox isolation model.

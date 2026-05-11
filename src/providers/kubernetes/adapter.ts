@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Kubernetes Adapter
+// RHODES — Kubernetes Adapter
 // Read-only first pass: covers nodes, namespaces, pods,
 // deployments, and services. Lifecycle ops are intentionally
 // deferred to a follow-up iteration.

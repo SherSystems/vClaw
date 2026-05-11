@@ -1,4 +1,4 @@
-// API client for vClaw dashboard
+// API client for RHODES dashboard
 import { isOnPremProvider } from "../lib/costs";
 
 const BASE = "";

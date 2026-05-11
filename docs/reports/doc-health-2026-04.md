@@ -1,4 +1,4 @@
-# vClaw Doc-Health Report (April 2026)
+# RHODES Doc-Health Report (April 2026)
 
 Audit date: 2026-04-18  
 Auditor: Sher Technical Writer  

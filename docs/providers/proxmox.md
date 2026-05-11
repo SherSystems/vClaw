@@ -8,7 +8,7 @@ This guide documents the Proxmox adapter exactly as implemented in:
 
 ## 1. Authentication and registration
 
-vClaw auto-registers the Proxmox adapter in `src/index.ts` only when both values are present:
+RHODES auto-registers the Proxmox adapter in `src/index.ts` only when both values are present:
 
 - `PROXMOX_TOKEN_ID`
 - `PROXMOX_TOKEN_SECRET`
@@ -18,7 +18,7 @@ Required connection variables:
 ```env
 PROXMOX_HOST=192.168.1.100
 PROXMOX_PORT=8006
-PROXMOX_TOKEN_ID=root@pam!vclaw
+PROXMOX_TOKEN_ID=root@pam!rhodes
 PROXMOX_TOKEN_SECRET=your-token-secret
 PROXMOX_ALLOW_SELF_SIGNED=true
 ```
@@ -627,7 +627,7 @@ await adapter.execute("delete_snapshot", {
 
 ## 5. Cluster state mapping
 
-`getClusterState()` in `src/providers/proxmox/adapter.ts` maps Proxmox data into vClaw state:
+`getClusterState()` in `src/providers/proxmox/adapter.ts` maps Proxmox data into RHODES state:
 
 1. Reads nodes from `/nodes` and maps CPU/RAM/disk metrics into `NodeInfo`.
 2. For each online node, fetches VM inventory and maps:

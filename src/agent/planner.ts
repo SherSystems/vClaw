@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Planner
+// RHODES — Planner
 // Converts high-level goals into dependency-ordered execution plans
 // ============================================================
 
@@ -166,7 +166,6 @@ export class Planner {
 
     if (parsed.steps.length > 0) {
       validateToolReferences(parsed.steps, context.tools);
-      validateDependencyGraph(parsed.steps);
     }
 
     const newPlanId = randomUUID();
@@ -179,6 +178,18 @@ export class Planner {
       status: "pending" as const,
       tier: context.tools.find((t) => t.name === s.action)?.tier ?? "read",
     }));
+
+    // Strip stale dependencies — the LLM occasionally references step IDs
+    // from the previous plan ("step_1", "step_2") that no longer exist in
+    // this revision. Filter each depends_on list to only IDs present in the
+    // current plan, then validate the cleaned graph.
+    const newIds = new Set(steps.map((s) => s.id));
+    for (const step of steps) {
+      step.depends_on = step.depends_on.filter((d) => newIds.has(d));
+    }
+    if (steps.length > 0) {
+      validateDependencyGraph(steps);
+    }
 
     return {
       id: newPlanId,
@@ -203,11 +214,12 @@ export class Planner {
 // ── Helpers ─────────────────────────────────────────────────
 
 function parseResponse(raw: string): LLMPlanResponse {
+  const cleaned = stripMarkdownFences(raw);
   let parsedJson: unknown;
   try {
-    parsedJson = JSON.parse(raw);
+    parsedJson = JSON.parse(cleaned);
   } catch {
-    throw new Error(`Failed to parse LLM plan response as JSON: ${raw.slice(0, 500)}`);
+    throw new Error(`Failed to parse LLM plan response as JSON: ${cleaned.slice(0, 500)}`);
   }
 
   const parsed = LLMPlanResponseSchema.safeParse(parsedJson);
@@ -216,6 +228,27 @@ function parseResponse(raw: string): LLMPlanResponse {
   }
 
   return parsed.data;
+}
+
+/**
+ * LLMs frequently wrap JSON output in ```json ... ``` markdown fences even
+ * when the prompt explicitly forbids them. Strip the fence + any surrounding
+ * prose so the parser sees clean JSON. If no fence is present, return the
+ * trimmed input unchanged.
+ */
+function stripMarkdownFences(raw: string): string {
+  const trimmed = raw.trim();
+  // Match ```json ... ``` or ``` ... ``` with optional trailing prose.
+  const fenced = /^```(?:json|JSON)?\s*([\s\S]*?)\s*```/m.exec(trimmed);
+  if (fenced) return fenced[1].trim();
+  // Sometimes the model emits prose before the JSON object. Find the first
+  // { and the matching last } and slice between them.
+  const firstBrace = trimmed.indexOf("{");
+  const lastBrace = trimmed.lastIndexOf("}");
+  if (firstBrace > 0 && lastBrace > firstBrace) {
+    return trimmed.slice(firstBrace, lastBrace + 1);
+  }
+  return trimmed;
 }
 
 function formatSchemaIssues(issues: z.ZodIssue[]): string {

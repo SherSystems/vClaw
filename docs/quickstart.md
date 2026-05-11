@@ -1,4 +1,4 @@
-# vClaw Quickstart
+# RHODES Quickstart
 
 This quickstart walks through:
 
@@ -25,8 +25,8 @@ This quickstart walks through:
 ## 2. Install and bootstrap
 
 ```bash
-git clone https://github.com/SherSystems/vclaw.git
-cd vclaw
+git clone https://github.com/SherSystems/rhodes.git
+cd rhodes
 npm install
 cp .env.example .env
 ```
@@ -47,7 +47,7 @@ Edit `.env`:
 ```env
 PROXMOX_HOST=192.168.1.100
 PROXMOX_PORT=8006
-PROXMOX_TOKEN_ID=root@pam!vclaw
+PROXMOX_TOKEN_ID=root@pam!rhodes
 PROXMOX_TOKEN_SECRET=your-token-secret
 PROXMOX_ALLOW_SELF_SIGNED=true
 ```
@@ -83,7 +83,7 @@ Create a service principal with subscription scope:
 
 ```bash
 az ad sp create-for-rbac \
-  --name vclaw-sp \
+  --name rhodes-sp \
   --role Contributor \
   --scopes /subscriptions/<subscription-id>
 ```
@@ -130,7 +130,7 @@ For execute-mode migration workflows (not just planning), add:
 ```env
 # Required for AWS-backed migration transfers
 AWS_S3_MIGRATION_BUCKET=your-migration-bucket
-AWS_S3_MIGRATION_PREFIX=vclaw-migration/
+AWS_S3_MIGRATION_PREFIX=rhodes-migration/
 
 # Required for Proxmox-backed migration execution
 MIGRATION_PROXMOX_HOST=proxmox.lab.local
@@ -147,7 +147,7 @@ Notes:
 
 - `migrate_proxmox_to_azure` is now fully executable end-to-end (export, convert, upload, managed-disk import, VM create).
 - Azure execute routes other than Proxmox -> Azure still return plan-only scaffolds for now; use their `plan_migration_*` tools until disk transfer/import is implemented.
-- vClaw now streams disk uploads over SSH through the app process and cloud SDKs, so source hypervisor hosts do not need local `aws` or `az` CLI installs for migration upload steps.
+- RHODES now streams disk uploads over SSH through the app process and cloud SDKs, so source hypervisor hosts do not need local `aws` or `az` CLI installs for migration upload steps.
 
 ## 4. AI provider config
 
@@ -159,18 +159,18 @@ AI_MODEL=claude-haiku-4-5-20251001
 
 ## 5. Optional: configure the credential vault
 
-vClaw includes a vault implementation in `src/security/vault.ts`, with helpers in `src/config.ts`.
+RHODES includes a vault implementation in `src/security/vault.ts`, with helpers in `src/config.ts`.
 
 Set a vault key:
 
 ```bash
-export VCLAW_VAULT_KEY="$(openssl rand -hex 32)"
+export RHODES_VAULT_KEY="$(openssl rand -hex 32)"
 ```
 
 Migrate current `.env` secrets into `data/vault.json`:
 
 ```bash
-npx tsx -e "import { getConfig, getOrCreateVault, migrateToVault } from './src/config.ts'; const cfg = getConfig(); const vault = getOrCreateVault(); if (!vault) throw new Error('VCLAW_VAULT_KEY is missing'); migrateToVault(cfg, vault); console.log('Vault migration complete: data/vault.json');"
+npx tsx -e "import { getConfig, getOrCreateVault, migrateToVault } from './src/config.ts'; const cfg = getConfig(); const vault = getOrCreateVault(); if (!vault) throw new Error('RHODES_VAULT_KEY is missing'); migrateToVault(cfg, vault); console.log('Vault migration complete: data/vault.json');"
 ```
 
 Current release note: startup still reads runtime credentials from environment variables, so keep `.env` values available for execution.
@@ -198,7 +198,7 @@ Migrate Proxmox VM 112 to Azure in eastus and show me each execution step
 
 ## 7. Understand 5-tier safety governance
 
-vClaw classifies actions into five tiers:
+RHODES classifies actions into five tiers:
 
 | Tier | Meaning | Typical behavior |
 | --- | --- | --- |

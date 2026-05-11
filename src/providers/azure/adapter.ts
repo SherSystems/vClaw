@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Azure ARM Adapter
+// RHODES — Azure ARM Adapter
 // Implements InfraAdapter and registers Azure Compute + Network tools
 // ============================================================
 

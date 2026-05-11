@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Cross-Provider Migration Types
+// RHODES — Cross-Provider Migration Types
 // Types for VM migration between infrastructure providers
 // ============================================================
 

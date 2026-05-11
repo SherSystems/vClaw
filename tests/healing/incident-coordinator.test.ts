@@ -32,7 +32,7 @@ describe("IncidentCoordinator", () => {
   });
 
   function makeCoordinator() {
-    const dataDir = `/tmp/vclaw-incident-coordinator-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const dataDir = `/tmp/rhodes-incident-coordinator-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     tempDirs.push(dataDir);
     const eventBus = new EventBus();
     const coordinator = new IncidentCoordinator(eventBus, dataDir);

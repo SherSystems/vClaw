@@ -81,7 +81,7 @@ describe("HealingOrchestrator", () => {
   let runMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    dataDir = `/tmp/vclaw-healing-orchestrator-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    dataDir = `/tmp/rhodes-healing-orchestrator-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     eventBus = new EventBus();
     runMock = vi.fn().mockResolvedValue(makeRunResult(true));
     vi.mocked(callLLM).mockResolvedValue(

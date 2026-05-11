@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Dashboard Server
+// RHODES — Dashboard Server
 // HTTP + SSE server for the real-time agent dashboard
 // ============================================================
 

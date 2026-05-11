@@ -4,7 +4,7 @@ This repository is designed to work well with coding agents such as Codex and Cl
 
 ## Project Overview
 
-vClaw is an autonomous AI infrastructure agent with multi-provider support (Proxmox, VMware, and more). The backend is a TypeScript Node.js application that plans actions with an LLM, routes them through governance checks, executes tools via provider adapters, observes outcomes, and exposes multiple frontends.
+RHODES (Reasoning, Hybrid Orchestration, Deployment & Execution System) is an agentic infrastructure operations platform with multi-provider support (Proxmox, VMware, Azure, AWS, and more). The backend is a TypeScript Node.js application that plans actions with an LLM, routes them through governance checks, executes tools via provider adapters, observes outcomes, and exposes multiple frontends.
 
 Primary runtime modes:
 
@@ -98,7 +98,7 @@ The dashboard frontend (`dashboard-v2/`) is a React 19 + Vite 6 app using Zustan
 
 ## Provider Architecture
 
-vClaw uses a provider abstraction pattern:
+RHODES uses a provider abstraction pattern:
 
 - `InfraAdapter` interface: `connect()`, `disconnect()`, `getTools()`, `execute()`, `getClusterState()`
 - `ToolRegistry`: routes tool execution to the correct adapter based on tool→adapter mapping

@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Cost Estimator
+// RHODES — Cost Estimator
 // Pure functions that turn provider cluster state into
 // monthly-cost summaries, daily timeseries, and top-resource
 // rankings used by the Costs tab in the dashboard.

@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — VMware vSphere 8.0 REST API Client
+// RHODES — VMware vSphere 8.0 REST API Client
 // Session-based auth client using native Node.js https module
 // ============================================================
 

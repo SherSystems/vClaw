@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Agent Memory (SQLite-backed)
+// RHODES — Agent Memory (SQLite-backed)
 // Cross-session memory for patterns, preferences, and learnings
 // ============================================================
 

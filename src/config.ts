@@ -3,13 +3,76 @@ import dotenv from "dotenv";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { CredentialVault } from "./security/vault.js";
 import {
   serviceHealthConfigSchema,
   DEFAULT_PROBES,
 } from "./autopilot/probes/schema.js";
 
-dotenv.config();
+// ── .env Discovery ──────────────────────────────────────────
+// Look for .env in this order so `rhodes` works no matter where you run it:
+//   1. $RHODES_ENV_FILE                        (explicit override)
+//   2. ./.env                                  (current working dir)
+//   3. ~/.rhodes/.env                          (per-user config)
+//   4. <install dir>/.env                      (project root, where this file lives)
+//
+// First file wins. dotenv won't override variables already set in the real
+// environment, so an explicit shell export still beats the file.
+function loadEnvFromCandidates(): string | null {
+  const __filename = fileURLToPath(import.meta.url);
+  // src/config.ts at runtime is dist/config.js — go up one level to the
+  // package root in either case.
+  const installDir = dirname(dirname(__filename));
+
+  const candidates: string[] = [];
+  const envFile = process.env.RHODES_ENV_FILE ?? process.env.VCLAW_ENV_FILE;
+  if (envFile) candidates.push(envFile);
+  candidates.push(join(process.cwd(), ".env"));
+  candidates.push(join(homedir(), ".rhodes", ".env"));
+  // Backwards-compat: legacy ~/.vclaw/.env still works.
+  candidates.push(join(homedir(), ".vclaw", ".env"));
+  candidates.push(join(installDir, ".env"));
+
+  for (const path of candidates) {
+    if (existsSync(path)) {
+      dotenv.config({ path });
+      return path;
+    }
+  }
+  // No file found — still call dotenv.config() in case dotenv has its own
+  // search behaviour we want to preserve (it's a no-op if cwd has no .env).
+  dotenv.config();
+  return null;
+}
+
+loadEnvFromCandidates();
+
+// ── .rhodes.yaml Discovery ──────────────────────────────────
+// Looks for an optional YAML workspace config file:
+//   1. ./.rhodes.yaml                          (current working dir, preferred)
+//   2. ./.vclaw.yaml                           (legacy — emits deprecation warning)
+//
+// The presence of the file is currently informational — env vars remain the
+// authoritative config surface. This loader exists so future workspace-level
+// settings have a stable name, and so legacy `.vclaw.yaml` users get a clean
+// rename signal instead of a silent break.
+function discoverWorkspaceConfigPath(): string | null {
+  const cwd = process.cwd();
+  const rhodesPath = join(cwd, ".rhodes.yaml");
+  if (existsSync(rhodesPath)) return rhodesPath;
+  const legacyPath = join(cwd, ".vclaw.yaml");
+  if (existsSync(legacyPath)) {
+    console.warn(
+      "[config] Found legacy .vclaw.yaml — rename it to .rhodes.yaml. The old name will stop working in a future release.",
+    );
+    return legacyPath;
+  }
+  return null;
+}
+
+// Run discovery at import time so warnings surface during startup.
+discoverWorkspaceConfigPath();
 
 const ProxmoxConfigSchema = z.object({
   host: z.string().default("localhost"),
@@ -64,7 +127,7 @@ const AWSConfigSchema = z.object({
   region: z.string().default("us-east-1"),
   sessionToken: z.string().default(""),
   s3MigrationBucket: z.string().default(""),
-  s3MigrationPrefix: z.string().default("vclaw-migration/"),
+  s3MigrationPrefix: z.string().default("rhodes-migration/"),
   vmImportRoleArn: z.string().default(""),
 });
 
@@ -233,11 +296,18 @@ export function getConfig(): Config {
     },
     ssh: {
       targets: loadSshTargets(),
-      max_output_bytes: process.env.VCLAW_SSH_MAX_OUTPUT_BYTES,
-      default_timeout_s: process.env.VCLAW_SSH_DEFAULT_TIMEOUT_S,
-      allow_destructive: process.env.VCLAW_SSH_ALLOW_DESTRUCTIVE === "true",
+      max_output_bytes:
+        process.env.RHODES_SSH_MAX_OUTPUT_BYTES ??
+        process.env.VCLAW_SSH_MAX_OUTPUT_BYTES,
+      default_timeout_s:
+        process.env.RHODES_SSH_DEFAULT_TIMEOUT_S ??
+        process.env.VCLAW_SSH_DEFAULT_TIMEOUT_S,
+      allow_destructive:
+        (process.env.RHODES_SSH_ALLOW_DESTRUCTIVE ??
+          process.env.VCLAW_SSH_ALLOW_DESTRUCTIVE) === "true",
       strict_host_key_checking:
-        process.env.VCLAW_SSH_STRICT_HOST_KEY_CHECKING !== "false",
+        (process.env.RHODES_SSH_STRICT_HOST_KEY_CHECKING ??
+          process.env.VCLAW_SSH_STRICT_HOST_KEY_CHECKING) !== "false",
     },
   });
 
@@ -245,7 +315,8 @@ export function getConfig(): Config {
 }
 
 /**
- * Load SSH targets from a JSON file pointed at by VCLAW_SSH_TARGETS_FILE.
+ * Load SSH targets from a JSON file pointed at by RHODES_SSH_TARGETS_FILE
+ * (legacy: VCLAW_SSH_TARGETS_FILE).
  *
  * We deliberately keep targets out of process env so:
  *  - identity_file paths aren't exposed via /proc/<pid>/environ
@@ -254,26 +325,28 @@ export function getConfig(): Config {
  *
  * Returns an empty array if the env var is unset, the file is missing,
  * or the file is malformed (we log a warning to stderr and fail soft so
- * vclaw still boots without SSH).
+ * rhodes still boots without SSH).
  */
 function loadSshTargets(): unknown[] {
-  const envInline = process.env.VCLAW_SSH_TARGETS;
+  const envInline =
+    process.env.RHODES_SSH_TARGETS ?? process.env.VCLAW_SSH_TARGETS;
   if (envInline) {
     try {
       const parsed = JSON.parse(envInline);
       return Array.isArray(parsed) ? parsed : [];
     } catch (err) {
       console.error(
-        `[config] VCLAW_SSH_TARGETS is not valid JSON; ignoring. (${(err as Error).message})`,
+        `[config] RHODES_SSH_TARGETS is not valid JSON; ignoring. (${(err as Error).message})`,
       );
       return [];
     }
   }
 
-  const file = process.env.VCLAW_SSH_TARGETS_FILE;
+  const file =
+    process.env.RHODES_SSH_TARGETS_FILE ?? process.env.VCLAW_SSH_TARGETS_FILE;
   if (!file) return [];
   if (!existsSync(file)) {
-    console.error(`[config] VCLAW_SSH_TARGETS_FILE points at "${file}" but the file is missing; ignoring.`);
+    console.error(`[config] RHODES_SSH_TARGETS_FILE points at "${file}" but the file is missing; ignoring.`);
     return [];
   }
   try {
@@ -301,16 +374,16 @@ export function getDataDir(): string {
   return dir;
 }
 
-// ── Vault Integration (opt-in via VCLAW_VAULT_KEY) ──────────
+// ── Vault Integration (opt-in via RHODES_VAULT_KEY) ─────────
 
 let _vault: CredentialVault | null = null;
 
 /**
- * Get or create the credential vault. Returns null if VCLAW_VAULT_KEY is not set.
- * The vault is stored at <dataDir>/vault.json.
+ * Get or create the credential vault. Returns null if RHODES_VAULT_KEY
+ * (legacy: VCLAW_VAULT_KEY) is not set. The vault is stored at <dataDir>/vault.json.
  */
 export function getOrCreateVault(): CredentialVault | null {
-  const vaultKey = process.env.VCLAW_VAULT_KEY;
+  const vaultKey = process.env.RHODES_VAULT_KEY ?? process.env.VCLAW_VAULT_KEY;
   if (!vaultKey) return null;
 
   if (_vault) return _vault;

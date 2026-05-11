@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Provisioning Planner
+// RHODES — Provisioning Planner
 // Translates a natural-language VmProvisioningRequest into a
 // concrete ProvisioningPlan for a target hypervisor.
 //
@@ -94,7 +94,7 @@ const KNOWN_OS_TARGETS: readonly OsTarget[] = [
   "rocky-9",
 ];
 
-const PLANNER_SYSTEM_PROMPT = `You are a VM provisioning planner for vClaw, an autonomous infrastructure agent.
+const PLANNER_SYSTEM_PROMPT = `You are a VM provisioning planner for RHODES, an autonomous infrastructure agent.
 
 Given a natural-language request to provision a VM, decide:
   - which OS target to install
@@ -252,7 +252,7 @@ export class ProvisioningPlanner {
     const locale = hints?.locale ?? "en-US";
     const keyboard = hints?.keyboard ?? "us";
     const timezone = hints?.timezone ?? "UTC";
-    const username = hints?.username ?? "vclaw";
+    const username = hints?.username ?? "rhodes";
 
     if (osFamily(os) === "windows") {
       return {

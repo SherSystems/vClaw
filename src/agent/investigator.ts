@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Investigator
+// RHODES — Investigator
 // Root cause analysis engine for infrastructure issues
 // ============================================================
 

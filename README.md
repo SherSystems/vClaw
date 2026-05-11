@@ -1,16 +1,15 @@
 <p align="center">
-  <img src="docs/assets/vclaw-logo.png" alt="vClaw" width="120" />
+  <img src="docs/assets/vclaw-logo.png" alt="RHODES" width="120" />
 </p>
 
-<h1 align="center">vClaw</h1>
+<h1 align="center">RHODES</h1>
 
 <p align="center">
-  <strong>Autonomous AI agent for infrastructure management.<br/>One command. Any hypervisor. Full safety guardrails.</strong>
+  <strong>Reasoning, Hybrid Orchestration, Deployment &amp; Execution System.<br/>Infrastructure, executed.</strong>
 </p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License" /></a>
-  <img src="https://img.shields.io/badge/Tests-1338_passing-FF9500" alt="Tests" />
   <img src="https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white" alt="TypeScript" />
   <img src="https://img.shields.io/badge/Node.js_22+-339933?logo=node.js&logoColor=white" alt="Node.js" />
   <img src="https://img.shields.io/badge/Proxmox_VE-E57000?logo=proxmox&logoColor=white" alt="Proxmox" />
@@ -30,11 +29,11 @@
 
 ---
 
-## What is vClaw?
+## What is RHODES?
 
-vClaw is an open-source AI agent that manages your entire infrastructure through natural language. Instead of switching between vCenter, Proxmox, AWS consoles, and half a dozen CLI tools, you describe what you want in plain English and vClaw figures out the rest.
+RHODES is an agentic infrastructure operations platform. State your intent in plain language. RHODES builds an inspectable execution plan, validates dependencies and provider state, and executes across vCenter, Proxmox, Kubernetes, AWS, and bare metal.
 
-It supports multiple hypervisors natively, classifies every action by risk level, and requires human approval before doing anything destructive. Built for IT teams, managed service providers, and homelabbers who are tired of juggling dashboards.
+It treats infrastructure operations like a reasoning problem. Plans are inspectable. Execution is grounded in real system state. Providers become composable substrates instead of isolated silos. Operators stay in control.
 
 ```bash
 # Instead of this:
@@ -43,26 +42,25 @@ curl https://vcenter.local/api/vcenter/vm -X POST \
   -d '{"spec": {"name": "web-01", "cpu": {"cores": 4}, "memory": {"size_mib": 8192}}}'
 
 # You do this:
-vclaw "Create a web server VM with 4 cores and 8GB RAM on whichever host has the most capacity"
+rhodes "Provision a web server VM with 4 cores and 8 GB RAM on the host with the most free capacity"
 ```
 
-vClaw will analyze your infrastructure across all connected providers, generate an execution plan, run it through safety checks, execute with a full audit trail, and monitor the result.
+RHODES inspects runtime state across connected providers, builds an execution plan, validates dependencies, executes through approval gates, and tracks drift.
 
 ---
 
-## Why vClaw?
+## Positioning
 
-| Feature | vClaw | VMware Aria | Terraform | Kubiya | Ansible |
-|---------|-------|-------------|-----------|--------|---------|
-| **Multi-hypervisor** | Native (Proxmox + VMware + Azure) | VMware only | Via providers | Cloud only | Via modules |
-| **Autonomous execution** | Yes | Recommendations only | Code generation | Yes | Playbook-based |
-| **Natural language** | First-class | No | AI copilot | Yes | AI copilot |
-| **Safety governance** | 5-tier + approval gates | Enterprise | Policy engine | Basic | Manual |
-| **Open source** | MIT | Proprietary | BSL | Proprietary | GPL |
-| **On-prem / homelab** | Yes | Yes | Yes | No | Yes |
-| **Cost** | Free | $$$K/year | Free/paid | $$$/month | Free/paid |
+| Capability | RHODES | VMware Aria | Terraform | Ansible |
+|---|---|---|---|---|
+| **Hybrid substrate orchestration** | Native (Proxmox + VMware + Azure + AWS) | VMware only | Via providers | Via modules |
+| **Agentic execution** | Yes | Recommendations only | Code generation | Playbook-based |
+| **Plain-language intent** | First-class | No | AI copilot | AI copilot |
+| **Plan-before-execute** | Inspectable plans + approval gates | Enterprise | `terraform plan` | `--check` mode |
+| **Drift detection / reconcile** | Built-in | Yes | Yes | Limited |
+| **License** | MIT | Proprietary | BSL | GPL |
 
-No other tool combines multi-hypervisor support, autonomous execution, natural language control, and enterprise safety in a single open-source package.
+RHODES composes infrastructure. It does not replace it.
 
 ---
 
@@ -71,14 +69,14 @@ No other tool combines multi-hypervisor support, autonomous execution, natural l
 ### Prerequisites
 
 - Node.js 18+ (22+ recommended)
-- Access to at least one infrastructure provider (Proxmox, VMware vSphere, or Azure)
+- Access to at least one infrastructure provider (Proxmox, VMware vSphere, Azure, or AWS)
 - An AI API key (Anthropic Claude, OpenAI, or compatible)
 
 ### Installation
 
 ```bash
-git clone https://github.com/SherSystems/vclaw.git
-cd vclaw
+git clone https://github.com/SherSystems/rhodes.git
+cd rhodes
 npm install
 cp .env.example .env
 ```
@@ -91,7 +89,7 @@ Edit `.env` with your provider credentials:
 # Proxmox
 PROXMOX_HOST=192.168.1.10
 PROXMOX_PORT=8006
-PROXMOX_TOKEN_ID=root@pam!vclaw
+PROXMOX_TOKEN_ID=root@pam!rhodes
 PROXMOX_TOKEN_SECRET=your-token-secret
 
 # VMware vSphere
@@ -118,25 +116,27 @@ AI_MODEL=claude-sonnet-4-20250514
 ### Run
 
 ```bash
-# Interactive CLI
-npm run dev
+# Interactive CLI (alias: rho)
+rhodes
 
 # Web dashboard
-npm run dev:dashboard    # http://localhost:3000
+rhodes dashboard       # http://localhost:3000
 
-# As an MCP server (Claude Desktop integration)
-npm run dev:mcp
+# MCP server (Claude Desktop integration)
+rhodes mcp
+
+# Autopilot daemon + dashboard
+rhodes autopilot
 ```
 
-### Example Commands
+### Example Operations
 
 ```
-> List all VMs across every provider
-> Create a Ubuntu VM with 4 cores and 8GB RAM on the host with the most free memory
-> Migrate db-replica-07 to a host with lower CPU load
-> Show me all VMs using more than 90% CPU
-> Take a snapshot of the production cluster before the upgrade
-> Run chaos tests on staging and tell me what breaks
+rhodes@mission:~$ List all VMs across every provider
+rhodes@mission:~$ Provision a Ubuntu VM with 4 cores and 8 GB RAM on the host with the most free memory
+rhodes@mission:~$ Migrate db-replica-07 to a host with lower CPU load
+rhodes@mission:~$ Reconcile drift in the production workspace
+rhodes@mission:~$ Snapshot the production cluster before the upgrade
 ```
 
 ---
@@ -152,120 +152,98 @@ npm run dev:mcp
 - [AWS Provider Guide](docs/providers/aws.md) (16 tools for EC2, EBS, VPC, AMI workflows)
 - [Kubernetes Provider Guide](docs/providers/kubernetes.md) (current scaffold behavior and planned integration points)
 - [Provider Authoring Guide](docs/provider-authoring-guide.md) (implementing and registering new adapters)
-- [CHANGELOG](CHANGELOG.md) (including 0.2.x draft release notes)
+- [CHANGELOG](CHANGELOG.md)
 
 ---
 
 ## How It Works
 
-vClaw runs an autonomous agent loop:
+RHODES runs an agentic operations loop:
 
 ```
-  Describe          Plan            Govern          Execute         Observe
+   Intent          Plan            Govern          Execute         Reconcile
  ┌─────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐
- │  User    │ -> │ AI plans │ -> │ 5-tier   │ -> │ Sandboxed│ -> │ Monitor  │
- │  request │    │ across   │    │ safety   │    │ execution│    │ & learn  │
- │  (NL)    │    │ providers│    │ checks   │    │ + audit  │    │ results  │
+ │  User   │ -> │ Plan     │ -> │ Risk     │ -> │ Provider │ -> │ Detect   │
+ │  states │    │ across   │    │ tiering  │    │ execution│    │ drift &  │
+ │  intent │    │ providers│    │ + gates  │    │ + audit  │    │ reconcile│
  └─────────┘    └──────────┘    └──────────┘    └──────────┘    └──────────┘
                                      │                               │
                                      v                               v
-                              Human approval              Replan on failure
-                              (if high-risk)              (self-healing)
+                              Approval gate                  Replan on failure
 ```
 
-1. **Describe**: Tell vClaw what you want in plain English.
-2. **Plan**: The AI generates a step-by-step execution plan across all connected providers. It picks the right provider, host, and resource pool based on current state.
-3. **Govern**: Every action is classified into one of 5 risk tiers. Low-risk operations (reads, tagging) run automatically. High-risk operations (migrations, deletions) require human approval.
-4. **Execute**: Approved actions run in a sandboxed environment with timeouts, crash containment, and a full audit trail capturing before/after state.
-5. **Observe**: vClaw monitors the result. If something fails, it investigates, diagnoses, and replans automatically.
+1. **Intent**: State the desired outcome in plain language.
+2. **Plan**: RHODES builds an inspectable execution plan grounded in current provider state.
+3. **Govern**: Every step is classified into one of 5 risk tiers. Reads run automatically. Destructive operations require explicit approval.
+4. **Execute**: Approved steps run through a sandboxed executor with timeouts, before/after state capture, and a full audit trail.
+5. **Reconcile**: RHODES tracks drift and proposes remediation plans for changes that fall outside intended state.
 
 ---
 
 ## Features
 
-### Multi-Provider Orchestration
+### Hybrid Provider Orchestration
 
-Manage multiple infrastructure platforms from a single agent:
+Operate across substrates without rewriting your stack:
 
 - **Proxmox VE**: 30+ tools covering VMs, containers, nodes, storage, snapshots, firewall rules, migrations, and cluster management
-- **VMware vSphere**: 26 tools for VMs, hosts, datastores, guest operations, resource pools, and snapshot endpoints (SOAP caveat documented)
+- **VMware vSphere**: 26 tools for VMs, hosts, datastores, guest operations, resource pools, and snapshots
 - **Azure**: 16 tools across ARM Compute, Network, and Resources (VMs, disks, vnets, subnets, NSGs, images)
 - **AWS**: 16 tools across EC2 lifecycle, EBS snapshots, AMI workflows, VPCs, subnets, and security groups
-- **System**: SSH and local execution for package management, script execution, and configuration
+- **System**: SSH and local execution for package management, scripts, and configuration
 - **Kubernetes (scaffold)**: `ProviderAdapter` skeleton with documented planned `kubectl`/API integration points
-- **Cross-Provider Migration**: Migration flows across VMware, Proxmox, AWS, and Azure (including executed Proxmox → Azure runs)
-- **Pluggable**: Provider abstraction layer makes it straightforward to add more clouds and platforms
+- **Cross-Provider Migration**: Migration flows across VMware, Proxmox, AWS, and Azure
+- **Pluggable**: Provider abstraction layer to add additional substrates
 
-### Enterprise Safety (NemoClaw-Inspired)
+### Plan Before Execution
 
-Security model inspired by [NVIDIA NemoClaw](https://github.com/NVIDIA/NeMo-Guardrails):
+- Generate multi-step operational plans
+- Validate dependencies and provider state
+- Review changes before execution
+- Approval gates for destructive operations
 
-- **5-Tier Governance**: Every action classified by risk (read / safe_write / risky_write / destructive / never). Destructive operations are blocked without explicit human approval. Tier 4 (never) operations like formatting disks cannot be overridden.
-- **Credential Vault**: Secrets encrypted at rest with AES-256-GCM, unique IV per operation, master key derived via scrypt. File permissions enforced at 0o600. Credentials are never sent to external APIs.
-- **Privacy Router**: Infrastructure data (IPs, hostnames, topology) is redacted before LLM calls. Your infrastructure topology stays private.
-- **Sandboxed Execution**: Every tool invocation runs in an isolated context with timeouts. Crashes are contained and cannot cascade to the agent core.
-- **Circuit Breaker**: Stops execution after N consecutive failures to prevent cascading infrastructure damage.
-- **Immutable Audit Trail**: Every action logged to SQLite with WAL journaling. Captures timestamp, user, action, provider, risk tier, approval status, and before/after state.
+### Coordinate Across Substrates
+
+- Connect vCenter, Proxmox, Kubernetes, AWS, and bare metal
+- Normalize operational workflows
+- Reduce provider-specific overhead
+
+### Drift Detection and Recovery
+
+Infrastructure changes. RHODES tracks and reconciles it.
+
+- Detect configuration drift across environments
+- Generate remediation plans automatically
+- Execute targeted fixes with approval gates
+
+### Governance and Safety
+
+- **5-Tier Risk Classification**: read / safe_write / risky_write / destructive / never. Tier 4 operations cannot be overridden.
+- **Credential Vault**: AES-256-GCM at rest, unique IV per operation, master key derived via scrypt, file permissions enforced at 0o600. Credentials are never sent to external APIs.
+- **Privacy Router**: Infrastructure data (IPs, hostnames, topology) is redacted before LLM calls.
+- **Sandboxed Execution**: Tool invocations run in isolated contexts with timeouts. Crashes cannot cascade.
+- **Circuit Breaker**: Halts execution after N consecutive failures.
+- **Immutable Audit Trail**: SQLite with WAL journaling captures timestamp, action, provider, tier, approval status, and before/after state.
 
 ### Cross-Provider VM Migration
 
-Migrate VMs between hypervisors with zero manual steps:
-
 - **VMware → Proxmox**: Export VM config, SCP VMDK, convert to QCOW2, create target VM, boot
 - **Proxmox → VMware**: Export QCOW2, convert to VMDK, import to ESXi via `vim-cmd`, register with vCenter
-- **Proxmox → Azure (execute path)**: Export disk, convert to raw, stream upload to Azure page blob, import managed disk, create VM, and run rollback cleanup on failure
-- **Cloud uploader architecture**: Stream disks over SSH from source host through vClaw into AWS S3 / Azure page blobs (no `aws` or `az` CLI required on source hypervisor hosts)
-- **AWS import acceleration**: ImportSnapshot-first path for raw disks, RegisterImage with HVM/ENA/UEFI-preferred defaults, tuned multipart upload (`queueSize=8`, `partSize=64 MiB`), and ImportImage fallback retained
-- Real-time progress tracking in the dashboard with per-step status
-- Disk format conversion (VMDK ↔ QCOW2) handled automatically
-- Full plan preview before execution with blast radius and config summary
+- **Proxmox → Azure**: Export disk, convert to raw, stream upload to Azure page blob, import managed disk, create VM, rollback cleanup on failure
+- **Cloud uploader architecture**: Stream disks over SSH from source host through RHODES into AWS S3 / Azure page blobs (no source-host cloud CLI required)
+- **AWS import acceleration**: ImportSnapshot-first path for raw disks, RegisterImage with HVM/ENA/UEFI-preferred defaults, tuned multipart upload, ImportImage fallback retained
 
-### Self-Healing
+### Runtime Surfaces
 
-vClaw detects infrastructure anomalies and runs recovery playbooks automatically:
-
-- VM crashes trigger instant restart with health verification
-- Node failures initiate workload migration to healthy hosts
-- Storage capacity alerts trigger automated cleanup
-- Network latency spikes kick off automatic diagnostics
-- All healing actions logged with full audit trail
-
-### Chaos Engineering
-
-Built-in fault injection for testing infrastructure resilience:
-
-- Kill random VMs and measure recovery time
-- Stress-test CPU, memory, disk, and network
-- Trigger cascading failures to find weak points
-- Generate before/after resilience reports
-
-### Real-Time Dashboard
-
-<p align="center">
-  <img src="docs/screenshots/topology.png" alt="Dashboard-v2 Topology View" width="80%" />
-</p>
-<p align="center">
-  <img src="docs/screenshots/resources.png" alt="Dashboard-v2 Overview & Resources" width="80%" />
-</p>
-
-Web-based dashboard with:
-- Live topology map showing nodes, VMs, interconnects, and metrics
-- Active execution plans with step-by-step progress
-- Incident timeline and self-healing action log
-- Resource utilization and forecasting
-- Governance audit trail browser
-
-### Multiple Interfaces
-
-- **CLI**: Interactive terminal with command palette and rich output
-- **Web Dashboard**: Real-time visualization, mobile-responsive
-- **MCP Server**: Use vClaw directly inside Claude Desktop
+- **CLI**: Interactive REPL with rich plan formatting and slash commands
+- **Dashboard**: Real-time visualization of plans, runtime state, providers, and audit log
+- **MCP Server**: Use RHODES directly inside Claude Desktop
 
 Add to your Claude Desktop config:
 ```json
 {
   "mcpServers": {
-    "vclaw": {
+    "rhodes": {
       "command": "node",
       "args": ["dist/src/frontends/mcp.js"]
     }
@@ -278,124 +256,114 @@ Add to your Claude Desktop config:
 ## Architecture
 
 ```
-vClaw (14,000+ lines of TypeScript)
+RHODES (14,000+ lines of TypeScript)
 │
 ├── Agent Core
-│   ├── AI Planner          Generates execution plans from natural language
-│   ├── Executor            Runs steps through governance gates
-│   ├── Observer            Monitors results, detects failures
-│   ├── Investigator        Root cause analysis on failures
-│   ├── Memory              Learns from past actions to improve future plans
-│   ├── Healing Engine      Auto-remediation playbooks
-│   └── Chaos Engine        Fault injection and resilience testing
+│   ├── Planner            Builds execution plans from natural language intent
+│   ├── Executor           Runs steps through governance gates
+│   ├── Observer           Monitors results, detects failures
+│   ├── Investigator       Root cause analysis on failures
+│   ├── Memory             Learns from past runs to improve future plans
+│   ├── Healing Engine     Reconciliation playbooks
+│   └── Chaos Engine       Fault injection for resilience testing
 │
 ├── Migration Engine
-│   ├── VMware Exporter     Extract VMs from vSphere
-│   ├── VMware Importer     Create VMs on ESXi
-│   ├── Proxmox Exporter    Extract VMs from Proxmox
-│   ├── Proxmox Importer    Create VMs on Proxmox
-│   ├── Disk Converter      VMDK ↔ QCOW2 conversion
-│   └── Orchestrator        End-to-end migration pipeline
+│   ├── VMware Exporter    Extract VMs from vSphere
+│   ├── VMware Importer    Create VMs on ESXi
+│   ├── Proxmox Exporter   Extract VMs from Proxmox
+│   ├── Proxmox Importer   Create VMs on Proxmox
+│   ├── Disk Converter     VMDK ↔ QCOW2 conversion
+│   └── Orchestrator       End-to-end migration pipeline
 │
 ├── Provider Layer (plugin architecture)
-│   ├── Proxmox Adapter     30+ infrastructure tools
-│   ├── VMware Adapter      27 infrastructure tools
-│   ├── Azure Adapter       17 infrastructure tools
-│   ├── System Adapter      SSH and local execution
-│   ├── Kubernetes Adapter  Scaffold (state + integration call map)
-│   └── [Planned]           Expanded AWS + Kubernetes coverage
+│   ├── Proxmox Adapter    30+ tools
+│   ├── VMware Adapter     27 tools
+│   ├── Azure Adapter      17 tools
+│   ├── AWS Adapter        16 tools
+│   ├── System Adapter     SSH and local execution
+│   └── Kubernetes Adapter Scaffold (state + integration call map)
 │
-├── Security Layer (NemoClaw-inspired)
-│   ├── Credential Vault    AES-256-GCM encrypted secrets
-│   ├── Privacy Router      Redacts infra data before LLM calls
-│   ├── Sandbox Manager     Isolated execution with timeouts
-│   └── Audit Logger        Immutable SQLite audit trail
+├── Security Layer
+│   ├── Credential Vault   AES-256-GCM encrypted secrets
+│   ├── Privacy Router     Redacts infrastructure data before LLM calls
+│   ├── Sandbox Manager    Isolated execution with timeouts
+│   └── Audit Logger       Immutable SQLite audit trail
 │
 ├── Governance Engine
-│   ├── Action Classifier   5-tier risk classification
-│   ├── Approval Gates      Human review for high-risk operations
-│   └── Circuit Breaker     Stops after N consecutive failures
+│   ├── Action Classifier  5-tier risk classification
+│   ├── Approval Gates     Human review for high-risk operations
+│   └── Circuit Breaker    Halts after N consecutive failures
 │
 ├── Monitoring
-│   ├── Health Checks       Node status, VM state, storage capacity
-│   ├── Anomaly Detection   Pattern-based anomaly identification
-│   ├── Metric Store        Time-series infrastructure data
-│   └── Event Stream        Real-time SSE to dashboard
+│   ├── Health Checks      Node status, VM state, storage capacity
+│   ├── Anomaly Detection  Pattern-based detection
+│   ├── Metric Store       Time-series infrastructure data
+│   └── Event Stream       Real-time SSE to dashboard
 │
 └── Frontends
-    ├── CLI                 Interactive terminal
-    ├── Web Dashboard       React, real-time, mobile-responsive
-    └── MCP Server          Claude Desktop integration
+    ├── CLI                Interactive REPL with rich plan tables
+    ├── Web Dashboard      Live plans, runtime, providers, audit
+    └── MCP Server         Claude Desktop integration
 ```
 
 ---
 
 ## Testing
 
-1358 tests in the suite (1338 passing, 20 skipped):
-
-- **Agent core**: Planning, execution, observation, memory, replanning
-- **Providers**: Proxmox, VMware, and Azure adapter coverage
-- **Migration**: VMware/Proxmox/AWS/Azure planning + execution paths, disk conversion, cloud upload, and import pipelines
-- **Release 0.2.x additions**: cloud-uploader coverage, Azure workload-analyzer coverage, Azure route matrix tests, AWS importer snapshot/fallback tests, dashboard-v2 migration progress tests
-- **Security**: Vault encryption/decryption, privacy router redaction, sandbox isolation, audit integrity
-- **Governance**: Risk classification, approval gates, circuit breaker behavior
-- **Edge cases**: 163 dedicated tests for boundary conditions, null handling, unicode, concurrent access, and error paths
-
 ```bash
-npm test              # Run full suite (1338 passing, 20 skipped as of 2026-04-19)
+npm test              # Run full suite
 npm run test:watch    # Watch mode for development
 npm run test:coverage # Generate coverage report
+npm run typecheck     # Type-check without emit
 ```
+
+Coverage spans agent core (planning, execution, observation, memory, replanning), provider adapters, migration paths (export, conversion, upload, import), security (vault, privacy router, sandbox, audit), and governance (classification, gates, circuit breaker).
 
 ---
 
 ## Roadmap
 
-### Phase 1: Multi-Provider Foundation (current)
+### Phase 1: Hybrid Substrate Foundation (current)
 - [x] Proxmox VE provider (30+ tools)
 - [x] VMware vSphere provider (27 tools)
 - [x] Azure provider (ARM Compute, Network, Resources)
-- [x] Multi-provider orchestration
-- [x] Cross-provider VM migration (VMware, Proxmox, AWS flows + Proxmox → Azure execute)
-- [x] Cloud uploader architecture for S3/page-blob transfer without source-host cloud CLIs
-- [x] NemoClaw-inspired security model
-- [x] Self-healing and chaos engineering
-- [x] Dashboard-v2 rollout (live server now serves `dashboard-v2/dist`)
+- [x] AWS provider (EC2, EBS, AMI, VPC, security groups)
+- [x] Cross-provider migration (VMware, Proxmox, AWS, Azure flows)
+- [x] Cloud uploader for S3 / Azure page blobs without source-host CLIs
+- [x] 5-tier governance with approval gates
+- [x] Reconciliation and chaos engineering engines
 - [x] MCP server for Claude Desktop
-- [x] 1338 passing tests (20 skipped)
 
-### Phase 2: Enterprise (Q2 2026)
+### Phase 2: Enterprise
 - [ ] Kubernetes provider (EKS, AKS, GKE)
-- [ ] Expanded AWS provider surface (RDS, S3, ELB)
-- [ ] Multi-tenant support with RBAC
-- [ ] SSO/SAML authentication
+- [ ] Expanded AWS surface (RDS, S3, ELB)
+- [ ] Multi-tenant workspaces with RBAC
+- [ ] SSO / SAML
 - [ ] Compliance exports (SOC 2, ISO 27001)
 
-### Phase 3: Intelligence (Q3 2026)
-- [ ] Local LLM inference on NVIDIA GPUs for air-gapped environments
-- [ ] Predictive scaling based on historical workload patterns
-- [ ] Automatic right-sizing and cost optimization
-- [ ] Disaster recovery as code with auto-tested failover
+### Phase 3: Intelligence
+- [ ] On-prem LLM inference for air-gapped environments
+- [ ] Predictive scaling from historical workload patterns
+- [ ] Automated right-sizing and cost reconciliation
+- [ ] Disaster recovery as code with tested failover
 
-### Phase 4: Ecosystem (Q4 2026)
+### Phase 4: Ecosystem
 - [ ] Community marketplace for provider adapters
-- [ ] Terraform provider for managing vClaw via IaC
+- [ ] Terraform provider for RHODES IaC
 - [ ] REST API for programmatic access
-- [ ] Mobile app (iOS/Android)
 
 ---
 
 ## Security
 
-vClaw is built for environments where mistakes are expensive.
+RHODES is built for environments where mistakes are expensive.
 
 - **Zero trust**: Every action verified, nothing assumed safe by default
 - **Credential isolation**: Secrets encrypted at rest, never sent to external APIs
 - **LLM privacy**: Infrastructure data redacted before any API call
 - **Audit immutability**: SQLite with WAL journaling for tamper-resistant logs
 - **Sandboxed execution**: Tool crashes cannot cascade into agent failure
-- **Governance by default**: Destructive operations always require human approval
+- **Governance by default**: Destructive operations always require explicit approval
 
 See [SECURITY.md](SECURITY.md) for the full security policy, threat model, and vulnerability reporting process.
 
@@ -403,9 +371,8 @@ See [SECURITY.md](SECURITY.md) for the full security policy, threat model, and v
 
 ## Contributing
 
-We welcome contributions. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Contributions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-The short version:
 - Fork, branch, test, PR
 - Every feature needs tests
 - Every bug fix needs a regression test
@@ -414,7 +381,7 @@ The short version:
 
 ### Adding a Provider
 
-vClaw uses a plugin architecture. Implement the `InfraAdapter` interface, register your provider, write tests, and open a PR. See the Proxmox and VMware adapters for reference.
+RHODES uses a plugin architecture. Implement the `InfraAdapter` interface, register your provider, write tests, and open a PR. See the Proxmox and VMware adapters for reference.
 
 ---
 
@@ -428,16 +395,18 @@ vClaw uses a plugin architecture. Implement the `InfraAdapter` interface, regist
 
 Built by [Sher Systems](https://shersystems.com).
 
-Inspired by:
-- [NVIDIA NemoClaw](https://github.com/NVIDIA/NeMo-Guardrails) (security model)
-- [HashiCorp Terraform](https://github.com/hashicorp/terraform) (provider abstraction)
-- [Kubernetes](https://github.com/kubernetes/kubernetes) (operator pattern)
+- NVIDIA Inception Member
+- SAM.gov Registered
 
 ---
 
 <p align="center">
+  <strong>Infrastructure, executed.</strong><br/>
+  <em>Reason. Coordinate. Execute.</em>
+</p>
+
+<p align="center">
   <a href="https://shersystems.com">Website</a> &bull;
-  <a href="https://github.com/SherSystems/vclaw/issues">Issues</a> &bull;
-  <a href="https://github.com/SherSystems/vclaw/discussions">Discussions</a> &bull;
-  <a href="https://twitter.com/shersystems">Twitter</a>
+  <a href="https://github.com/SherSystems/rhodes/issues">Issues</a> &bull;
+  <a href="https://github.com/SherSystems/rhodes/discussions">Discussions</a>
 </p>

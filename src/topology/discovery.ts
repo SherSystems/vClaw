@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — SSH-Based Connection Discovery
+// RHODES — SSH-Based Connection Discovery
 // Scans VMs/containers via SSH to discover active network
 // connections and map application dependencies automatically
 // ============================================================

@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — SSH Adapter
+// RHODES — SSH Adapter
 //
 // First-class shell-execution surface against a registry of named
 // SSH targets. Every command flows through the safety classifier

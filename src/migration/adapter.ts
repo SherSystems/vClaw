@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Migration Adapter
+// RHODES — Migration Adapter
 // Exposes cross-provider migration as tools in the adapter system
 // ============================================================
 
@@ -705,7 +705,7 @@ export class MigrationAdapter implements InfraAdapter {
       const orchestrator = this.createOrchestrator();
       const esxiUser = this.config.esxiUser ?? "root";
       const proxmoxUser = this.config.proxmoxUser ?? "root";
-      const workDir = "/tmp/vclaw-migration";
+      const workDir = "/tmp/rhodes-migration";
 
       // Read VM config from vSphere
       const { VMwareExporter } = await import("./vmware-exporter.js");
@@ -738,7 +738,7 @@ export class MigrationAdapter implements InfraAdapter {
       const importer = new AWSImporter(
         this.config.awsClient,
         this.config.awsS3Bucket,
-        this.config.awsS3Prefix ?? "vclaw-migration/",
+        this.config.awsS3Prefix ?? "rhodes-migration/",
       );
 
       const importResult = await importer.importVM(
@@ -784,14 +784,14 @@ export class MigrationAdapter implements InfraAdapter {
     try {
       const proxmoxUser = this.config.proxmoxUser ?? "root";
       const esxiUser = this.config.esxiUser ?? "root";
-      const workDir = "/tmp/vclaw-migration";
+      const workDir = "/tmp/rhodes-migration";
       const stageDir = `${workDir}/aws-to-vmware-${Date.now()}`;
 
       // Step 1: Export from AWS (create AMI, export to S3)
       const awsExporter = new AWSExporter(
         this.config.awsClient,
         this.config.awsS3Bucket,
-        this.config.awsS3Prefix ?? "vclaw-migration/",
+        this.config.awsS3Prefix ?? "rhodes-migration/",
       );
       const exportResult = await awsExporter.exportInstance(instanceId);
 
@@ -949,7 +949,7 @@ export class MigrationAdapter implements InfraAdapter {
 
     try {
       const proxmoxUser = this.config.proxmoxUser ?? "root";
-      const workDir = "/tmp/vclaw-migration";
+      const workDir = "/tmp/rhodes-migration";
       const stageDir = `${workDir}/pve-aws-${Date.now()}`;
 
       // Export from Proxmox
@@ -986,7 +986,7 @@ export class MigrationAdapter implements InfraAdapter {
       const importer = new AWSImporter(
         this.config.awsClient,
         this.config.awsS3Bucket,
-        this.config.awsS3Prefix ?? "vclaw-migration/",
+        this.config.awsS3Prefix ?? "rhodes-migration/",
       );
 
       const importResult = await importer.importVM(
@@ -1032,14 +1032,14 @@ export class MigrationAdapter implements InfraAdapter {
 
     try {
       const proxmoxUser = this.config.proxmoxUser ?? "root";
-      const workDir = "/tmp/vclaw-migration";
+      const workDir = "/tmp/rhodes-migration";
       const stageDir = `${workDir}/aws-pve-${Date.now()}`;
 
       // Export from AWS
       const awsExporter = new AWSExporter(
         this.config.awsClient,
         this.config.awsS3Bucket,
-        this.config.awsS3Prefix ?? "vclaw-migration/",
+        this.config.awsS3Prefix ?? "rhodes-migration/",
       );
       const exportResult = await awsExporter.exportInstance(instanceId);
 
@@ -1263,7 +1263,7 @@ export class MigrationAdapter implements InfraAdapter {
     const azureClient = this.config.azureClient;
     const esxiUser = this.config.esxiUser ?? "root";
     const proxmoxUser = this.config.proxmoxUser ?? "root";
-    const resourceGroup = this.normalizeOptionalString(params.resource_group) ?? "vclaw-migrations";
+    const resourceGroup = this.normalizeOptionalString(params.resource_group) ?? "rhodes-migrations";
     const location = this.normalizeOptionalString(params.location) ?? azureClient.defaultLocation;
     const storageAccountName = this.normalizeOptionalString(params.storage_account)
       ?? this.buildAzureStorageAccountName(resourceGroup, azureClient.subscriptionId);
@@ -1307,7 +1307,7 @@ export class MigrationAdapter implements InfraAdapter {
       }
     };
 
-    const workDir = "/tmp/vclaw-migration";
+    const workDir = "/tmp/rhodes-migration";
     const stageDir = `${workDir}/vmware-azure-${Date.now()}`;
     const stageRawPath = `${stageDir}/disk.raw`;
     let managedDiskName = "";
@@ -1560,7 +1560,7 @@ export class MigrationAdapter implements InfraAdapter {
 
     const azureClient = this.config.azureClient;
     const proxmoxUser = this.config.proxmoxUser ?? "root";
-    const resourceGroup = this.normalizeOptionalString(params.resource_group) ?? "vclaw-migrations";
+    const resourceGroup = this.normalizeOptionalString(params.resource_group) ?? "rhodes-migrations";
     const location = this.normalizeOptionalString(params.location) ?? azureClient.defaultLocation;
     const storageAccountName = this.normalizeOptionalString(params.storage_account)
       ?? this.buildAzureStorageAccountName(resourceGroup, azureClient.subscriptionId);
@@ -1604,7 +1604,7 @@ export class MigrationAdapter implements InfraAdapter {
       }
     };
 
-    const workDir = "/tmp/vclaw-migration";
+    const workDir = "/tmp/rhodes-migration";
     const stageDir = `${workDir}/pve-azure-${Date.now()}`;
     const stageDiskPath = `${stageDir}/disk.raw`;
     let managedDiskName = "";
@@ -1849,7 +1849,7 @@ export class MigrationAdapter implements InfraAdapter {
 
     const azureClient = this.config.azureClient;
     const proxmoxUser = this.config.proxmoxUser ?? "root";
-    const resourceGroup = this.normalizeOptionalString(params.resource_group) ?? "vclaw-migrations";
+    const resourceGroup = this.normalizeOptionalString(params.resource_group) ?? "rhodes-migrations";
     const location = this.normalizeOptionalString(params.location) ?? azureClient.defaultLocation;
     const storageAccountName = this.normalizeOptionalString(params.storage_account)
       ?? this.buildAzureStorageAccountName(resourceGroup, azureClient.subscriptionId);
@@ -1893,7 +1893,7 @@ export class MigrationAdapter implements InfraAdapter {
       }
     };
 
-    const workDir = "/tmp/vclaw-migration";
+    const workDir = "/tmp/rhodes-migration";
     const stageDir = `${workDir}/aws-azure-${Date.now()}`;
     const stageVmdkPath = `${stageDir}/disk.vmdk`;
     const stageRawPath = `${stageDir}/disk.raw`;
@@ -1911,7 +1911,7 @@ export class MigrationAdapter implements InfraAdapter {
       const awsExporter = new AWSExporter(
         this.config.awsClient,
         this.config.awsS3Bucket,
-        this.config.awsS3Prefix ?? "vclaw-migration/",
+        this.config.awsS3Prefix ?? "rhodes-migration/",
       );
       const exportResult = await awsExporter.exportInstance(instanceId);
       markStepComplete("export_config", `Created AMI ${exportResult.amiId} and prepared AWS export metadata`);
@@ -2135,7 +2135,7 @@ export class MigrationAdapter implements InfraAdapter {
     const azureClient = this.config.azureClient;
     const esxiUser = this.config.esxiUser ?? "root";
     const proxmoxUser = this.config.proxmoxUser ?? "root";
-    const workDir = "/tmp/vclaw-migration";
+    const workDir = "/tmp/rhodes-migration";
     const stageDir = `${workDir}/azure-vmware-${Date.now()}`;
     const stagedVhdPath = `${stageDir}/disk.vhd`;
     const stagedVmdkPath = `${stageDir}/disk.vmdk`;
@@ -2377,7 +2377,7 @@ export class MigrationAdapter implements InfraAdapter {
     const azureClient = this.config.azureClient;
     const proxmoxUser = this.config.proxmoxUser ?? "root";
     const proxmoxStorage = this.config.proxmoxStorage ?? "local-lvm";
-    const workDir = "/tmp/vclaw-migration";
+    const workDir = "/tmp/rhodes-migration";
     const stageDir = `${workDir}/azure-pve-${Date.now()}`;
     const stagedVhdPath = `${stageDir}/disk.vhd`;
     const stagedQcow2Path = `${stageDir}/disk.qcow2`;
@@ -2671,7 +2671,7 @@ export class MigrationAdapter implements InfraAdapter {
       }
     };
 
-    const workDir = "/tmp/vclaw-migration";
+    const workDir = "/tmp/rhodes-migration";
     const stageDir = `${workDir}/azure-aws-${Date.now()}`;
     const stagedVhdPath = `${stageDir}/disk.vhd`;
 
@@ -2727,7 +2727,7 @@ export class MigrationAdapter implements InfraAdapter {
       const awsImporter = new AWSImporter(
         this.config.awsClient,
         this.config.awsS3Bucket,
-        this.config.awsS3Prefix ?? "vclaw-migration/",
+        this.config.awsS3Prefix ?? "rhodes-migration/",
       );
       const importResult = await awsImporter.importVM(
         {
@@ -3137,7 +3137,7 @@ export class MigrationAdapter implements InfraAdapter {
   private buildAzureStorageAccountName(resourceGroup: string, subscriptionId: string): string {
     const seed = `${resourceGroup}:${subscriptionId}`;
     const suffix = createHash("sha1").update(seed).digest("hex").slice(0, 18);
-    return `vclawmig${suffix}`.slice(0, 24);
+    return `rhodesmig${suffix}`.slice(0, 24);
   }
 
   private detectAzureOsType(guestOS: string): "Linux" | "Windows" {

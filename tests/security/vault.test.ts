@@ -3,7 +3,7 @@ import { CredentialVault } from "../../src/security/vault.js";
 import { existsSync, unlinkSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-const TEST_DIR = `/tmp/vclaw-test-vault-${Date.now()}`;
+const TEST_DIR = `/tmp/rhodes-test-vault-${Date.now()}`;
 const VAULT_PATH = join(TEST_DIR, "vault.json");
 const MASTER_KEY = "test-master-key-for-unit-tests-only";
 

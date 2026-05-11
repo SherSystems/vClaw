@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 // ============================================================
-// vClaw — Live Migration Smoke Test (Phase 2: Proxmox -> VMware)
+// RHODES — Live Migration Smoke Test (Phase 2: Proxmox -> VMware)
 // Migrates Proxmox VM 112 (Migration-TestVM) back to vSphere
 // ============================================================
 

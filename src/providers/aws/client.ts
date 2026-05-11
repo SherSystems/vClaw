@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — AWS EC2 & Related Services API Client
+// RHODES — AWS EC2 & Related Services API Client
 // Wraps AWS SDK v3 clients for EC2, S3, and STS operations
 // ============================================================
 
@@ -187,13 +187,35 @@ export class AWSClient {
     keyName?: string;
     name?: string;
   }): Promise<EC2InstanceSummary> {
+    // If no subnet was provided, auto-discover the default VPC's first
+    // available subnet. This avoids the LLM-planner failure mode where
+    // it invents placeholder subnet IDs like "subnet-12345678".
+    let subnetId = params.subnetId;
+    if (!subnetId) {
+      const vpcs = await this.ec2.send(new DescribeVpcsCommand({
+        Filters: [{ Name: "isDefault", Values: ["true"] }],
+      }));
+      const defaultVpc = vpcs.Vpcs?.[0]?.VpcId;
+      if (defaultVpc) {
+        const subs = await this.ec2.send(new DescribeSubnetsCommand({
+          Filters: [{ Name: "vpc-id", Values: [defaultVpc] }],
+        }));
+        subnetId = subs.Subnets?.[0]?.SubnetId;
+      }
+      if (!subnetId) {
+        throw new Error(
+          "No subnet_id provided and no default VPC subnet found. Call aws_list_subnets first to pick one explicitly.",
+        );
+      }
+    }
+
     const resp = await this.ec2.send(
       new RunInstancesCommand({
         ImageId: params.amiId,
         InstanceType: params.instanceType as any,
         MinCount: 1,
         MaxCount: 1,
-        SubnetId: params.subnetId,
+        SubnetId: subnetId,
         SecurityGroupIds: params.securityGroupIds,
         KeyName: params.keyName,
       })

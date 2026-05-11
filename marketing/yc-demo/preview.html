@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>vClaw — YC Demo Preview</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #0B1120; color: #EEF2F7;
+               font-family: 'Inter', system-ui, -apple-system, sans-serif; min-height: 100vh; }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 48px 32px 80px; }
+  h1 { font-weight: 800; letter-spacing: -0.02em; font-size: 40px; margin: 0 0 6px;
+       background: linear-gradient(90deg, #FF9500, #FFB347); -webkit-background-clip: text;
+       background-clip: text; color: transparent; }
+  .sub { color: #8899B0; font-size: 16px; margin: 0 0 28px; letter-spacing: 0.02em; }
+  video { width: 100%; height: auto; display: block; border-radius: 14px;
+          background: #000; box-shadow: 0 30px 100px rgba(0,0,0,0.5); }
+  .meta { margin-top: 24px; display: flex; gap: 14px; flex-wrap: wrap;
+          font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+          font-size: 13px; color: #8899B0; }
+  .meta span { background: #111928; border: 1px solid rgba(255,255,255,0.07);
+               padding: 8px 14px; border-radius: 6px; }
+  .download { color: #FF9500; text-decoration: none; }
+  .download:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>vClaw — The AI brain for infrastructure</h1>
+  <p class="sub">YC follow-up demo · 62s · 1920×1080</p>
+  <video src="vclaw-yc-demo.mp4" controls autoplay muted playsinline></video>
+  <div class="meta">
+    <span>Format: H.264 / MP4</span>
+    <span>Duration: 62.0s</span>
+    <span>Size: 4.6 MB</span>
+    <span><a class="download" href="vclaw-yc-demo.mp4" download>↓ download mp4</a></span>
+  </div>
+</div>
+</body>
+</html>

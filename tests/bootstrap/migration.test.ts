@@ -18,7 +18,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     proxmox: {
       host: "pve.local",
       port: "8006",
-      tokenId: "root@pam!vclaw",
+      tokenId: "root@pam!rhodes",
       tokenSecret: "secret",
       allowSelfSignedCerts: "true",
     },

@@ -102,9 +102,9 @@ export default function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="sidebar-logo">
-        <img src="/vclaw-logo.png" alt="vClaw" width="28" height="28" style={{ borderRadius: '6px', display: 'block' }} />
+        <img src="/rhodes-logo.png" alt="RHODES" width="28" height="28" style={{ borderRadius: '6px', display: 'block' }} />
         <span className="sidebar-logo-text">
-          v<span className="brand-accent">Claw</span>
+          RHO<span className="brand-accent">DES</span>
         </span>
       </div>
 

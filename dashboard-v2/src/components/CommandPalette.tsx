@@ -142,7 +142,7 @@ export default function CommandPalette() {
           <input
             ref={inputRef}
             className="cmd-palette-input"
-            placeholder="Ask vClaw anything..."
+            placeholder="Ask RHODES anything..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -172,7 +172,7 @@ export default function CommandPalette() {
         {/* Loading indicator */}
         <div className={`cmd-palette-loading${loading ? " visible" : ""}`}>
           <span className="cmd-palette-spinner" />
-          vClaw is thinking...
+          RHODES is thinking...
         </div>
 
         {/* Response */}
@@ -196,7 +196,7 @@ export default function CommandPalette() {
           <span className="cmd-palette-footer-keys">
             <kbd>↵</kbd> Run &nbsp; <kbd>ESC</kbd> Close
           </span>
-          <span>vClaw Agent</span>
+          <span>RHODES Agent</span>
         </div>
       </div>
     </div>

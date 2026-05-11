@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Anomaly Detection Engine
+// RHODES — Anomaly Detection Engine
 // Detects threshold breaches, trends, spikes, and flatlines
 // ============================================================
 

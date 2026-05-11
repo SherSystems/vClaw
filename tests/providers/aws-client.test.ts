@@ -140,7 +140,7 @@ describe("AWSClient", () => {
   describe("connection & STS", () => {
     it("connects by calling GetCallerIdentity and reports connected", async () => {
       const stsSend = await getStsSend();
-      stsSend.mockResolvedValue({ Account: "123456789012", Arn: "arn:aws:iam::x:user/vclaw", UserId: "AIDAX" });
+      stsSend.mockResolvedValue({ Account: "123456789012", Arn: "arn:aws:iam::x:user/rhodes", UserId: "AIDAX" });
 
       expect(client.isConnected()).toBe(false);
       await client.connect();
@@ -402,7 +402,9 @@ describe("AWSClient", () => {
         return Promise.resolve({});
       });
 
-      await client.launchInstance({ amiId: "ami-1", instanceType: "t3.micro" });
+      // Provide subnetId explicitly so we skip the auto-discovery code path
+      // (covered separately below).
+      await client.launchInstance({ amiId: "ami-1", instanceType: "t3.micro", subnetId: "sub-1" });
       expect(calls).toEqual(["RunInstancesCommand"]);
     });
 
@@ -413,8 +415,47 @@ describe("AWSClient", () => {
       }));
 
       await expect(
-        client.launchInstance({ amiId: "ami-1", instanceType: "t3.micro" })
+        client.launchInstance({ amiId: "ami-1", instanceType: "t3.micro", subnetId: "sub-1" })
       ).rejects.toThrow("Failed to launch instance");
+    });
+
+    it("launchInstance auto-discovers default VPC subnet when none provided", async () => {
+      const ec2Send = await getEc2Send();
+      const calls: string[] = [];
+      ec2Send.mockImplementation((cmd: Cmd) => {
+        calls.push(cmd.__name);
+        if (cmd.__name === "DescribeVpcsCommand") {
+          return Promise.resolve({ Vpcs: [{ VpcId: "vpc-default" }] });
+        }
+        if (cmd.__name === "DescribeSubnetsCommand") {
+          return Promise.resolve({ Subnets: [{ SubnetId: "sub-default" }] });
+        }
+        if (cmd.__name === "RunInstancesCommand") {
+          return Promise.resolve({ Instances: [{ InstanceId: "i-new", SubnetId: "sub-default" }] });
+        }
+        return Promise.resolve({});
+      });
+
+      await client.launchInstance({ amiId: "ami-1", instanceType: "t3.micro" });
+      expect(calls).toEqual([
+        "DescribeVpcsCommand",
+        "DescribeSubnetsCommand",
+        "RunInstancesCommand",
+      ]);
+    });
+
+    it("launchInstance throws a clear error when no default VPC exists", async () => {
+      const ec2Send = await getEc2Send();
+      ec2Send.mockImplementation((cmd: Cmd) => {
+        if (cmd.__name === "DescribeVpcsCommand") {
+          return Promise.resolve({ Vpcs: [] });
+        }
+        return Promise.resolve({});
+      });
+
+      await expect(
+        client.launchInstance({ amiId: "ami-1", instanceType: "t3.micro" })
+      ).rejects.toThrow(/No subnet_id provided/);
     });
   });
 
@@ -779,7 +820,7 @@ describe("AWSClient", () => {
         RegisterImageCommand: (input) => {
           expect(input).toMatchObject({
             Name: "vm-1-123",
-            Description: "vClaw import: vm-1",
+            Description: "RHODES import: vm-1",
             Architecture: "x86_64",
             RootDeviceName: "/dev/sda1",
             VirtualizationType: "hvm",
@@ -797,7 +838,7 @@ describe("AWSClient", () => {
       const imageId = await client.registerImageFromSnapshot({
         snapshotId: "snap-9",
         name: "vm-1-123",
-        description: "vClaw import: vm-1",
+        description: "RHODES import: vm-1",
       });
       expect(imageId).toBe("ami-9");
     });

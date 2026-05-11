@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — Event Bus
+// RHODES — Event Bus
 // Simple pub/sub for streaming agent state to frontends
 // ============================================================
 

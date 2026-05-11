@@ -1,5 +1,5 @@
 // ============================================================
-// vClaw — AWS EC2 VM Exporter
+// RHODES — AWS EC2 VM Exporter
 // Reads EC2 instance configuration and exports disk via
 // AMI -> S3 export for import into VMware
 // ============================================================
@@ -95,7 +95,7 @@ export class AWSExporter {
   private readonly s3Bucket: string;
   private readonly s3Prefix: string;
 
-  constructor(client: AWSClient, s3Bucket: string, s3Prefix = "vclaw-migration/") {
+  constructor(client: AWSClient, s3Bucket: string, s3Prefix = "rhodes-migration/") {
     this.client = client;
     this.s3Bucket = s3Bucket;
     this.s3Prefix = s3Prefix;
@@ -115,7 +115,7 @@ export class AWSExporter {
 
     // 3. Create AMI from instance
     const timestamp = Date.now();
-    const amiName = `vclaw-export-${instanceId}-${timestamp}`;
+    const amiName = `rhodes-export-${instanceId}-${timestamp}`;
     const amiId = await this.client.createImage(instanceId, amiName);
 
     // 4. Wait for AMI to become available

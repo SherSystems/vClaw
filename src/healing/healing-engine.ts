@@ -62,6 +62,9 @@ export interface HealingEngineConfig {
    * unless the host explicitly opts in.
    */
   fastPathEnabled?: boolean;
+  /** When true (default), the first tick runs an initial-state pass.
+   *  See HealingOrchestratorConfig.bootEvalEnabled. */
+  bootEvalEnabled?: boolean;
 }
 
 export interface HealingEngineStatus {
@@ -427,6 +430,10 @@ export class HealingEngine {
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private running = false;
   private lastTick?: TickSummary;
+  /** True until the first successful tick has run the boot-eval pass.
+   *  Used so we only synthesize discovered_state_change anomalies once
+   *  per process lifetime. */
+  private bootEvalPending = true;
 
   constructor(
     private readonly eventBus: EventBus,
@@ -509,6 +516,34 @@ export class HealingEngine {
       const anomalies = this.anomalyDetector.detect(wrapStoreForDetector(this.healthMonitor));
       const vmCrashAnomalies = this.incidentCoordinator.detectVmStateChanges(this.healthMonitor.store);
       anomalies.push(...vmCrashAnomalies);
+
+      // Boot-eval: on the first tick after start(), walk current state
+      // and synthesize discovered_state_change anomalies for entities
+      // already in a bad state. Runs AFTER the first poll has populated
+      // the metric store (the tick wrapping detect() is precisely that
+      // — store updates land in the recordAndBatch path inside
+      // HealthMonitor.collect, which the poll timer drives before us).
+      if (this.bootEvalPending && this.config.bootEvalEnabled !== false) {
+        const seriesCount = this.healthMonitor.store.seriesCount;
+        if (seriesCount > 0) {
+          const boot = this.incidentCoordinator.evaluateInitialState(
+            this.healthMonitor.store,
+          );
+          const vmStatusSeries = this.healthMonitor.store
+            .getAllLatest("vm_status").length;
+          const nodeSeries = this.healthMonitor.store
+            .getAllLatest("node_cpu_pct").length;
+          const poolSeries = this.healthMonitor.store
+            .getAllLatest("storage_usage_pct").length;
+          console.log(
+            `[orchestrator] initial-state evaluation: examined ${vmStatusSeries} VMs / ${nodeSeries} nodes / ${poolSeries} pools, triggered ${boot.length} playbooks`,
+          );
+          anomalies.push(...boot);
+          this.bootEvalPending = false;
+        }
+        // If seriesCount is 0, the first poll hasn't landed yet — try
+        // again on the next tick. We leave `bootEvalPending` true.
+      }
 
       summary.anomaliesDetected = anomalies.length;
 

@@ -328,11 +328,29 @@ export class HealthMonitor {
       const vmNode = (vm.node as string) || "";
       const status = vm.status as string;
       const name = (vm.name as string) || `vm-${vmid}`;
-      const labels = { vmid: String(vmid), node: vmNode, name };
+      const labels: Record<string, string> = { vmid: String(vmid), node: vmNode, name };
 
       if (status === "running") summary.vms.running++;
       else if (status === "stopped") summary.vms.stopped++;
       else if (status === "paused") summary.vms.paused++;
+
+      // `runtime_status` is the truthful state class (running /
+      // paused_io_error / locked / ...). Propagate it onto the
+      // `vm_status` metric labels so playbook triggers can key on it —
+      // the storage-pause playbook matches `labels.reason ===
+      // "paused_io_error"`. Adapters that don't compute it leave the
+      // label off, preserving backwards compatibility.
+      const runtimeStatus = (vm as { runtime_status?: string }).runtime_status;
+      const runtimeReason = (vm as { runtime_reason?: string }).runtime_reason;
+      if (runtimeStatus) {
+        labels.runtime_status = runtimeStatus;
+        if (runtimeStatus === "paused_io_error") {
+          // The storage-pause playbook keys on this label exactly.
+          labels.reason = "paused_io_error";
+        } else if (runtimeReason) {
+          labels.reason = runtimeReason;
+        }
+      }
 
       this.recordAndBatch(
         batch,

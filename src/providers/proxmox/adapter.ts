@@ -15,6 +15,11 @@ import type {
 } from "../types.js";
 
 import { ProxmoxClient } from "./client.js";
+import {
+  VmRuntimeStatusCache,
+  deriveRuntimeStatus,
+  type RuntimeStatus,
+} from "./vm-runtime-status.js";
 
 // ── Config ──────────────────────────────────────────────────
 
@@ -292,6 +297,19 @@ export class ProxmoxAdapter implements InfraAdapter {
   readonly name = ADAPTER_NAME;
   private client: ProxmoxClient;
   private _connected = false;
+  /**
+   * Per-VM cache around the QMP probe — see vm-runtime-status.ts for
+   * the rationale. Tests can swap this via {@link setRuntimeStatusCache}.
+   */
+  private runtimeStatusCache = new VmRuntimeStatusCache();
+  /**
+   * Set of `node:storage` keys for thin pools currently above the
+   * pause-risk threshold. Populated externally (e.g. by the thin-pool
+   * monitor) so the adapter can bypass the QMP cache for VMs whose
+   * disks live on a pressured pool. Empty by default — the adapter
+   * still probes uncached VMs, just at the slower cache-TTL cadence.
+   */
+  private pressuredPools: Set<string> = new Set();
 
   constructor(config: ProxmoxConfig) {
     this.client = new ProxmoxClient({
@@ -301,6 +319,20 @@ export class ProxmoxAdapter implements InfraAdapter {
       tokenSecret: config.tokenSecret,
       allowSelfSignedCerts: config.allowSelfSignedCerts,
     });
+  }
+
+  /** Test seam — inject a cache with a custom TTL or pre-seeded entries. */
+  setRuntimeStatusCache(cache: VmRuntimeStatusCache): void {
+    this.runtimeStatusCache = cache;
+  }
+
+  /** Mark a node:storage pool as under pause-risk pressure. VMs whose
+   *  disks reference this pool will bypass the QMP cache and always
+   *  probe. Idempotent. */
+  markThinPoolPressured(node: string, storage: string, pressured: boolean): void {
+    const key = `${node}:${storage}`;
+    if (pressured) this.pressuredPools.add(key);
+    else this.pressuredPools.delete(key);
   }
 
   async connect(): Promise<void> {
@@ -348,7 +380,7 @@ export class ProxmoxAdapter implements InfraAdapter {
     switch (toolName) {
       // ── Read ────────────────────────────────────────────
       case "list_vms":
-        return this.client.getVMs(p.node as string | undefined);
+        return this.listVmsWithRuntimeStatus(p.node as string | undefined);
 
       case "get_vm_status":
         return this.client.getVMStatus(p.node as string, p.vmid as number);
@@ -594,7 +626,7 @@ export class ProxmoxAdapter implements InfraAdapter {
       try {
         const rawVMs = await this.client.getVMs(node.node);
         for (const vm of rawVMs) {
-          const info = {
+          const baseInfo = {
             id: vm.vmid,
             name: vm.name || `vm-${vm.vmid}`,
             node: vm.node || node.node,
@@ -606,10 +638,12 @@ export class ProxmoxAdapter implements InfraAdapter {
           };
 
           if (vm.type === "lxc") {
-            const ctStatus = info.status === "paused" ? "stopped" as const : info.status;
-            containers.push({ ...info, status: ctStatus });
+            const ctStatus = baseInfo.status === "paused" ? "stopped" as const : baseInfo.status;
+            containers.push({ ...baseInfo, status: ctStatus });
           } else {
-            vms.push(info);
+            const { runtime_status, runtime_reason } =
+              await this.resolveRuntimeStatus(vm.node || node.node, vm);
+            vms.push({ ...baseInfo, runtime_status, runtime_reason });
           }
         }
       } catch {
@@ -647,6 +681,34 @@ export class ProxmoxAdapter implements InfraAdapter {
     };
   }
 
+  /**
+   * `list_vms` tool entrypoint. Wraps `client.getVMs` with
+   * runtime-status derivation so callers see `runtime_status` and
+   * `runtime_reason` on every QEMU entry. LXC containers pass through
+   * unchanged. Kept on the tool path (not just `getClusterState`) so
+   * the health monitor — which goes through the tool registry —
+   * sees the same fields.
+   */
+  private async listVmsWithRuntimeStatus(node: string | undefined) {
+    const raw = await this.client.getVMs(node);
+    const enriched: Array<Record<string, unknown>> = [];
+    for (const vm of raw) {
+      if (vm.type === "lxc") {
+        enriched.push(vm as unknown as Record<string, unknown>);
+        continue;
+      }
+      const vmNode = vm.node || node || "";
+      if (!vmNode) {
+        enriched.push(vm as unknown as Record<string, unknown>);
+        continue;
+      }
+      const { runtime_status, runtime_reason } =
+        await this.resolveRuntimeStatus(vmNode, vm);
+      enriched.push({ ...(vm as unknown as Record<string, unknown>), runtime_status, runtime_reason });
+    }
+    return enriched;
+  }
+
   private mapVMStatus(status: string): VMInfo["status"] {
     switch (status) {
       case "running":
@@ -657,6 +719,91 @@ export class ProxmoxAdapter implements InfraAdapter {
         return "paused";
       default:
         return "unknown";
+    }
+  }
+
+  /**
+   * Decide whether this VM needs a QMP probe right now, fire it if so,
+   * and derive the truthful runtime state. The cache + thin-pool
+   * gating live here so the cost of the probe is bounded.
+   *
+   * The reason qualifier mirrors the QMP status when present (io-error,
+   * internal-error, paused) or falls back to the lock reason for
+   * `runtime_status === "locked"`.
+   */
+  private async resolveRuntimeStatus(
+    node: string,
+    vm: { vmid: number; status: string; lock?: string; qmpstatus?: string },
+  ): Promise<{ runtime_status: RuntimeStatus; runtime_reason?: string }> {
+    let qmpstatus = vm.qmpstatus;
+
+    if (
+      this.runtimeStatusCache.shouldProbe(node, vm.vmid, {
+        status: vm.status,
+        lock: vm.lock,
+        thinPoolPressure: this.hasThinPoolPressure(node, vm.vmid),
+      })
+    ) {
+      try {
+        const probed = await this.client.getVMQmpStatus(node, vm.vmid);
+        if (probed) {
+          qmpstatus = probed;
+          this.runtimeStatusCache.record(node, vm.vmid, probed);
+        }
+      } catch {
+        // Probe failure must not break cluster-state collection — fall
+        // back to whatever the basic list endpoint told us.
+      }
+    } else {
+      const cached = this.runtimeStatusCache.getCached(node, vm.vmid);
+      if (cached) qmpstatus = cached;
+    }
+
+    if (vm.status === "stopped") {
+      // Stopped VMs never need a stale QMP cache hanging around.
+      this.runtimeStatusCache.invalidate(node, vm.vmid);
+    }
+
+    const runtime_status = deriveRuntimeStatus({
+      status: vm.status,
+      lock: vm.lock,
+      qmpstatus,
+    });
+
+    const runtime_reason = this.runtimeReason(runtime_status, {
+      lock: vm.lock,
+      qmpstatus,
+    });
+    return runtime_reason ? { runtime_status, runtime_reason } : { runtime_status };
+  }
+
+  private hasThinPoolPressure(_node: string, _vmid: number): boolean {
+    // Without a VM→pool map handy we treat ANY pressured pool on this
+    // node as a reason to probe — the cost is bounded (only fires when
+    // a thin pool is already in the danger zone). Future work: thread
+    // the per-VM disk-storage list through here so we only probe VMs
+    // that actually live on the pressured pool.
+    for (const key of this.pressuredPools) {
+      if (key.startsWith(`${_node}:`)) return true;
+    }
+    return false;
+  }
+
+  private runtimeReason(
+    status: RuntimeStatus,
+    inputs: { lock?: string; qmpstatus?: string },
+  ): string | undefined {
+    switch (status) {
+      case "paused_io_error":
+        return "io-error";
+      case "paused_other":
+        return inputs.qmpstatus?.toLowerCase() ?? inputs.lock?.toLowerCase() ?? "paused";
+      case "locked":
+        return inputs.lock?.toLowerCase();
+      case "error":
+        return inputs.qmpstatus?.toLowerCase() ?? "unknown";
+      default:
+        return undefined;
     }
   }
 }

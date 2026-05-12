@@ -70,6 +70,15 @@ export interface ProxmoxVM {
   template?: boolean;
   type?: "qemu" | "lxc";
   tags?: string;
+  /** Proxmox lock field (backup, clone, create, migrate, rollback,
+   *  snapshot, suspended, ...). Present only on locked VMs. The basic
+   *  `/nodes/<node>/qemu` list endpoint surfaces this — no extra round-trip. */
+  lock?: string;
+  /** QEMU QMP-level status. Surfaced when the basic `status` is "running"
+   *  but QEMU itself reports something else (e.g. "io-error", "paused").
+   *  Populated by the adapter's `runtime_status` derivation, not the
+   *  basic list endpoint. */
+  qmpstatus?: string;
 }
 
 export interface ProxmoxVMStatus {
@@ -470,6 +479,30 @@ export class ProxmoxClient {
         "GET",
         `/api2/json/nodes/${encodeURIComponent(node)}/lxc/${vmid}/status/current`
       );
+    }
+  }
+
+  /**
+   * QMP-level status for a single QEMU VM. The Proxmox API surfaces
+   * `qmpstatus` on the `/status/current` endpoint, which is the same
+   * truth that `qm monitor <vmid> 'info status'` returns over the
+   * monitor socket — without the per-VM shell. Returns `undefined`
+   * for LXC containers and for VMs whose status endpoint doesn't
+   * carry the field.
+   *
+   * Cost note: one REST call per VM. The caller is expected to gate
+   * this via {@link VmRuntimeStatusCache} so the cluster isn't
+   * hammered every poll.
+   */
+  async getVMQmpStatus(node: string, vmid: number): Promise<string | undefined> {
+    try {
+      const status = await this.request<ProxmoxVMStatus>(
+        "GET",
+        `/api2/json/nodes/${encodeURIComponent(node)}/qemu/${vmid}/status/current`
+      );
+      return status.qmpstatus;
+    } catch {
+      return undefined;
     }
   }
 

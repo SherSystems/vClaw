@@ -70,6 +70,7 @@ vi.mock("../../src/providers/proxmox/client.js", () => {
       uptime: 3600,
       ha: {},
     }),
+    getVMQmpStatus: vi.fn().mockResolvedValue("running"),
     getVMConfig: vi.fn().mockResolvedValue({
       name: "test-vm",
       memory: 4096,
@@ -468,6 +469,99 @@ describe("ProxmoxAdapter", () => {
       expect(node.disk_total_gb).toBeGreaterThan(0);
       expect(node.disk_used_gb).toBeGreaterThan(0);
       expect(node.disk_usage_pct).toBeGreaterThan(0);
+    });
+
+    it("surfaces runtime_status=running for a healthy VM", async () => {
+      const mockClient = await getMockClient();
+      mockClient.getVMQmpStatus.mockResolvedValueOnce("running");
+
+      const state = await adapter.getClusterState();
+      expect(state.vms[0].runtime_status).toBe("running");
+    });
+
+    it("surfaces runtime_status=paused_io_error when QEMU is paused with io-error", async () => {
+      // This is the Jellyfin case — the basic list endpoint says
+      // status: "running" but QMP says io-error. The adapter must
+      // surface that so the storage-pause playbook trigger matches.
+      const mockClient = await getMockClient();
+      mockClient.getVMQmpStatus.mockResolvedValueOnce("io-error");
+
+      const state = await adapter.getClusterState();
+      expect(state.vms[0].runtime_status).toBe("paused_io_error");
+      expect(state.vms[0].runtime_reason).toBe("io-error");
+    });
+
+    it("surfaces runtime_status=locked when Proxmox has a lock without probing QMP", async () => {
+      const mockClient = await getMockClient();
+      mockClient.getVMs.mockResolvedValueOnce([
+        {
+          vmid: 100,
+          name: "test-vm",
+          node: "pve1",
+          status: "running",
+          mem: 1073741824,
+          maxmem: 4294967296,
+          cpu: 0.1,
+          cpus: 4,
+          maxdisk: 34359738368,
+          disk: 0,
+          netin: 0,
+          netout: 0,
+          uptime: 3600,
+          type: "qemu",
+          lock: "backup",
+        },
+      ]);
+      const probeSpy = mockClient.getVMQmpStatus;
+      probeSpy.mockClear();
+
+      const state = await adapter.getClusterState();
+      expect(state.vms[0].runtime_status).toBe("locked");
+      expect(state.vms[0].runtime_reason).toBe("backup");
+      // Locked VMs must NOT cost us a QMP probe — the lock is already
+      // the answer.
+      expect(probeSpy).not.toHaveBeenCalled();
+    });
+
+    it("surfaces runtime_status=stopped for a stopped VM without probing QMP", async () => {
+      const mockClient = await getMockClient();
+      mockClient.getVMs.mockResolvedValueOnce([
+        {
+          vmid: 100,
+          name: "test-vm",
+          node: "pve1",
+          status: "stopped",
+          mem: 0,
+          maxmem: 4294967296,
+          cpu: 0,
+          cpus: 4,
+          maxdisk: 34359738368,
+          disk: 0,
+          netin: 0,
+          netout: 0,
+          uptime: 0,
+          type: "qemu",
+        },
+      ]);
+      const probeSpy = mockClient.getVMQmpStatus;
+      probeSpy.mockClear();
+
+      const state = await adapter.getClusterState();
+      expect(state.vms[0].runtime_status).toBe("stopped");
+      expect(probeSpy).not.toHaveBeenCalled();
+    });
+
+    it("surfaces runtime_status on list_vms tool output too", async () => {
+      // The healing engine goes through the tool registry, not
+      // getClusterState — so list_vms must enrich every QEMU entry.
+      const mockClient = await getMockClient();
+      mockClient.getVMQmpStatus.mockResolvedValueOnce("io-error");
+
+      const result = await adapter.execute("list_vms", { node: "pve1" });
+      expect(result.success).toBe(true);
+      const data = result.data as Array<Record<string, unknown>>;
+      const qemu = data.find((v) => v.type === "qemu");
+      expect(qemu?.runtime_status).toBe("paused_io_error");
     });
   });
 });

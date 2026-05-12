@@ -17,6 +17,18 @@ export interface HealingOrchestratorConfig {
   healingEnabled: boolean;
   maxConcurrentHeals: number;
   fastPathEnabled?: boolean;
+  /**
+   * When true (default), the first tick after start() runs an
+   * initial-state evaluation pass that walks every observed VM/node/
+   * pool and triggers playbooks for entities already in a bad state.
+   *
+   * Closes the gap discovered in the 2026-05-12 Jellyfin incident:
+   * vm-101 was already `paused (io-error)` when RHODES booted, but the
+   * storage-pause playbook trigger is a state_change — there was no
+   * transition to observe, so nothing fired. Setting this false is for
+   * tests that want deterministic "transition only" behaviour.
+   */
+  bootEvalEnabled?: boolean;
 }
 
 export interface HealingOrchestratorOptions {

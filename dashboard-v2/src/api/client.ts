@@ -457,6 +457,38 @@ export const sendAgentCommand = (command: string) =>
     body: JSON.stringify({ command }),
   });
 
+// Approval flow
+export interface PendingApproval {
+  plan_id: string;
+  request_id: string;
+  action: string;
+  tier: string;
+  params: Record<string, unknown>;
+  reasoning: string;
+  requested_at: string;
+  scope: "plan" | "step";
+}
+
+export const fetchPendingApprovals = () =>
+  request<PendingApproval[]>("/api/agent/pending-approvals");
+
+export const submitApprovalDecision = (
+  planId: string,
+  decision: "approve" | "reject",
+  operator: string,
+) =>
+  request<{
+    plan_id: string;
+    status: "approved" | "rejected";
+    decision: "approve" | "reject";
+    operator: string;
+    timestamp: string;
+    idempotent: boolean;
+  }>("/api/agent/approve", {
+    method: "POST",
+    body: JSON.stringify({ plan_id: planId, decision, operator }),
+  });
+
 // Topology
 export const fetchApps = () =>
   request<import("../types").Application[]>("/api/topology/apps");

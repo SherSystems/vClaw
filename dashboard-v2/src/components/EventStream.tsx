@@ -21,6 +21,12 @@ function getIconAndClass(type: string): { cls: string; icon: string } | null {
       return { cls: "err", icon: "✗" };
     case "incident_opened":
       return { cls: "err", icon: "⚠" };
+    case "awaiting_approval":
+      return { cls: "warn", icon: "🛡" };
+    case "plan_approved":
+      return { cls: "ok", icon: "✓" };
+    case "plan_rejected":
+      return { cls: "err", icon: "✗" };
     case "incident_resolved":
     case "healing_completed":
       return { cls: "ok", icon: "✓" };
@@ -52,6 +58,12 @@ function formatTitle(type: string, data: Record<string, unknown>): React.ReactNo
       return <>Failed <span style={{ color: "var(--red)" }}>{String(data.action ?? data.name ?? "")}</span></>;
     case "incident_opened":
       return <>Incident: {String(data.description ?? data.message ?? "")}</>;
+    case "awaiting_approval":
+      return <>Awaiting approval: <span style={{ color: "var(--yellow, #facc15)" }}>{String(data.action ?? "plan")}</span></>;
+    case "plan_approved":
+      return <>Plan approved by {String(data.operator ?? "operator")}</>;
+    case "plan_rejected":
+      return <>Plan rejected by {String(data.operator ?? "operator")}</>;
     case "incident_resolved":
       return <>Resolved: {String(data.description ?? data.message ?? "")}</>;
     case "healing_started":

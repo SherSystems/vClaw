@@ -276,6 +276,8 @@ export enum AgentEventType {
   RunEscalated = "run_escalated",
   PlanCreated = "plan_created",
   PlanApproved = "plan_approved",
+  PlanRejected = "plan_rejected",
+  AwaitingApproval = "awaiting_approval",
   StepStarted = "step_started",
   StepCompleted = "step_completed",
   StepFailed = "step_failed",

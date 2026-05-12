@@ -2,9 +2,12 @@ import { useState } from "react";
 import Incidents from "../Incidents";
 import ActivePlan from "../ActivePlan";
 import Governance from "../Governance";
+import Approvals from "../Approvals";
+import { useStore } from "../../store";
 
 export default function Operations() {
   const [subTab, setSubTab] = useState("incidents");
+  const pendingCount = useStore((s) => s.pendingApprovals.length);
 
   return (
     <div className="page">
@@ -24,6 +27,12 @@ export default function Operations() {
             Active Plan
           </button>
           <button
+            className={`sub-tab${subTab === "approvals" ? " active" : ""}`}
+            onClick={() => setSubTab("approvals")}
+          >
+            Approvals{pendingCount > 0 ? ` (${pendingCount})` : ""}
+          </button>
+          <button
             className={`sub-tab${subTab === "governance" ? " active" : ""}`}
             onClick={() => setSubTab("governance")}
           >
@@ -33,6 +42,7 @@ export default function Operations() {
       </div>
       {subTab === "incidents" && <Incidents />}
       {subTab === "plan" && <ActivePlan />}
+      {subTab === "approvals" && <Approvals />}
       {subTab === "governance" && <Governance />}
     </div>
   );

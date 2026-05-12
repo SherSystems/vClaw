@@ -3,7 +3,7 @@ import { useStore } from "../store";
 import type { AgentEvent } from "../types";
 
 const EVENT_TYPES = [
-  "plan_created", "plan_approved", "replan",
+  "plan_created", "plan_approved", "plan_rejected", "awaiting_approval", "replan",
   "step_started", "step_completed", "step_failed",
   "approval_requested", "circuit_breaker_tripped",
   "investigation_started", "investigation_complete",
@@ -205,6 +205,36 @@ export function applySseEvent(event: AgentEvent, s: StoreSnapshot) {
         title: "Chaos Failed",
         message: (d.error as string) || "Chaos experiment failed",
       });
+      break;
+
+    case "awaiting_approval": {
+      const planId = String(d.plan_id ?? "");
+      if (planId) {
+        s.upsertPendingApproval({
+          plan_id: planId,
+          request_id: String(d.request_id ?? planId),
+          action: String(d.action ?? "plan_approval"),
+          tier: String(d.tier ?? "destructive"),
+          params: (d.params as Record<string, unknown>) ?? {},
+          reasoning: String(d.reasoning ?? ""),
+          requested_at: String(d.requested_at ?? event.timestamp),
+          scope: (d.scope as "plan" | "step") ?? "plan",
+        });
+        s.addToast({
+          type: "warning",
+          title: "Approval Required",
+          message: String(d.reasoning ?? d.action ?? "Plan needs operator decision"),
+        });
+      }
+      break;
+    }
+
+    case "plan_approved":
+      if (d.plan_id) s.removePendingApproval(String(d.plan_id));
+      break;
+
+    case "plan_rejected":
+      if (d.plan_id) s.removePendingApproval(String(d.plan_id));
       break;
 
     case "circuit_breaker_tripped":

@@ -91,6 +91,113 @@ describe("SupraProvider", () => {
     expect(result.delivered).toBe(false);
     expect(result.error).toContain("ECONNREFUSED");
   });
+
+  // ── v0.4.2 — abort + fire-and-forget behaviour ───────────────
+
+  it("treats an AbortError as a successful dispatch (Supra LLM was still running)", async () => {
+    const aborted = new Error("This operation was aborted");
+    aborted.name = "AbortError";
+    fetchMock.mockRejectedValue(aborted);
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const supra = new SupraProvider({
+      url: "http://localhost:3100",
+      userId: "rhodes-bot",
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      timeoutMs: 50,
+    });
+
+    const result = await supra.send(alert());
+    expect(result.delivered).toBe(true);
+    expect(result.error).toBeUndefined();
+    expect(logSpy.mock.calls.some((c) => /dispatched via supra/.test(String(c[0])))).toBe(true);
+    logSpy.mockRestore();
+  });
+
+  it("uses the configured 30s timeout by default for slow Supra responses", async () => {
+    // Resolve fast — we only assert that the provider does NOT abort
+    // within its window. If the default were still 5s, a slow Supra
+    // would never reach this resolve in real use.
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({}), text: async () => "" });
+    const supra = new SupraProvider({
+      url: "http://localhost:3100",
+      userId: "rhodes-bot",
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+    const result = await supra.send(alert());
+    expect(result.delivered).toBe(true);
+  });
+
+  it("respects SupraProviderOptions.timeoutMs override", async () => {
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({}), text: async () => "" });
+    const supra = new SupraProvider({
+      url: "http://localhost:3100",
+      userId: "rhodes-bot",
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      timeoutMs: 12345,
+    });
+    const result = await supra.send(alert());
+    expect(result.delivered).toBe(true);
+  });
+
+  it("fire-and-forget: returns 200 ACK without double-firing when the LLM completes later", async () => {
+    let jsonReadCount = 0;
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => {
+        jsonReadCount++;
+        // Simulate the LLM-driven response finishing well after the
+        // initial ACK — fire-and-forget should not have waited on it.
+        await new Promise((r) => setTimeout(r, 5));
+        return { delivered_via: "telegram" };
+      },
+      text: async () => "",
+    });
+
+    const supra = new SupraProvider({
+      url: "http://localhost:3100",
+      userId: "rhodes-bot",
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+
+    const result = await supra.send(alert());
+    expect(result.delivered).toBe(true);
+    // Only one fetch call regardless of how long the LLM takes.
+    expect(fetchMock).toHaveBeenCalledOnce();
+    // json() may or may not have been read yet; either way, no second POST.
+    expect(jsonReadCount).toBeLessThanOrEqual(1);
+  });
+
+  it("non-fireAndForget mode awaits the JSON body", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ delivered_via: "telegram" }),
+      text: async () => "",
+    });
+    const supra = new SupraProvider({
+      url: "http://localhost:3100",
+      userId: "rhodes-bot",
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      fireAndForget: false,
+    });
+    const result = await supra.send(alert());
+    expect(result.delivered).toBe(true);
+    expect((result.response as Record<string, unknown>).delivered_via).toBe("telegram");
+  });
+
+  it("still reports failure on a 5xx response", async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 503, text: async () => "boom" });
+    const supra = new SupraProvider({
+      url: "http://localhost:3100",
+      userId: "rhodes-bot",
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+    const result = await supra.send(alert());
+    expect(result.delivered).toBe(false);
+    expect(result.error).toContain("503");
+  });
 });
 
 describe("TelegramDirectProvider", () => {

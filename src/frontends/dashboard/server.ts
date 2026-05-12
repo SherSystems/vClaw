@@ -8,6 +8,10 @@ import type { AgentCore } from "../../agent/core.js";
 import type { ToolRegistry } from "../../tools/registry.js";
 import { EventBus } from "../../agent/events.js";
 import type { AuditLog } from "../../governance/audit.js";
+import type {
+  ApprovalGate,
+  PendingApprovalEntry,
+} from "../../governance/approval.js";
 import { AgentEventType } from "../../types.js";
 import type { AgentEvent, Goal } from "../../types.js";
 import { randomUUID } from "node:crypto";
@@ -95,6 +99,10 @@ export class DashboardServer {
   chaosEngine?: ChaosEngine;
   migrationAdapter?: MigrationAdapter;
   topologyStore?: TopologyStore;
+  /** Approval gate. Set via attachApprovalGate() so the dashboard can
+   *  surface pending approvals from POST /api/agent/approve. */
+  private approvalGate: ApprovalGate | null = null;
+  private unsubscribeApproval: (() => void) | null = null;
   private migrationHistory: MigrationPlan[] = [];
   // Active in-flight migrations keyed by run id (server-assigned). The frontend
   // may also pass a client-side `local-*` id which we map to the server id once
@@ -137,11 +145,33 @@ export class DashboardServer {
     });
   }
 
+  /**
+   * Wire the dashboard into the governance ApprovalGate so that
+   * approval gates blocking under systemd surface as `AwaitingApproval`
+   * SSE events and resolve via POST /api/agent/approve.
+   */
+  attachApprovalGate(gate: ApprovalGate): void {
+    if (this.unsubscribeApproval) this.unsubscribeApproval();
+    this.approvalGate = gate;
+    this.unsubscribeApproval = gate.onAwaitingApproval((entry) => {
+      this.eventBus.emit({
+        type: AgentEventType.AwaitingApproval,
+        timestamp: entry.requested_at,
+        data: entry as unknown as Record<string, unknown>,
+      });
+    });
+  }
+
   stop(): void {
     // Unsubscribe from EventBus
     if (this.eventListener) {
       this.eventBus.off("*", this.eventListener);
       this.eventListener = null;
+    }
+
+    if (this.unsubscribeApproval) {
+      this.unsubscribeApproval();
+      this.unsubscribeApproval = null;
     }
 
     // Close all SSE connections
@@ -288,6 +318,17 @@ export class DashboardServer {
             res.writeHead(405, { "Content-Type": "application/json" });
             res.end(JSON.stringify({ error: "Method not allowed" }));
           }
+          break;
+        case "/api/agent/approve":
+          if (req.method === "POST") {
+            this.handleAgentApprove(req, res);
+          } else {
+            res.writeHead(405, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "Method not allowed" }));
+          }
+          break;
+        case "/api/agent/pending-approvals":
+          this.handlePendingApprovals(res);
           break;
         case "/api/costs/summary":
           this.handleCostSummary(res, url);
@@ -1618,6 +1659,103 @@ export class DashboardServer {
       console.error("[DashboardServer] Agent command error:", err);
       this.json(res, { error: "Failed to execute agent command" }, 500);
     }
+  }
+
+  /**
+   * GET /api/agent/pending-approvals — every plan currently blocked at
+   * an approval gate, in the order returned by the ApprovalGate. The
+   * dashboard polls this on mount to catch up after a refresh, and
+   * thereafter relies on the AwaitingApproval SSE stream.
+   */
+  private handlePendingApprovals(res: ServerResponse): void {
+    const pending = this.approvalGate?.getPendingApprovals() ?? [];
+    this.json(
+      res,
+      pending.map((p) => ({
+        plan_id: p.plan_id,
+        request_id: p.request_id,
+        action: p.action,
+        tier: p.tier,
+        params: p.params,
+        reasoning: p.reasoning,
+        requested_at: p.requested_at,
+        scope: p.scope,
+      })),
+    );
+  }
+
+  /**
+   * POST /api/agent/approve — operator decision for a blocking approval
+   * gate. Body: { plan_id, decision: "approve"|"reject", operator }.
+   * Returns the updated plan status. Idempotent — a second call with the
+   * same decision returns the original record. A 404 is returned when the
+   * plan_id is not currently pending and has no prior decision.
+   */
+  private async handleAgentApprove(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (!this.approvalGate) {
+      this.json(res, { error: "Approval gate not attached" }, 503);
+      return;
+    }
+
+    let body: Record<string, unknown>;
+    try {
+      body = await this.parseBody(req);
+    } catch {
+      this.json(res, { error: "Invalid request body" }, 400);
+      return;
+    }
+
+    const planId = typeof body.plan_id === "string" ? body.plan_id.trim() : "";
+    const decisionRaw = typeof body.decision === "string" ? body.decision.trim().toLowerCase() : "";
+    const operator = typeof body.operator === "string" && body.operator.trim().length > 0
+      ? body.operator.trim()
+      : "api_operator";
+
+    if (!planId) {
+      this.json(res, { error: "Missing required field: plan_id" }, 400);
+      return;
+    }
+    if (decisionRaw !== "approve" && decisionRaw !== "reject") {
+      this.json(res, { error: "decision must be 'approve' or 'reject'" }, 400);
+      return;
+    }
+
+    const outcome = this.approvalGate.submitApiDecision(
+      planId,
+      decisionRaw as "approve" | "reject",
+      operator,
+    );
+
+    if (!outcome.ok) {
+      this.json(res, { error: "Unknown plan_id" }, 404);
+      return;
+    }
+
+    const status = outcome.record.decision === "approve" ? "approved" : "rejected";
+
+    // Mirror the decision onto the SSE stream so all dashboards update.
+    this.eventBus.emit({
+      type: outcome.record.decision === "approve"
+        ? AgentEventType.PlanApproved
+        : AgentEventType.PlanRejected,
+      timestamp: outcome.record.timestamp,
+      data: {
+        plan_id: outcome.record.plan_id,
+        operator: outcome.record.operator,
+        decision: outcome.record.decision,
+        idempotent: !outcome.resolved,
+        source: "api",
+      },
+    });
+
+    this.json(res, {
+      plan_id: outcome.record.plan_id,
+      status,
+      decision: outcome.record.decision,
+      operator: outcome.record.operator,
+      timestamp: outcome.record.timestamp,
+      idempotent: !outcome.resolved,
+    });
   }
 
   // ── SSE Broadcasting ────────────────────────────────────

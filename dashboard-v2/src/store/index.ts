@@ -15,6 +15,7 @@ import type {
   MigrationLiveRun,
   MigrationPlan,
 } from "../types";
+import type { PendingApproval } from "../api/client";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object") return null;
@@ -167,6 +168,12 @@ interface DashboardState {
   events: AgentEvent[];
   addEvent: (e: AgentEvent) => void;
 
+  // Pending approvals (API-driven approval gate)
+  pendingApprovals: PendingApproval[];
+  setPendingApprovals: (list: PendingApproval[]) => void;
+  upsertPendingApproval: (entry: PendingApproval) => void;
+  removePendingApproval: (planId: string) => void;
+
   // Incidents
   activeIncidents: Incident[];
   recentIncidents: Incident[];
@@ -297,6 +304,18 @@ export const useStore = create<DashboardState>((set) => ({
 
   events: [],
   addEvent: (e) => set((s) => ({ events: [...s.events, e] })),
+
+  pendingApprovals: [],
+  setPendingApprovals: (list) => set({ pendingApprovals: list }),
+  upsertPendingApproval: (entry) =>
+    set((s) => {
+      const others = s.pendingApprovals.filter((p) => p.plan_id !== entry.plan_id);
+      return { pendingApprovals: [entry, ...others] };
+    }),
+  removePendingApproval: (planId) =>
+    set((s) => ({
+      pendingApprovals: s.pendingApprovals.filter((p) => p.plan_id !== planId),
+    })),
 
   activeIncidents: [],
   recentIncidents: [],

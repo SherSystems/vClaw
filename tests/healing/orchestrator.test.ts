@@ -99,7 +99,7 @@ describe("HealingOrchestrator", () => {
     vi.clearAllMocks();
   });
 
-  function makeOrchestrator(configOverrides?: Partial<{ healingEnabled: boolean; maxConcurrentHeals: number }>) {
+  function makeOrchestrator(configOverrides?: Partial<{ healingEnabled: boolean; maxConcurrentHeals: number; bootEvalEnabled: boolean }>) {
     const toolRegistry = {
       execute: vi.fn().mockResolvedValue({ success: true, data: [] }),
       getClusterState: vi.fn().mockResolvedValue(null),
@@ -126,6 +126,7 @@ describe("HealingOrchestrator", () => {
         pollIntervalMs: 1000,
         healingEnabled: configOverrides?.healingEnabled ?? true,
         maxConcurrentHeals: configOverrides?.maxConcurrentHeals ?? 2,
+        bootEvalEnabled: configOverrides?.bootEvalEnabled,
       },
     });
   }
@@ -239,6 +240,127 @@ describe("HealingOrchestrator", () => {
     expect(eventTypes).toContain("healing_started");
     expect(eventTypes).toContain("incident_resolved");
     expect(eventTypes).toContain("healing_completed");
+  });
+
+  describe("boot-time state evaluation", () => {
+    it("fires storage-pause playbook for a VM already in paused_io_error at boot", async () => {
+      const orchestrator = makeOrchestrator();
+      const store = (orchestrator as any).healthMonitor.store;
+
+      // Seed the metric store with a VM that's already paused (io-error).
+      // The boot-eval pass walks store.getAllLatest("vm_status") and
+      // synthesizes a discovered_state_change anomaly when it sees a
+      // bad runtime_status.
+      store.record("vm_status", 1, {
+        vmid: "101",
+        node: "pve1",
+        name: "jellyfin",
+        runtime_status: "paused_io_error",
+        reason: "paused_io_error",
+      });
+
+      const matchSpy = vi.spyOn(
+        (orchestrator as any).playbookEngine,
+        "match",
+      );
+
+      await (orchestrator as any).tick();
+
+      // The playbook engine should have been asked about the synthetic
+      // state_change anomaly, and the storage-pause playbook should
+      // match on `metric=vm_status, type=state_change, reason=paused_io_error`.
+      const matchedTypes = matchSpy.mock.calls.map(
+        (call) => (call[0] as any).type,
+      );
+      expect(matchedTypes).toContain("state_change");
+      const storageCall = matchSpy.mock.calls.find(
+        (call) =>
+          (call[0] as any).type === "state_change" &&
+          (call[0] as any).labels?.reason === "paused_io_error",
+      );
+      expect(storageCall).toBeDefined();
+    });
+
+    it("triggers no playbooks when all observed VMs are healthy at boot", async () => {
+      const orchestrator = makeOrchestrator();
+      const store = (orchestrator as any).healthMonitor.store;
+      store.record("vm_status", 1, {
+        vmid: "100",
+        node: "pve1",
+        name: "web-01",
+        runtime_status: "running",
+      });
+      store.record("vm_status", 1, {
+        vmid: "101",
+        node: "pve1",
+        name: "web-02",
+        runtime_status: "running",
+      });
+
+      // Stub anomaly detector so it doesn't fire its own anomalies.
+      (orchestrator as any).anomalyDetector.detect = vi.fn().mockReturnValue([]);
+
+      const matchSpy = vi.spyOn((orchestrator as any).playbookEngine, "match");
+
+      await (orchestrator as any).tick();
+
+      // No state_change anomalies were synthesized for healthy VMs.
+      const stateChangeCalls = matchSpy.mock.calls.filter(
+        (call) => (call[0] as any).type === "state_change",
+      );
+      expect(stateChangeCalls).toHaveLength(0);
+    });
+
+    it("skips boot-eval entirely when bootEvalEnabled=false", async () => {
+      const orchestrator = makeOrchestrator({ bootEvalEnabled: false });
+      const store = (orchestrator as any).healthMonitor.store;
+
+      store.record("vm_status", 1, {
+        vmid: "101",
+        node: "pve1",
+        name: "jellyfin",
+        runtime_status: "paused_io_error",
+        reason: "paused_io_error",
+      });
+
+      (orchestrator as any).anomalyDetector.detect = vi.fn().mockReturnValue([]);
+      const matchSpy = vi.spyOn((orchestrator as any).playbookEngine, "match");
+
+      await (orchestrator as any).tick();
+
+      const stateChangeCalls = matchSpy.mock.calls.filter(
+        (call) => (call[0] as any).type === "state_change",
+      );
+      expect(stateChangeCalls).toHaveLength(0);
+    });
+
+    it("only runs boot-eval on the first tick — subsequent ticks skip it", async () => {
+      const orchestrator = makeOrchestrator();
+      const store = (orchestrator as any).healthMonitor.store;
+      store.record("vm_status", 1, {
+        vmid: "101",
+        node: "pve1",
+        name: "jellyfin",
+        runtime_status: "paused_io_error",
+        reason: "paused_io_error",
+      });
+
+      (orchestrator as any).anomalyDetector.detect = vi.fn().mockReturnValue([]);
+      const matchSpy = vi.spyOn((orchestrator as any).playbookEngine, "match");
+
+      await (orchestrator as any).tick();
+      const firstTickStateChanges = matchSpy.mock.calls.filter(
+        (call) => (call[0] as any).type === "state_change",
+      ).length;
+      expect(firstTickStateChanges).toBeGreaterThanOrEqual(1);
+
+      matchSpy.mockClear();
+      await (orchestrator as any).tick();
+      const secondTickStateChanges = matchSpy.mock.calls.filter(
+        (call) => (call[0] as any).type === "state_change",
+      ).length;
+      expect(secondTickStateChanges).toBe(0);
+    });
   });
 
   it("proxies lifecycle and status accessors to the healing engine", () => {

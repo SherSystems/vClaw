@@ -102,6 +102,58 @@ export class IncidentCoordinator {
     return anomalies;
   }
 
+  /**
+   * Boot-time state evaluation pass. Playbooks normally trigger on
+   * state *transitions* (e.g. running → paused_io_error). If the bad
+   * state predates RHODES — Jellyfin's vm-101 was already paused with
+   * io-error when RHODES started on 2026-05-12 — there's no transition
+   * to observe, and the storage-pause playbook never fires.
+   *
+   * This pass walks every observed VM and synthesizes
+   * `discovered_state_change` anomalies for VMs that are already in a
+   * bad state when we boot. The synthetic anomalies have type
+   * `state_change` so they match the same playbook triggers that
+   * real transitions match (e.g. the storage-pause playbook keys on
+   * `metric: vm_status, type: state_change, labels.reason:
+   * paused_io_error`).
+   *
+   * Returns one anomaly per VM in a bad state. Returns an empty array
+   * when everything observed is healthy. Safe to call on a populated
+   * store — it does NOT seed `previousVmStatus`, so the subsequent
+   * tick still sees the same baseline and won't double-fire.
+   */
+  evaluateInitialState(store: MetricStore): Anomaly[] {
+    const anomalies: Anomaly[] = [];
+    const allVmStatus = store.getAllLatest("vm_status");
+    const detectedAt = new Date().toISOString();
+
+    for (const { value, labels } of allVmStatus) {
+      const reason = labels.reason || labels.runtime_status;
+      if (!reason) continue;
+
+      // We synthesize an anomaly for any non-running runtime state that
+      // has a known reason. The most important case is paused_io_error
+      // (the Jellyfin incident); locked / paused_other are also worth
+      // surfacing because they predate RHODES and would otherwise be
+      // invisible on dashboards until a transition.
+      const badStates = ["paused_io_error", "paused_other", "locked", "error"];
+      if (!badStates.includes(labels.runtime_status ?? reason)) continue;
+
+      anomalies.push({
+        id: randomUUID(),
+        type: "state_change",
+        severity: reason === "paused_io_error" ? "critical" : "warning",
+        metric: "vm_status",
+        labels,
+        current_value: value,
+        message: `VM ${labels.name || labels.vmid} on ${labels.node} was already in ${labels.runtime_status ?? reason} state at RHODES boot — synthesizing discovered_state_change`,
+        detected_at: detectedAt,
+      });
+    }
+
+    return anomalies;
+  }
+
   resolveRecoveredIncidents(store: MetricStore, activeIncidentIds: Set<string>): void {
     for (const incident of this.incidentManager.getOpen()) {
       if (activeIncidentIds.has(incident.id)) {

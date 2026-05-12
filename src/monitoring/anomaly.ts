@@ -20,7 +20,14 @@ export interface MetricStore {
 
 export interface Anomaly {
   id: string;
-  type: "threshold" | "trend" | "spike" | "flatline";
+  /**
+   * Anomaly classifier. `state_change` is used for transitions between
+   * discrete states (e.g. running → paused_io_error) and for the
+   * synthetic `discovered_state_change` emitted by the boot-eval pass.
+   * It must mirror the value the playbook engine matches against —
+   * see `AnomalyTrigger` in src/healing/playbooks.ts.
+   */
+  type: "threshold" | "trend" | "spike" | "flatline" | "state_change";
   severity: "warning" | "critical";
   metric: string;
   labels: Record<string, string>;

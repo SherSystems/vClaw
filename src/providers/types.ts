@@ -68,6 +68,24 @@ export interface VMInfo {
   uptime_s?: number;
   /** Cloud-provider sizing identifier when applicable (e.g. AWS instance_type, Azure vmSize). */
   instance_type?: string;
+  /** Truthful runtime state class. Distinguishes `running` from
+   *  `paused_io_error` (QEMU suspended due to storage failure),
+   *  `locked` (backup/migrate/snapshot in progress), and other
+   *  states that the basic `status` field collapses together.
+   *  Set by adapters that compute it (currently Proxmox); other
+   *  adapters may leave it unset. */
+  runtime_status?:
+    | "running"
+    | "paused_io_error"
+    | "paused_other"
+    | "locked"
+    | "stopped"
+    | "error";
+  /** Reason qualifier for the runtime state — e.g. the QMP status
+   *  string ("io-error", "internal-error") or the Proxmox lock
+   *  reason ("backup", "migrate"). Free-form, surfaced to playbook
+   *  triggers via the `reason` label. */
+  runtime_reason?: string;
 }
 
 export interface ContainerInfo {

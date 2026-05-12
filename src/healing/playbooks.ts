@@ -20,7 +20,7 @@ export interface Anomaly {
 
 export interface AnomalyTrigger {
   metric: string;
-  type: "threshold" | "trend" | "spike" | "flatline";
+  type: "threshold" | "trend" | "spike" | "flatline" | "state_change";
   severity?: "warning" | "critical";
   labels?: Record<string, string>;
 }
@@ -215,6 +215,9 @@ export class PlaybookEngine {
       case "predictive_disk_full":
         return `Prevent disk full on ${labels.storage || labels.node || "unknown"} — trend predicts full within 48 hours, cleanup snapshots`;
 
+      case "proxmox_storage_exhaustion_pause":
+        return `STORAGE_EXHAUSTION_PAUSE: VM ${labels.vmid || "unknown"} on ${labels.node || "unknown"} is paused (io-error). Run proxmox-storage-pause playbook — prune snapshots, qm resume, verify.`;
+
       default:
         return `Execute healing playbook "${playbook.name}" — ${anomaly.message}`;
     }
@@ -363,6 +366,38 @@ export const DEFAULT_PLAYBOOKS: Playbook[] = [
     cooldown_minutes: 10,
     requires_approval: false,
     max_retries: 3,
+  },
+  {
+    id: "proxmox_storage_exhaustion_pause",
+    name: "Proxmox Storage-Exhaustion Pause",
+    description:
+      "Recognizes paused (io-error) on a Proxmox VM as a thin-pool exhaustion event, " +
+      "prunes snapshots, resumes the VM, and verifies recovery. " +
+      "See docs/playbooks/proxmox-storage-pause.md.",
+    trigger: {
+      metric: "vm_status",
+      type: "state_change",
+      severity: "critical",
+      labels: { reason: "paused_io_error" },
+    },
+    actions: [
+      {
+        type: "custom_goal",
+        params: {
+          goal:
+            "Execute proxmox-storage-pause playbook: inspect qm monitor info status, " +
+            "confirm paused (io-error), inspect pvesm/lvs, rank snapshots, " +
+            "request operator approval for qm delsnapshot commands, then qm resume.",
+          playbook_module: "src/playbooks/proxmox-storage-pause.ts",
+          event_class: "STORAGE_EXHAUSTION_PAUSE",
+        },
+        description:
+          "Run the storage-exhaustion-pause diagnostic + remediation chain",
+      },
+    ],
+    cooldown_minutes: 10,
+    requires_approval: true,
+    max_retries: 1,
   },
   {
     id: "predictive_disk_full",

@@ -51,8 +51,8 @@ function makePlaybook(overrides: Partial<Playbook> = {}): Playbook {
 // ── DEFAULT_PLAYBOOKS ──────────────────────────────────────
 
 describe("DEFAULT_PLAYBOOKS", () => {
-  it("has 6 default playbooks", () => {
-    expect(DEFAULT_PLAYBOOKS).toHaveLength(6);
+  it("has 7 default playbooks", () => {
+    expect(DEFAULT_PLAYBOOKS).toHaveLength(7);
   });
 
   it("each playbook has all required fields", () => {

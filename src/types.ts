@@ -325,6 +325,34 @@ export enum AgentEventType {
   ProbeRecovered = "probe_recovered",
   ProviderUnreachable = "provider_unreachable",
   ProviderRecovered = "provider_recovered",
+  StorageExhaustionPause = "storage_exhaustion_pause",
+  ThinPoolWarning = "thin_pool_warning",
+  StaleSnapshotDetected = "stale_snapshot_detected",
+}
+
+// ── Storage Exhaustion Event Class ──────────────────────────
+// First-class recognized failure mode: thin-provisioned Proxmox storage
+// fills up, QEMU suspends the guest with `paused (io-error)`. Pruning
+// snapshots + `qm resume` recovers the VM instantly. See
+// docs/playbooks/proxmox-storage-pause.md for the full playbook.
+
+export type EventClass =
+  | "STORAGE_EXHAUSTION_PAUSE"
+  | "VM_UNREACHABLE"
+  | "VM_CRASHED"
+  | "NODE_DEGRADED"
+  | "UNKNOWN";
+
+export interface StorageExhaustionPauseEvent {
+  event_class: "STORAGE_EXHAUSTION_PAUSE";
+  node: string;
+  vmid: number;
+  storage_id: string;
+  thin_pool?: string;
+  data_pct: number;
+  detected_at: string;
+  /** Raw `info status` line from QEMU monitor. */
+  monitor_status_raw?: string;
 }
 
 export interface AgentEvent {

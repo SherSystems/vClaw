@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3] - 2026-05-13
+
+### Added
+
+- **SSH per-target tier overrides + audit-trail emission** (`swarm4/ssh-polish`). `SshTarget.tier_overrides` accepts `default` (a floor that bumps low-risk commands up) and `commands` (a per-tag/per-command map that can raise OR lower the classifier verdict). `never` is never overridable. The classification result carries `base_tier` + `override` keys so audit logs can show what fired. Adapter emits an `SshExec` AgentEvent on every invocation.
+- **Sudo-fallback ladder for SSH** (`feature/ssh-sudo-ladder`). New `runSshCommandWithSudoFallback` retries with `sudo -n <cmd>` when the original invocation fails with a permission-denied / operation-not-permitted / must-be-root / sudo-needs-password pattern AND the leading verb is in the target's `sudo_allowlist`. If the sudo'd version classifies as a higher tier than the unprivileged form, the ladder REFUSES the retry and returns `requiresApproval: true` — the caller's governance approval was for the lower tier only. Classifier now strips one leading `sudo` / `sudo -n` so allowlisted reads stay at the read tier. New `ufw allow|deny|delete|reload|enable|disable` rule (risky_write).
+- **`SshSudoPolicy` config schema** — per-target NOPASSWD verb allowlist threaded from env-file JSON through `SshTargetSchema` to the adapter normalizer.
+- **Snapshot retention floor** in the Proxmox storage-pause playbook (`feature/snapshot-retention`). `filterDeletableCandidates` excludes the newest non-`current` snapshot; with only one snapshot in scope, the plan is empty. Entries without `created_at` are treated as oldest for safety. Opt-in via `apply_retention_floor` so the thin-pool monitor's pure-observation mode is unchanged.
+- **Pre-remediation safety snapshot.** `buildRemediationPlan` now prepends a `qm snapshot <vmid> rhodes-safety-<ISO>` step (Tier 2 safe_write) before any delete and appends a cleanup step for the *previous* `rhodes-safety-*` snap. Cleanup runs ONLY after a successful resume + verify; on failed resume, the prior safety snap is preserved. `validateRemediationCandidate` hard-rules deletion of `rhodes-safety-*` snaps unless invoked via the exact-name cleanup path. New executor method `qmTakeSnapshot(node, vmid, name, description?)`. New `RemediationStepKind` discriminator on plan steps.
+- **In-VM diagnostic playbook** (`src/playbooks/vm-diagnostic.ts`, `feature/vm-diagnostic-playbook`). Pure decision module + `VmDiagnosticExecutor` interface mirroring the storage-pause architecture. Gather phase runs nine commands in parallel over SSH (`df -h`, `free -h`, `uptime`, `systemctl --failed`, `journalctl --since=10min -p err` system-wide + per-unit, `dmesg -T --level=err,crit,alert,emerg`, `ss -tlnp`, `systemctl status <service>`). Nine deterministic parsers reduce outputs to typed structs. Classifier produces a priority-ordered set of ten failure modes: `IO_ERROR > DISK_FULL > MEMORY_OOM > BOOT_LOOP > SERVICE_CRASHED > SERVICE_NOT_LISTENING > KERNEL_ERROR > DISK_PRESSURE > MEMORY_PRESSURE > UNDETERMINED`. Planner emits tier-classified remediation steps per mode (`journalctl --vacuum-size=500M`, `apt-get clean`, `systemctl restart`, etc.) with explicit operator-only escalations for BOOT_LOOP, KERNEL_ERROR, and DISK_FULL on `/` or unknown mounts. IO_ERROR signals are reported to the caller for cross-playbook handoff to storage-pause rather than auto-executed. End-to-end runner re-probes the app between steps and stops early on recovery.
+
+### Fixed
+
+- Classifier-leading-sudo regression — `sudo -n df` previously fell through to the fail-closed destructive default because the read rules anchor at start-of-string. Strip is bounded to one level so `sudo sudo rm -rf /` still classifies destructive.
+
+### Notes
+
+- Total tests: **2084 passing** (up from 1922 in v0.4.2). One pre-existing failure in `tests/frontends/dashboard-server-static.test.ts` (root-level static asset serving) reproduces on `main` prior to this release and is unrelated.
+- No breaking API changes. `SshExecResult` shape is unchanged — the wider `SshExecWithEscalationResult` is returned by the new ladder function; `ssh_exec` adapter wrapping preserves backward compatibility.
+- The vm-diagnostic playbook is registered in `src/playbooks/` but is not yet wired into `src/healing/playbooks.ts` as an auto-firing rule — operators can invoke it programmatically. Wiring into the healing orchestrator is queued for a follow-up so the service-http-probe → vm-diagnostic chain becomes automatic.
+
 ## [0.3.0] - 2026-05-11
 
 ### Changed

@@ -1,6 +1,6 @@
 {
   "name": "rhodes",
-  "version": "0.3.0",
+  "version": "0.4.3",
   "description": "Agentic infrastructure operations across hybrid environments.",
   "type": "module",
   "main": "dist/index.js",

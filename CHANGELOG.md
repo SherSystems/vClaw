@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.4] - 2026-05-13
+
+### Added
+
+- **Pending Approvals dashboard panel** (`feature/dashboard-approval-remediate`). New section above the tab bar, hidden when empty. Renders each plan from `/api/agent/pending-approvals` as a card with action (JetBrains Mono), tier-colored badge (read/safe_write/risky_write/destructive), agent reasoning, a key:value params grid, and Approve/Reject buttons that POST to `/api/agent/approve`. Live via the existing `awaiting_approval` / `plan_approved` / `plan_rejected` SSE events plus a 10s catch-up poll. Plan steps whose `params.snapname` (or sibling fields) match `rhodes-safety-*` render with a 🛡️ "SAFETY SNAPSHOT" badge and a green border instead of teal, distinguishing the v0.4.3 retention-floor pre-snapshot step from destructive deletes at a glance.
+- **Remediate button on incident cards.** Open / healing incidents (not "recent" / resolved) gain a small Rhodes-Blue pill in the card header. Click templates a natural-language prompt from the incident's `metric` + `labels` and POSTs to `/api/agent/command`, kicking the agent to plan a recovery. Button disables to "Planning…" during the call; on success it replaces itself with "Plan requested — check Pending Approvals above". Failures pop a red error toast and re-enable the button. Mappings: `vm_status` + `paused_io_error` → storage-pause prompt; `vm_status` other → generic VM anomaly prompt; `service_http_status` → in-VM diagnostic prompt; otherwise → generic anomaly prompt.
+- **`vm_in_guest_diagnostic` playbook registered** (`feature/healing-recovery-and-wiring`). The v0.4.3 in-VM diagnostic module (`src/playbooks/vm-diagnostic.ts`) is now wired into `src/healing/playbooks.ts` as an auto-firing rule. Trigger: `metric: service_http_status, type: state_change, severity: critical` (no label filter). `cooldown_minutes: 15`, `requires_approval: true`, `max_retries: 1`. Positioned immediately after `jellyfin-service-probe` so the natural chain is service-probe-restart-fails → vm-diagnostic-fires. Registry count: 8 → 9.
+
+### Fixed
+
+- **State-change incidents on `vm_status` now auto-resolve when the VM returns to a healthy state.** `resolveRecoveredIncidents` in `src/healing/incident-coordinator.ts` had a real bug: boot-eval-synthesized incidents (the Agent G fix from v0.4.2) used the numeric-threshold recovery path (`latest.value < trigger_value * 0.7`), which is meaningless for state_change markers (value is always 1). New path: when `incident.metric === "vm_status"` and `incident.labels.reason` is one of `{paused_io_error, paused_other, locked, error}`, RHODES scans `store.getAllLatest("vm_status")` filtered by `vmid+node` (cannot use `getLatest` because the recovered sample has a different series-key — no `reason` label, different `runtime_status`); if any current series shows `runtime_status ∈ {running, ok}`, the incident resolves with `"VM <name> state recovered: <before> → <after>"` and emits `AlertResolved`. The numeric path is intact for non-state-change metrics. Two new tests cover the positive and negative cases.
+- **Boot-eval → playbook firing verified end-to-end.** The pipeline was already symmetric (boot-eval anomalies flow through the same `executor.handleAnomaly` → `playbookEngine.match(anomaly)` path as real transitions, via `HealingEngine.tick()`), but no test asserted it. The yesterday miss (two paused VMs caught at boot but no pending-approvals visible) was UX-side, not engine-side — the dashboard had nowhere to render the pending plans. New test `tests/healing/healing-engine-boot-eval.test.ts` seeds a paused_io_error sample, calls `engine.tick()`, asserts `PlaybookMatched` fires with `proxmox_storage_exhaustion_pause`, `HealingEscalated` fires (approval required), and an open incident is created. Plus a dedup test that confirms the boot-eval pass doesn't re-fire on subsequent ticks.
+
+### Notes
+
+- Total tests: **2090 passing** (up from 2084 in v0.4.3). +6 from healing fixes.
+- One pre-existing failure in `tests/frontends/dashboard-server-static.test.ts` continues to reproduce on every revision; tracked separately, unrelated to this release.
+- No new npm dependencies. No server-side endpoint additions — the dashboard wiring reuses `/api/agent/pending-approvals`, `/api/agent/approve`, and `/api/agent/command`, all of which shipped in v0.4.2.
+- Customer-voice release notes at [docs/releases/v0.4.4.md](docs/releases/v0.4.4.md). Demo storyboard for the next video at `/home/pranav/rhodes-video/RHODES Esxi Save/design.md`.
+
 ## [0.4.3] - 2026-05-13
 
 ### Added

@@ -71,6 +71,16 @@ const cases: Case[] = [
   { command: "kill 12345", tier: "risky_write", match: "kill-pid" },
   { command: "pkill nginx", tier: "risky_write", match: "pkill" },
   { command: "killall ssh", tier: "risky_write", match: "killall" },
+  // ufw mutation — adding/removing firewall rules, reload, enable/disable.
+  // Also picked up when prefixed with sudo (so the sudo-fallback ladder's
+  // tier-reclassification step sees the same tier as the bare verb).
+  { command: "ufw allow 22", tier: "risky_write", match: "ufw-mutate" },
+  { command: "ufw deny 8080", tier: "risky_write", match: "ufw-mutate" },
+  { command: "ufw delete allow 22", tier: "risky_write", match: "ufw-mutate" },
+  { command: "ufw reload", tier: "risky_write", match: "ufw-mutate" },
+  { command: "ufw enable", tier: "risky_write", match: "ufw-mutate" },
+  { command: "ufw disable", tier: "risky_write", match: "ufw-mutate" },
+  { command: "sudo -n ufw allow 22", tier: "risky_write", match: "ufw-mutate" },
 
   // ── Destructive ───────────────────────────────────────────
   { command: "qm destroy 200", tier: "destructive", match: "qm-destroy" },
@@ -145,6 +155,41 @@ describe("ssh safety classifier", () => {
       // before cat is considered. (Most-dangerous-first scan.)
       expect(r.tier).toBe("destructive");
       expect(r.match).toBe("block-device");
+    });
+  });
+
+  // ── Leading-sudo strip (sudo-fallback ladder contract) ────────
+  //
+  // The sudo-fallback ladder retries failed unprivileged commands as
+  // `sudo -n <command>` and re-classifies. For the ladder to ever
+  // succeed on read/safe-write verbs, the classifier must treat
+  // `sudo -n df` the same as `df`. (Risky/destructive rules use \b
+  // anchors and already match through `sudo`; this block locks in
+  // the contract for the anchored read/safe-write rules.)
+  describe("leading-sudo strip", () => {
+    it("classifies `sudo df` as read", () => {
+      const r = classifyCommand("sudo df");
+      expect(r.tier).toBe("read");
+    });
+    it("classifies `sudo -n df` as read", () => {
+      const r = classifyCommand("sudo -n df");
+      expect(r.tier).toBe("read");
+    });
+    it("classifies `sudo -n journalctl -u nginx` as read", () => {
+      const r = classifyCommand("sudo -n journalctl -u nginx");
+      expect(r.tier).toBe("read");
+    });
+    it("classifies `sudo systemctl restart nginx` as risky_write (sudo doesn't change tier)", () => {
+      const r = classifyCommand("sudo systemctl restart nginx");
+      expect(r.tier).toBe("risky_write");
+    });
+    it("classifies `sudo -n rm -rf /tmp` as destructive (sudo can't hide rm -rf)", () => {
+      const r = classifyCommand("sudo -n rm -rf /tmp");
+      expect(r.tier).toBe("destructive");
+    });
+    it("only strips ONE level of sudo — `sudo sudo rm -rf /` is still destructive", () => {
+      const r = classifyCommand("sudo sudo rm -rf /");
+      expect(r.tier).toBe("destructive");
     });
   });
 

@@ -82,6 +82,12 @@ const RISKY_RULES: Rule[] = [
   { re: /\bkillall\b/, tag: "killall" },
   { re: /\besxcli\s+(?:.*\s)?(set|add|remove)\b/, tag: "esxcli-mutate" },
   { re: /\bvim-cmd\s+vmsvc\/(power\.\w+|destroy)\b/, tag: "vim-cmd-power" },
+  // ufw rule mutation — adding/removing firewall rules, reloading, or
+  // toggling the firewall state. Reversible-ish but can cut off network
+  // reachability of the host itself, so we treat it as risky_write.
+  // The sudo-prefix variant (`sudo ufw allow ...`) is handled
+  // transparently by the leading-sudo strip in `classifyCommand`.
+  { re: /^\s*ufw\s+(allow|deny|delete|reload|enable|disable)\b/, tag: "ufw-mutate" },
 ];
 
 // Safe write — small filesystem mutations, conventionally safe.
@@ -180,23 +186,40 @@ export function classifyCommand(rawCommand: string): SshClassification {
     };
   }
 
+  // 2a. Strip a leading `sudo` / `sudo -n` prefix for rule-scanning
+  //     purposes ONLY. This lets the same rule tables classify both
+  //     `df` and `sudo -n df` as `read`, which is the contract the
+  //     sudo-fallback ladder depends on (the ladder retries with
+  //     `sudo -n <command>` and then re-classifies — without this
+  //     strip, the read verbs in the rule tables would no longer
+  //     match and the command would fall through to the
+  //     fail-closed `destructive` default, blocking every legitimate
+  //     escalation). Risky/destructive rules with `\b` anchors
+  //     match through `sudo` already; this strip just keeps the
+  //     read/safe_write anchored rules working too.
+  //
+  //     We do NOT recurse — only ONE `sudo` is stripped, so a
+  //     pathological `sudo sudo rm -rf /` still surfaces as
+  //     destructive via the un-stripped scan path below.
+  const scanTarget = trimmed.replace(/^sudo(?:\s+-n)?\s+/, "");
+
   // 3. Most-dangerous-first scan
-  const destructive = matchAny(trimmed, DESTRUCTIVE_RULES);
+  const destructive = matchAny(trimmed, DESTRUCTIVE_RULES) ?? matchAny(scanTarget, DESTRUCTIVE_RULES);
   if (destructive) {
     return tieredResult("destructive", destructive, "Matches a destructive command pattern.");
   }
 
-  const risky = matchAny(trimmed, RISKY_RULES);
+  const risky = matchAny(trimmed, RISKY_RULES) ?? matchAny(scanTarget, RISKY_RULES);
   if (risky) {
     return tieredResult("risky_write", risky, "Matches a risky-write command pattern (service mutation, VM power op, kill).");
   }
 
-  const safeWrite = matchAny(trimmed, SAFE_WRITE_RULES);
+  const safeWrite = matchAny(trimmed, SAFE_WRITE_RULES) ?? matchAny(scanTarget, SAFE_WRITE_RULES);
   if (safeWrite) {
     return tieredResult("safe_write", safeWrite, "Matches a safe-write command pattern (small fs mutation).");
   }
 
-  const read = matchAny(trimmed, READ_RULES);
+  const read = matchAny(trimmed, READ_RULES) ?? matchAny(scanTarget, READ_RULES);
   if (read) {
     return tieredResult("read", read, "Matches a read-only command pattern.");
   }

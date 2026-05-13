@@ -5,13 +5,19 @@
 export { SshAdapter } from "./adapter.js";
 export type { SshEventEmitter, SshGovernanceEvaluator } from "./adapter.js";
 export { applyTierOverrides, classifyCommand } from "./safety.js";
-export { runRemoteCommand, buildSshArgs } from "./client.js";
+export {
+  runRemoteCommand,
+  runSshCommand,
+  runSshCommandWithSudoFallback,
+  buildSshArgs,
+} from "./client.js";
 export type { SpawnFn, SpawnedProcess, RunCommandOptions } from "./client.js";
 export type {
   SshAdapterOptions,
   SshClassification,
   SshExecRequest,
   SshExecResult,
+  SshExecWithEscalationResult,
   SshTarget,
   SshTierOverrides,
 } from "./types.js";

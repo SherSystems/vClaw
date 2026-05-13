@@ -170,6 +170,19 @@ const HealthConfigSchema = z.object({
   port: z.coerce.number().default(7411),
 });
 
+const ActionTierEnum = z.enum([
+  "read",
+  "safe_write",
+  "risky_write",
+  "destructive",
+  "never",
+]);
+
+const SshTierOverridesSchema = z.object({
+  default: ActionTierEnum.optional(),
+  commands: z.record(z.string(), ActionTierEnum).optional(),
+});
+
 const SshTargetSchema = z.object({
   id: z.string().min(1),
   host: z.string().min(1),
@@ -178,6 +191,7 @@ const SshTargetSchema = z.object({
   identity_file: z.string().optional(),
   jump_host: z.string().optional(),
   description: z.string().optional(),
+  tier_overrides: SshTierOverridesSchema.optional(),
 });
 
 const SshConfigSchema = z.object({

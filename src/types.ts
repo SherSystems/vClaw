@@ -336,6 +336,7 @@ export enum AgentEventType {
   ServiceUnhealthy = "service_unhealthy",
   ServiceRecovered = "service_recovered",
   ServiceRestartLoopDetected = "service_restart_loop_detected",
+  SshExec = "ssh_exec",
 }
 
 // ── Storage Exhaustion Event Class ──────────────────────────

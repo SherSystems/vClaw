@@ -51,8 +51,31 @@ function makePlaybook(overrides: Partial<Playbook> = {}): Playbook {
 // ── DEFAULT_PLAYBOOKS ──────────────────────────────────────
 
 describe("DEFAULT_PLAYBOOKS", () => {
-  it("has 8 default playbooks", () => {
-    expect(DEFAULT_PLAYBOOKS).toHaveLength(8);
+  it("has 9 default playbooks", () => {
+    expect(DEFAULT_PLAYBOOKS).toHaveLength(9);
+  });
+
+  it('"vm_in_guest_diagnostic" triggers on service_http_status state_change critical and requires approval', () => {
+    const pb = DEFAULT_PLAYBOOKS.find((p) => p.id === "vm_in_guest_diagnostic");
+    expect(pb).toBeDefined();
+    expect(pb!.trigger).toEqual({
+      metric: "service_http_status",
+      type: "state_change",
+      severity: "critical",
+    });
+    expect(pb!.requires_approval).toBe(true);
+    expect(pb!.actions).toHaveLength(1);
+    expect(pb!.actions[0].type).toBe("custom_goal");
+    const params = pb!.actions[0].params as Record<string, unknown>;
+    expect(params.playbook_module).toBe("src/playbooks/vm-diagnostic.ts");
+    expect(params.event_class).toBe("VM_APP_UNREACHABLE");
+  });
+
+  it('"vm_in_guest_diagnostic" is registered AFTER "jellyfin-service-probe" for natural chain ordering', () => {
+    const jfIdx = DEFAULT_PLAYBOOKS.findIndex((p) => p.id === "jellyfin-service-probe");
+    const vmIdx = DEFAULT_PLAYBOOKS.findIndex((p) => p.id === "vm_in_guest_diagnostic");
+    expect(jfIdx).toBeGreaterThanOrEqual(0);
+    expect(vmIdx).toBeGreaterThan(jfIdx);
   });
 
   it("each playbook has all required fields", () => {

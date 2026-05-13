@@ -438,6 +438,39 @@ export const DEFAULT_PLAYBOOKS: Playbook[] = [
     max_retries: 2,
   },
   {
+    id: "vm_in_guest_diagnostic",
+    name: "In-VM Diagnostic & Remediation",
+    description:
+      "Agentic in-VM diagnosis when an app-level probe trips. SSHes into the VM, runs " +
+      "df/free/journalctl/dmesg/systemctl, classifies the failure mode, proposes a " +
+      "remediation plan (vacuum logs, restart service, clean apt cache, etc.) and " +
+      "executes after operator approval. See src/playbooks/vm-diagnostic.ts.",
+    trigger: {
+      metric: "service_http_status",
+      type: "state_change",
+      severity: "critical",
+      // No labels filter — applies to any service that has an http probe configured.
+    },
+    actions: [
+      {
+        type: "custom_goal",
+        params: {
+          goal:
+            "Execute vm-diagnostic playbook: SSH into the service VM, run the 9-command diagnostic " +
+            "sweep (df -h, free -h, uptime, systemctl --failed, journalctl --since=10min, dmesg, " +
+            "ss -tlnp, systemctl status <service>), classify failure modes, and propose a tiered " +
+            "remediation plan. Wait for operator approval before any risky_write or destructive action.",
+          playbook_module: "src/playbooks/vm-diagnostic.ts",
+          event_class: "VM_APP_UNREACHABLE",
+        },
+        description: "Run the in-VM diagnostic + remediation chain",
+      },
+    ],
+    cooldown_minutes: 15,
+    requires_approval: true,
+    max_retries: 1,
+  },
+  {
     id: "predictive_disk_full",
     name: "Predictive Disk Full",
     description:

@@ -523,6 +523,20 @@ export class HealingEngine {
       // the metric store (the tick wrapping detect() is precisely that
       // — store updates land in the recordAndBatch path inside
       // HealthMonitor.collect, which the poll timer drives before us).
+      //
+      // PLAYBOOK-FIRING JOIN POINT: boot-eval anomalies are appended to
+      // the same `anomalies` list that flows into the per-anomaly loop
+      // below at `executor.handleAnomaly(...)`. That handler runs the
+      // identical pipeline for every anomaly regardless of origin:
+      //   findOpenIncident → openIncident → suggestPlaybook /
+      //   playbookEngine.match → executeHealing.
+      // So the proxmox_storage_exhaustion_pause playbook (trigger:
+      // metric=vm_status, type=state_change, labels.reason=
+      // paused_io_error) fires for both real running→paused_io_error
+      // transitions detected mid-flight AND for boot-eval anomalies
+      // synthesized at startup. There is no real-vs-boot asymmetry —
+      // the join is here, the matching is downstream, and both paths
+      // share it.
       if (this.bootEvalPending && this.config.bootEvalEnabled !== false) {
         const seriesCount = this.healthMonitor.store.seriesCount;
         if (seriesCount > 0) {

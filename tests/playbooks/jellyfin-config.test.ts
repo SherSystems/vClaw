@@ -9,8 +9,8 @@ describe("jellyfin DEFAULT_PLAYBOOKS registration", () => {
     expect(pb!.name).toMatch(/jellyfin/i);
   });
 
-  it("DEFAULT_PLAYBOOKS count is 8 (was 7 before service-probe addition)", () => {
-    expect(DEFAULT_PLAYBOOKS).toHaveLength(8);
+  it("DEFAULT_PLAYBOOKS count is 9 (was 8 before vm_in_guest_diagnostic addition)", () => {
+    expect(DEFAULT_PLAYBOOKS).toHaveLength(9);
   });
 
   it("jellyfin playbook trigger references the service by label", () => {

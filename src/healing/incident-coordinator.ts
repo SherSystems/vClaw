@@ -155,11 +155,85 @@ export class IncidentCoordinator {
   }
 
   resolveRecoveredIncidents(store: MetricStore, activeIncidentIds: Set<string>): void {
+    const healthyRuntimeStates = new Set(["running", "ok"]);
+    const badRuntimeStates = new Set([
+      "paused_io_error",
+      "paused_other",
+      "locked",
+      "error",
+    ]);
+
     for (const incident of this.incidentManager.getOpen()) {
       if (activeIncidentIds.has(incident.id)) {
         continue;
       }
 
+      // ── State-change recovery path ────────────────────────────
+      //
+      // For vm_status state-change incidents (e.g. boot-eval synthesized
+      // a discovered_state_change for a VM already paused with io-error),
+      // the numeric threshold check below never fires: the recorded
+      // value is just a marker (always 1 for "vm exists", 0 for stopped)
+      // and `incident.trigger_value * 0.7` is never crossed. So those
+      // incidents stay open forever even after the VM returns to
+      // `running`. Detect that case and resolve when the latest sample
+      // for the same vmid+node has a healthy runtime_status.
+      const incidentReason = incident.labels.reason;
+      const isStateChangeIncident =
+        incident.metric === "vm_status" &&
+        incident.anomaly_type === "state_change" &&
+        incidentReason !== undefined &&
+        badRuntimeStates.has(incidentReason);
+
+      if (isStateChangeIncident) {
+        const vmid = incident.labels.vmid;
+        const node = incident.labels.node;
+        if (!vmid || !node) continue;
+
+        // Find the latest vm_status samples for this VM. We can't use
+        // labels-exact getLatest() because the recovered sample no
+        // longer carries `reason` / the bad runtime_status, so its
+        // series key is different. Instead scan all latest-per-series
+        // entries and pick the ones matching vmid+node. A VM with a
+        // healthy current sample is considered recovered regardless of
+        // whether the stale bad-state series is still in the 24h
+        // retention window.
+        const allLatest = store.getAllLatest("vm_status");
+        const samplesForVm = allLatest.filter(
+          (entry) => entry.labels.vmid === vmid && entry.labels.node === node,
+        );
+        if (samplesForVm.length === 0) continue;
+
+        const healthySample = samplesForVm.find((entry) => {
+          const rs = entry.labels.runtime_status;
+          return rs !== undefined && healthyRuntimeStates.has(rs);
+        });
+        if (!healthySample) continue;
+        const latestRuntimeStatus = healthySample.labels.runtime_status!;
+
+        if (healthyRuntimeStates.has(latestRuntimeStatus)) {
+          const before =
+            incident.labels.runtime_status_before ??
+            incident.labels.runtime_status ??
+            incidentReason;
+          const displayName = incident.labels.name || incident.labels.vmid;
+          this.incidentManager.resolve(
+            incident.id,
+            `VM ${displayName} state recovered: ${before} → ${latestRuntimeStatus}`,
+          );
+
+          this.emitEvent(AgentEventType.AlertResolved, {
+            incident_id: incident.id,
+            metric: incident.metric,
+            current_value: healthySample.value,
+            runtime_status_before: before,
+            runtime_status_after: latestRuntimeStatus,
+          });
+        }
+        continue;
+      }
+
+      // ── Numeric-threshold recovery path ───────────────────────
       const latest = store.getLatest(incident.metric, incident.labels);
       if (!latest) {
         continue;

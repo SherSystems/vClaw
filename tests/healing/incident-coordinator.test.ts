@@ -120,6 +120,90 @@ describe("IncidentCoordinator", () => {
     expect((events[0] as { data: { incident_id: string } }).data.incident_id).toBe(recovered.id);
   });
 
+  it("resolves state_change incident when latest sample shows healthy runtime_status", () => {
+    const { eventBus, coordinator } = makeCoordinator();
+    const events: { type: string; data: Record<string, unknown> }[] = [];
+    eventBus.on(AgentEventType.AlertResolved, (event) =>
+      events.push(event as { type: string; data: Record<string, unknown> }),
+    );
+
+    const store = new MetricStore();
+    // Seed the store with the bad state first (this is what boot-eval saw).
+    store.record("vm_status", 1, {
+      vmid: "210",
+      node: "pve1",
+      name: "ninja-bot",
+      runtime_status: "paused_io_error",
+      reason: "paused_io_error",
+    });
+
+    // Synthesize the boot-eval anomaly from the bad-state sample and open
+    // an incident from it — matches the real `evaluateInitialState` flow.
+    const [boot] = coordinator.evaluateInitialState(store);
+    expect(boot).toBeDefined();
+    expect(boot.type).toBe("state_change");
+    expect(boot.labels.reason).toBe("paused_io_error");
+    const incident = coordinator.openIncident(boot);
+    expect(incident.status).toBe("open");
+
+    // The numeric-threshold recovery path would never fire for this
+    // incident because vm_status's value is just a 1/0 marker, not a
+    // metric. Now the VM recovers to running — push a fresh sample.
+    store.record("vm_status", 1, {
+      vmid: "210",
+      node: "pve1",
+      name: "ninja-bot",
+      runtime_status: "running",
+    });
+
+    coordinator.resolveRecoveredIncidents(store, new Set());
+
+    const updated = coordinator.incidentManager.getById(incident.id);
+    expect(updated?.status).toBe("resolved");
+    expect(updated?.resolution).toContain("ninja-bot");
+    expect(updated?.resolution).toContain("paused_io_error");
+    expect(updated?.resolution).toContain("running");
+    expect(updated?.resolution).toContain("state recovered");
+
+    expect(events).toHaveLength(1);
+    expect(events[0].data.incident_id).toBe(incident.id);
+    expect(events[0].data.runtime_status_before).toBe("paused_io_error");
+    expect(events[0].data.runtime_status_after).toBe("running");
+  });
+
+  it("keeps state_change incident open when latest sample still shows the bad runtime_status", () => {
+    const { eventBus, coordinator } = makeCoordinator();
+    const events: unknown[] = [];
+    eventBus.on(AgentEventType.AlertResolved, (event) => events.push(event));
+
+    const store = new MetricStore();
+    store.record("vm_status", 1, {
+      vmid: "210",
+      node: "pve1",
+      name: "ninja-bot",
+      runtime_status: "paused_io_error",
+      reason: "paused_io_error",
+    });
+    const [boot] = coordinator.evaluateInitialState(store);
+    const incident = coordinator.openIncident(boot);
+
+    // Same bad state on the next poll → still paused.
+    store.record("vm_status", 1, {
+      vmid: "210",
+      node: "pve1",
+      name: "ninja-bot",
+      runtime_status: "paused_io_error",
+      reason: "paused_io_error",
+    });
+
+    coordinator.resolveRecoveredIncidents(store, new Set());
+
+    expect(coordinator.incidentManager.getById(incident.id)?.status).toBe(
+      "open",
+    );
+    expect(events).toHaveLength(0);
+  });
+
   it("matches open incidents only when labels fully match", () => {
     const { coordinator } = makeCoordinator();
     coordinator.openIncident(

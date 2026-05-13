@@ -183,6 +183,24 @@ const SshTierOverridesSchema = z.object({
   commands: z.record(z.string(), ActionTierEnum).optional(),
 });
 
+/**
+ * Per-target NOPASSWD sudo policy. Each entry is a command VERB the
+ * target's SSH user is configured to invoke via `sudo -n` without a
+ * password (i.e. has a NOPASSWD line in /etc/sudoers.d/<file>).
+ *
+ * Only the listed verbs are eligible for the sudo-fallback ladder
+ * (see `runSshCommandWithSudoFallback`). The ladder additionally
+ * re-classifies the sudo-prefixed command and refuses to escalate if
+ * the tier rises — so this list is a NECESSARY but not SUFFICIENT
+ * condition for retry.
+ *
+ * Practical examples:
+ *   ["systemctl", "journalctl"]  — fleet ops on a fragile host
+ *   ["df", "du", "dmesg"]        — diagnostic surface only
+ *   ["ufw"]                      — firewall management on an edge box
+ */
+export const SshSudoPolicy = z.array(z.string().min(1));
+
 const SshTargetSchema = z.object({
   id: z.string().min(1),
   host: z.string().min(1),
@@ -192,6 +210,7 @@ const SshTargetSchema = z.object({
   jump_host: z.string().optional(),
   description: z.string().optional(),
   tier_overrides: SshTierOverridesSchema.optional(),
+  sudo_allowlist: SshSudoPolicy.optional(),
 });
 
 const SshConfigSchema = z.object({

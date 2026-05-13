@@ -67,6 +67,27 @@ export interface SshTarget {
    * on a target-by-target basis.
    */
   tier_overrides?: SshTierOverrides;
+  /**
+   * Per-target NOPASSWD sudo allowlist. Each entry is a command VERB —
+   * the first token of the command string (e.g. `systemctl`,
+   * `journalctl`, `ufw`, `apt`, `df`, `du`, `truncate`, `mount`,
+   * `umount`, `dmesg`). The presence of a verb in this list asserts
+   * that the target's SSH user has a NOPASSWD line in sudoers for
+   * that verb — when an unprivileged invocation returns a permission
+   * error, the sudo-fallback ladder will retry the command with
+   * `sudo -n <command>`.
+   *
+   * If unset (or empty), NO sudo retry is ever attempted. This is the
+   * fail-closed default: operators must explicitly opt a target into
+   * each verb they've provisioned via sudoers.
+   *
+   * NOTE: the ladder ALSO re-classifies the sudo-prefixed command and
+   * rejects the escalation if it would jump to a higher tier than the
+   * original (the caller already passed governance on the lower tier).
+   * In practice the listed verbs map mostly to risky_write or read,
+   * which sudo doesn't change.
+   */
+  sudo_allowlist?: string[];
 }
 
 export interface SshExecRequest {
@@ -87,6 +108,42 @@ export interface SshExecResult {
   duration_ms: number;
   /** Whether the command was killed by the timeout. */
   timed_out: boolean;
+}
+
+/**
+ * Result returned by `runSshCommandWithSudoFallback`. Wraps the
+ * underlying `SshExecResult` with audit fields describing what (if
+ * anything) the sudo-fallback ladder did.
+ *
+ * Discipline:
+ *   - The public `SshExecResult` shape is unchanged — every existing
+ *     caller works as before.
+ *   - `escalated=true` iff the ladder retried the command with
+ *     `sudo -n` AND the retry was the result we returned.
+ *   - `original_exit_code` is the exit code of the unprivileged
+ *     attempt — set only when an escalation actually happened.
+ *   - `requiresApproval=true` is a refusal: the ladder noticed that
+ *     the sudo'd command classifies HIGHER than the original and
+ *     declined to escalate (the caller already passed governance on
+ *     the lower tier, so the ladder must not promote the action).
+ *     In this case the returned `SshExecResult` is the ORIGINAL
+ *     unprivileged failure, unchanged.
+ */
+export interface SshExecWithEscalationResult extends SshExecResult {
+  /** True when the result reflects a `sudo -n <command>` retry. */
+  escalated: boolean;
+  /**
+   * Exit code of the unprivileged first attempt. Set only when an
+   * escalation actually fired. Omitted on the no-retry happy path.
+   */
+  original_exit_code?: number;
+  /**
+   * True when the ladder refused to retry because the sudo'd command
+   * classifies as a HIGHER governance tier than the original. The
+   * returned exec result is the (failed) unprivileged attempt; the
+   * caller must seek fresh approval at the higher tier before retrying.
+   */
+  requiresApproval: boolean;
 }
 
 /** Result of classifying a command without executing it. */

@@ -22,10 +22,11 @@ import type {
   SshAdapterOptions,
   SshClassification,
   SshExecResult,
+  SshExecWithEscalationResult,
   SshTarget,
 } from "./types.js";
 import type { SpawnFn } from "./client.js";
-import { runRemoteCommand } from "./client.js";
+import { runSshCommandWithSudoFallback } from "./client.js";
 import { applyTierOverrides, classifyCommand } from "./safety.js";
 import { AgentEventType, type AgentEvent } from "../../types.js";
 
@@ -218,6 +219,7 @@ export class SshAdapter implements InfraAdapter {
       jump_host: t.jump_host,
       description: t.description,
       tier_overrides: t.tier_overrides,
+      sudo_allowlist: t.sudo_allowlist,
       has_identity_file: !!t.identity_file,
     }));
   }
@@ -348,9 +350,15 @@ export class SshAdapter implements InfraAdapter {
       }
     }
 
-    // 5. Execute via SSH client.
+    // 5. Execute via SSH client. The sudo-fallback ladder will (a) run
+    //    the command unprivileged first, and (b) only retry with
+    //    `sudo -n` if stderr matches a permission-denied pattern AND
+    //    the verb is in the target's `sudo_allowlist` AND the sudo'd
+    //    command doesn't classify at a higher tier than the original.
+    //    Targets without a `sudo_allowlist` get the plain single-shot
+    //    behaviour.
     const timeoutS = clampTimeout(timeoutOverride ?? this.defaultTimeoutS);
-    const result = await runRemoteCommand({
+    const result = await runSshCommandWithSudoFallback({
       target,
       command,
       timeoutMs: timeoutS * 1000,
@@ -369,6 +377,9 @@ export class SshAdapter implements InfraAdapter {
       duration_ms: result.duration_ms,
       timed_out: result.timed_out,
       truncated: result.truncated,
+      escalated: result.escalated,
+      original_exit_code: result.original_exit_code,
+      requires_approval: result.requiresApproval,
     });
 
     return {
@@ -377,12 +388,12 @@ export class SshAdapter implements InfraAdapter {
         ...result,
         classification,
         target_id: targetId,
-      } satisfies SshExecResult & {
+      } satisfies SshExecWithEscalationResult & {
         classification: SshClassification;
         target_id: string;
       },
       error: result.exit_code !== 0
-        ? `ssh_exec exit_code=${result.exit_code}${result.timed_out ? " (timed out)" : ""}`
+        ? `ssh_exec exit_code=${result.exit_code}${result.timed_out ? " (timed out)" : ""}${result.requiresApproval ? " (sudo escalation refused — would jump tier; re-approve at higher tier)" : ""}`
         : undefined,
     };
   }
@@ -406,6 +417,12 @@ export class SshAdapter implements InfraAdapter {
     timed_out?: boolean;
     truncated?: boolean;
     error?: string;
+    /** True when the sudo-fallback ladder retried with `sudo -n`. */
+    escalated?: boolean;
+    /** Exit code of the unprivileged first attempt (only when escalated). */
+    original_exit_code?: number;
+    /** True when the ladder refused to escalate (tier would jump). */
+    requires_approval?: boolean;
   }): void {
     if (!this.eventBus) return;
 
@@ -428,6 +445,16 @@ export class SshAdapter implements InfraAdapter {
     if (payload.timed_out !== undefined) data.timed_out = payload.timed_out;
     if (payload.truncated !== undefined) data.truncated = payload.truncated;
     if (payload.error !== undefined) data.error = payload.error;
+    // Sudo-fallback ladder fields — only attached when the ladder fired.
+    // `escalated=true` and `requires_approval=true` are the audit-trail
+    // proof for what would otherwise be invisible: the agent's command
+    // was retried with elevated privilege, OR was prevented from doing
+    // so because the escalation would jump governance tier.
+    if (payload.escalated) data.escalated = true;
+    if (payload.original_exit_code !== undefined) {
+      data.original_exit_code = payload.original_exit_code;
+    }
+    if (payload.requires_approval) data.requires_approval = true;
 
     try {
       this.eventBus.emit({
@@ -458,6 +485,7 @@ function normalizeTarget(t: SshTarget): SshTarget {
     jump_host: t.jump_host,
     description: t.description,
     tier_overrides: t.tier_overrides,
+    sudo_allowlist: t.sudo_allowlist,
   };
 }
 

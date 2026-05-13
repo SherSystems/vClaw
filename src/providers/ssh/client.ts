@@ -17,7 +17,13 @@
 // ============================================================
 
 import { spawn, type SpawnOptions } from "node:child_process";
-import type { SshExecResult, SshTarget } from "./types.js";
+import type {
+  SshExecResult,
+  SshExecWithEscalationResult,
+  SshTarget,
+} from "./types.js";
+import { classifyCommand } from "./safety.js";
+import type { ActionTier } from "../types.js";
 
 export interface RunCommandOptions {
   target: SshTarget;
@@ -207,4 +213,148 @@ export async function runRemoteCommand(opts: RunCommandOptions): Promise<SshExec
       });
     });
   });
+}
+
+/**
+ * Alias for {@link runRemoteCommand}. The sudo-fallback ladder calls
+ * `runSshCommand(opts)` for both the unprivileged attempt and the
+ * `sudo -n` retry; the historical name `runRemoteCommand` is kept as
+ * the canonical export to avoid churning every existing call site.
+ */
+export const runSshCommand = runRemoteCommand;
+
+// ============================================================
+// Sudo-fallback ladder
+// ============================================================
+//
+// Some operations want to run unprivileged first and only escalate to
+// `sudo -n <command>` if the unprivileged attempt fails with a
+// permission error AND the target has been explicitly opted into
+// NOPASSWD execution for that verb.
+//
+// This is two-layer fail-closed:
+//   1. The retry is ONLY attempted when stderr matches a known
+//      permission-denied signature. Anything else (the command really
+//      doesn't exist, the binary segfaulted, etc.) is returned as-is.
+//   2. The retry is ONLY attempted when the FIRST verb of the command
+//      (post-trim, post-split) is in `target.sudo_allowlist`. No
+//      allowlist → no escalation, ever.
+//
+// Additionally, the sudo'd version of the command is re-classified
+// through `classifyCommand`. If the classification jumps to a higher
+// tier than the original (e.g. a verb that looked safe becomes
+// dangerous when prefixed with `sudo`), the ladder REFUSES the
+// escalation and returns `requiresApproval: true`. The caller already
+// passed governance on the lower tier — the ladder must not silently
+// promote the action.
+
+/**
+ * Patterns we treat as "this failed because we lack privilege" — and
+ * therefore as a signal to (maybe) retry with sudo. Conservative on
+ * purpose: anything not matching one of these stays as a plain failure.
+ *
+ * Cases (case-insensitive):
+ *   - generic POSIX "permission denied"
+ *   - "operation not permitted" (EPERM, e.g. unmount as non-root)
+ *   - "must be root" / "must be run as root" / "are you root?"
+ *   - "sudo: a password is required" (sudo not configured NOPASSWD)
+ *   - "are you root?" (some daemons)
+ */
+const PERMISSION_ERROR_PATTERNS: readonly RegExp[] = [
+  /permission denied/i,
+  /operation not permitted/i,
+  /must be (run as )?root/i,
+  /are you root\??/i,
+  /sudo: a password is required/i,
+  /requires? (root|superuser) privilege/i,
+];
+
+function looksLikePermissionError(stderr: string): boolean {
+  if (!stderr) return false;
+  for (const re of PERMISSION_ERROR_PATTERNS) {
+    if (re.test(stderr)) return true;
+  }
+  return false;
+}
+
+/**
+ * Extract the first whitespace-separated token of a trimmed command.
+ * Used to match against `sudo_allowlist`.
+ */
+function firstVerb(command: string): string {
+  const trimmed = (command ?? "").trim();
+  if (!trimmed) return "";
+  return trimmed.split(/\s+/)[0]!;
+}
+
+/**
+ * Rank an ActionTier on a low-to-high risk scale. Kept local to avoid
+ * importing the safety-internal table.
+ */
+const TIER_RANK: Record<ActionTier, number> = {
+  read: 0,
+  safe_write: 1,
+  risky_write: 2,
+  destructive: 3,
+  never: 99,
+};
+
+/**
+ * Execute a command via SSH, falling back to `sudo -n <command>` when
+ * the unprivileged attempt fails with a permission error AND the verb
+ * is in the target's `sudo_allowlist`.
+ *
+ * See {@link SshExecWithEscalationResult} for the contract.
+ *
+ * The promise NEVER rejects: protocol failures are surfaced as
+ * non-zero exit codes on the wrapped exec result.
+ */
+export async function runSshCommandWithSudoFallback(
+  opts: RunCommandOptions,
+): Promise<SshExecWithEscalationResult> {
+  // 1. Always run the unprivileged attempt first.
+  const first = await runSshCommand(opts);
+
+  // Happy path — succeeded without sudo.
+  if (first.exit_code === 0) {
+    return { ...first, escalated: false, requiresApproval: false };
+  }
+
+  // 2. Did it fail in a way that smells like a privilege problem?
+  if (!looksLikePermissionError(first.stderr)) {
+    return { ...first, escalated: false, requiresApproval: false };
+  }
+
+  // 3. Is the verb opted in?
+  const allowlist = opts.target.sudo_allowlist ?? [];
+  const verb = firstVerb(opts.command);
+  if (!verb || !allowlist.includes(verb)) {
+    // No allowlist entry — return the original failure untouched.
+    // Caller sees the perm-denied stderr and can surface it.
+    return { ...first, escalated: false, requiresApproval: false };
+  }
+
+  // 4. Re-classify the sudo-prefixed command. If it jumps tier, refuse
+  //    the escalation — the caller's governance approval was for the
+  //    lower tier only.
+  const sudoCommand = `sudo -n ${opts.command.trim()}`;
+  const baseClassification = classifyCommand(opts.command);
+  const sudoClassification = classifyCommand(sudoCommand);
+  if (TIER_RANK[sudoClassification.tier] > TIER_RANK[baseClassification.tier]) {
+    return {
+      ...first,
+      escalated: false,
+      requiresApproval: true,
+      original_exit_code: first.exit_code,
+    };
+  }
+
+  // 5. Retry with sudo -n. Use the same opts but swap the command.
+  const second = await runSshCommand({ ...opts, command: sudoCommand });
+  return {
+    ...second,
+    escalated: true,
+    original_exit_code: first.exit_code,
+    requiresApproval: false,
+  };
 }

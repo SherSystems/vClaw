@@ -41,6 +41,15 @@ const CRASH_RECOVERY_PREFIXES = [
   "before-",
 ];
 
+/** Prefix used for RHODES-generated pre-remediation safety snapshots.
+ *  Format: `rhodes-safety-<ISO-timestamp>`. The newest one is preserved
+ *  across runs; the *previous* one is pruned only after a successful
+ *  resume + verify. */
+export const RHODES_SAFETY_SNAPSHOT_PREFIX = "rhodes-safety-";
+
+/** Retention floor — never prune below this number of non-current snapshots. */
+export const SNAPSHOT_RETENTION_FLOOR = 1;
+
 /** Action tiers for the qm commands this playbook may issue.
  *
  *  Per spec, this playbook overrides the default proxmox adapter
@@ -55,6 +64,7 @@ const CRASH_RECOVERY_PREFIXES = [
  *  `validateRemediationCandidate()` below.
  */
 export const PLAYBOOK_ACTION_TIERS: Record<string, ActionTier> = {
+  "qm snapshot": "safe_write",
   "qm delsnapshot": "risky_write",
   "qm resume": "safe_write",
   "qm reset": "destructive",
@@ -142,6 +152,11 @@ export interface StorageDiagnostic {
   vms_by_storage: Record<string, number[]>;
 }
 
+export type RemediationStepKind =
+  | "delete_snapshot"
+  | "take_safety_snapshot"
+  | "cleanup_prior_safety_snapshot";
+
 export interface RemediationStep {
   command: string;
   description: string;
@@ -150,6 +165,8 @@ export interface RemediationStep {
   cumulative_bytes_freed: number;
   vmid: number;
   snapname: string;
+  /** Defaults to "delete_snapshot" for backward compatibility. */
+  kind?: RemediationStepKind;
 }
 
 export interface RemediationPlan {
@@ -420,6 +437,14 @@ function isThinPool(lv: LvsEntry): boolean {
 export interface RankingOptions {
   stale_after_days?: number;
   now?: Date;
+  /** Sink for retention-floor / exclusion notes. Only populated when
+   *  `apply_retention_floor` is true. */
+  notes?: string[];
+  /** When true, apply the {@link SNAPSHOT_RETENTION_FLOOR} retention rule
+   *  (never prune the newest non-current snapshot). The remediation
+   *  playbook sets this to true; observers like the thin-pool monitor
+   *  leave it off because they only *observe*, never delete. */
+  apply_retention_floor?: boolean;
 }
 
 export function rankSnapshotsForDeletion(
@@ -457,7 +482,77 @@ export function rankSnapshotsForDeletion(
   });
 
   enriched.sort((a, b) => a.rank - b.rank);
+
+  // Retention floor is opt-in: only callers that may actually delete
+  // (the remediation playbook) should set `apply_retention_floor`.
+  // Pure observers (e.g. the thin-pool monitor's stale-snapshot emitter)
+  // leave it off so they continue to see every candidate.
+  if (options.apply_retention_floor) {
+    return filterDeletableCandidates(enriched, options.notes);
+  }
   return enriched;
+}
+
+/**
+ * Apply the retention floor: never prune below
+ * {@link SNAPSHOT_RETENTION_FLOOR} non-current snapshots. The newest
+ * non-current snapshot (by `created_at`) is excluded from candidates.
+ *
+ * If `notes` is provided, an exclusion note is pushed for the snapshot
+ * being kept. Entries without `created_at` are considered oldest.
+ */
+export function filterDeletableCandidates(
+  ranked: SnapshotCandidate[],
+  notes?: string[],
+): SnapshotCandidate[] {
+  if (ranked.length === 0) return ranked;
+
+  // Pick the newest by created_at; undated entries lose ties.
+  const newest = pickNewestSnapshot(ranked);
+  if (!newest) return ranked;
+
+  const filtered = ranked.filter((c) => c !== newest);
+  if (notes) {
+    notes.push(
+      `Excluded ${newest.name} from candidates: newest non-current snapshot (retention floor=${SNAPSHOT_RETENTION_FLOOR})`,
+    );
+  }
+  return filtered;
+}
+
+function pickNewestSnapshot<T extends SnapshotEntry>(
+  snapshots: T[],
+): T | undefined {
+  let newest: T | undefined;
+  let newestMs = -Infinity;
+  for (const s of snapshots) {
+    const ms = s.created_at ? new Date(s.created_at).getTime() : -Infinity;
+    if (ms > newestMs) {
+      newest = s;
+      newestMs = ms;
+    }
+  }
+  // If no entry had a timestamp, fall back to the last entry in the list
+  // (treat undated as oldest → keep the *last-listed* undated one so we
+  // never return an empty candidate set just because timestamps are
+  // missing).
+  if (!newest && snapshots.length > 0) {
+    newest = snapshots[snapshots.length - 1];
+  }
+  return newest;
+}
+
+/** Find the previous rhodes-safety-* snapshot among the input snapshots,
+ *  if any. "Previous" = newest by created_at among entries whose name
+ *  starts with `rhodes-safety-`. */
+export function findPreviousSafetySnapshot(
+  snapshots: SnapshotEntry[],
+): SnapshotEntry | undefined {
+  const safety = snapshots.filter((s) =>
+    s.name.startsWith(RHODES_SAFETY_SNAPSHOT_PREFIX),
+  );
+  if (safety.length === 0) return undefined;
+  return pickNewestSnapshot(safety);
 }
 
 // ── Hard-Rule Validation ────────────────────────────────────
@@ -467,11 +562,19 @@ export function rankSnapshotsForDeletion(
  * Only snapshot deletion is allowed in remediation. This guards against
  * an LLM-generated plan that confuses an `lvs` row for a snapshot.
  *
+ * Also: never delete `rhodes-safety-<ts>` snapshots EXCEPT via the
+ * explicit cleanup path (passing `{ allow_safety_cleanup: <exact name> }`).
+ * This keeps the playbook from orphaning its own safety net mid-run.
+ *
  * Returns null if the candidate is safe, otherwise an error string.
  */
 export function validateRemediationCandidate(item: {
   command?: string;
   target?: string;
+  /** Set to the EXACT prior safety-snap name when this delete IS the
+   *  explicit safety-snap cleanup step. Any other name (or omitted)
+   *  causes the rhodes-safety-* guard to fire on a delete-style ref. */
+  allow_safety_cleanup?: string;
 }): string | null {
   const text = `${item.command ?? ""} ${item.target ?? ""}`.toLowerCase();
 
@@ -489,6 +592,20 @@ export function validateRemediationCandidate(item: {
   if (/\brm\s+-rf\b/.test(text)) {
     return "Hard rule: rm -rf is blocked in remediation plans.";
   }
+
+  // rhodes-safety-* guard: only allow exact-name cleanup. Creating
+  // a new safety snap (`qm snapshot ...`) is always fine.
+  const rawText = `${item.command ?? ""} ${item.target ?? ""}`;
+  if (rawText.includes(RHODES_SAFETY_SNAPSHOT_PREFIX)) {
+    const isDelete =
+      /\bqm\s+delsnapshot\b/i.test(rawText) || /\blvremove\b/i.test(rawText);
+    if (isDelete) {
+      const allowed = item.allow_safety_cleanup;
+      if (!allowed || !rawText.includes(allowed)) {
+        return "Hard rule: rhodes-safety-* snapshots can only be deleted via the explicit safety-snap cleanup step.";
+      }
+    }
+  }
   return null;
 }
 
@@ -502,6 +619,13 @@ export interface PlanInput {
   candidates: SnapshotCandidate[];
   /** Total bytes in the thin pool (for projecting % impact). */
   pool_size_bytes?: number;
+  /** Override timestamp used in the safety-snap name (mainly for tests). */
+  now?: Date;
+  /** Previous rhodes-safety-* snapshot, if any. When provided AND the
+   *  plan has any delete steps, a final cleanup step is appended to
+   *  prune it. The runner only executes that step AFTER successful
+   *  resume + verify. */
+  previous_safety_snapshot?: SnapshotEntry;
 }
 
 export function buildRemediationPlan(input: PlanInput): RemediationPlan {
@@ -511,7 +635,7 @@ export function buildRemediationPlan(input: PlanInput): RemediationPlan {
   const currentBytesUsed = (input.current_data_pct / 100) * poolSize;
   const needBytesFreed = Math.max(0, currentBytesUsed - targetBytesUsed);
 
-  const steps: RemediationStep[] = [];
+  const deleteSteps: RemediationStep[] = [];
   const blocked: RemediationPlan["blocked_candidates"] = [];
   let cumulative = 0;
 
@@ -528,7 +652,7 @@ export function buildRemediationPlan(input: PlanInput): RemediationPlan {
 
     const freed = c.estimated_bytes ?? 0;
     cumulative += freed;
-    steps.push({
+    deleteSteps.push({
       command: cmd,
       description:
         `Delete snapshot "${c.name}" on vmid ${input.vmid}` +
@@ -539,6 +663,7 @@ export function buildRemediationPlan(input: PlanInput): RemediationPlan {
       cumulative_bytes_freed: cumulative,
       vmid: input.vmid,
       snapname: c.name,
+      kind: "delete_snapshot",
     });
 
     // Stop once we've satisfied the bytes goal — but always include at
@@ -546,10 +671,47 @@ export function buildRemediationPlan(input: PlanInput): RemediationPlan {
     if (
       needBytesFreed > 0 &&
       cumulative >= needBytesFreed &&
-      steps.length > 0
+      deleteSteps.length > 0
     ) {
       break;
     }
+  }
+
+  const steps: RemediationStep[] = [];
+
+  // Prepend a pre-remediation safety snapshot BEFORE any destructive delete.
+  if (deleteSteps.length > 0) {
+    const ts = (input.now ?? new Date()).toISOString();
+    const safetyName = `${RHODES_SAFETY_SNAPSHOT_PREFIX}${ts}`;
+    steps.push({
+      command: `qm snapshot ${input.vmid} ${safetyName}`,
+      description: `Take pre-remediation safety snapshot ${safetyName}`,
+      tier: PLAYBOOK_ACTION_TIERS["qm snapshot"],
+      projected_bytes_freed: 0,
+      cumulative_bytes_freed: 0,
+      vmid: input.vmid,
+      snapname: safetyName,
+      kind: "take_safety_snapshot",
+    });
+  }
+
+  steps.push(...deleteSteps);
+
+  // Append a cleanup step for the previous safety snapshot, if any.
+  // The runner only executes this AFTER a successful resume + verify so
+  // that a failed resume keeps the prior safety net intact.
+  if (deleteSteps.length > 0 && input.previous_safety_snapshot) {
+    const prior = input.previous_safety_snapshot;
+    steps.push({
+      command: `qm delsnapshot ${input.vmid} ${prior.name}`,
+      description: `Prune previous safety snapshot ${prior.name} after successful resume`,
+      tier: PLAYBOOK_ACTION_TIERS["qm delsnapshot"],
+      projected_bytes_freed: 0,
+      cumulative_bytes_freed: cumulative,
+      vmid: input.vmid,
+      snapname: prior.name,
+      kind: "cleanup_prior_safety_snapshot",
+    });
   }
 
   return {
@@ -590,6 +752,14 @@ export interface ProxmoxExecutor {
   pvesmStatus(node: string): Promise<string>;
   lvs(node: string): Promise<string>;
   qmListSnapshot(node: string, vmid: number): Promise<string>;
+  /** Create a named snapshot. Used by the playbook to take the
+   *  pre-remediation safety snapshot. */
+  qmTakeSnapshot(
+    node: string,
+    vmid: number,
+    name: string,
+    description?: string,
+  ): Promise<{ ok: boolean; error?: string }>;
   /** Returns approximate bytes freed if known. */
   qmDelSnapshot(
     node: string,
@@ -719,8 +889,14 @@ export async function runProxmoxStoragePausePlaybook(
       // Skip
     }
   }
+  // Identify the previous rhodes-safety-* snapshot for cleanup BEFORE
+  // we apply the retention floor (which would exclude it from candidates).
+  const previousSafety = findPreviousSafetySnapshot(snapshotsRaw);
+
   const candidates = rankSnapshotsForDeletion(snapshotsRaw, {
     stale_after_days: options.stale_after_days,
+    apply_retention_floor: true,
+    notes: findings.notes,
   });
   findings.candidates = candidates;
 
@@ -738,6 +914,7 @@ export async function runProxmoxStoragePausePlaybook(
     target_data_pct: options.target_pct,
     candidates,
     pool_size_bytes: hotPool?.size_bytes,
+    previous_safety_snapshot: previousSafety,
   });
   findings.plan = plan;
 
@@ -760,7 +937,41 @@ export async function runProxmoxStoragePausePlaybook(
   // 6. EXECUTE
   findings.phase = "execute";
   const executed: RemediationStep[] = [];
+  // Collect deferred cleanup steps up-front so that an early loop-break
+  // (target reached) doesn't drop them. They run AFTER successful resume.
+  const deferredCleanup: RemediationStep[] = plan.steps.filter(
+    (s) => (s.kind ?? "delete_snapshot") === "cleanup_prior_safety_snapshot",
+  );
+
+  let aborted = false;
   for (const step of plan.steps) {
+    const kind = step.kind ?? "delete_snapshot";
+
+    if (kind === "cleanup_prior_safety_snapshot") {
+      // Don't run inline — runs only after successful resume + verify.
+      continue;
+    }
+
+    if (kind === "take_safety_snapshot") {
+      const r = await executor.qmTakeSnapshot(
+        options.node,
+        step.vmid,
+        step.snapname,
+        "RHODES pre-remediation safety snapshot",
+      );
+      if (!r.ok) {
+        // Without the safety snap, do NOT proceed with destructive deletes.
+        findings.notes.push(
+          `Failed to take safety snapshot ${step.snapname}: ${r.error ?? "unknown error"} — aborting before any delete.`,
+        );
+        aborted = true;
+        break;
+      }
+      executed.push(step);
+      continue;
+    }
+
+    // delete_snapshot
     const r = await executor.qmDelSnapshot(
       options.node,
       step.vmid,
@@ -790,29 +1001,33 @@ export async function runProxmoxStoragePausePlaybook(
 
   // 7. Resume + verify
   findings.phase = "resume";
-  const resume = await executor.qmResume(options.node, options.vmid);
-  let resumed = resume.ok;
+  let resumed = false;
   let reset_required = false;
   let reset_executed = false;
 
-  if (resumed) {
-    await executor.sleep(5_000);
-    const statusOut = await executor.qmStatus(options.node, options.vmid);
-    if (!/status:\s*running/i.test(statusOut)) {
-      resumed = false;
-    }
-  }
+  if (!aborted) {
+    const resume = await executor.qmResume(options.node, options.vmid);
+    resumed = resume.ok;
 
-  if (!resumed) {
-    reset_required = true;
-    findings.notes.push("Resume did not bring VM back; reset gate engaged.");
-    if (options.approve_reset) {
-      const ok = await options.approve_reset(
-        `qm resume failed for vmid ${options.vmid}; qm reset is Tier 4.`,
-      );
-      if (ok) {
-        const r = await executor.qmReset(options.node, options.vmid);
-        reset_executed = r.ok;
+    if (resumed) {
+      await executor.sleep(5_000);
+      const statusOut = await executor.qmStatus(options.node, options.vmid);
+      if (!/status:\s*running/i.test(statusOut)) {
+        resumed = false;
+      }
+    }
+
+    if (!resumed) {
+      reset_required = true;
+      findings.notes.push("Resume did not bring VM back; reset gate engaged.");
+      if (options.approve_reset) {
+        const ok = await options.approve_reset(
+          `qm resume failed for vmid ${options.vmid}; qm reset is Tier 4.`,
+        );
+        if (ok) {
+          const r = await executor.qmReset(options.node, options.vmid);
+          reset_executed = r.ok;
+        }
       }
     }
   }
@@ -825,6 +1040,42 @@ export async function runProxmoxStoragePausePlaybook(
     } catch {
       reachable_after = false;
     }
+  }
+
+  // Prior safety-snap cleanup: ONLY after a successful resume + verify.
+  // If resume failed, preserve the prior safety snap as a rollback target.
+  if (resumed && deferredCleanup.length > 0) {
+    for (const step of deferredCleanup) {
+      const violation = validateRemediationCandidate({
+        command: step.command,
+        target: step.snapname,
+        allow_safety_cleanup: step.snapname,
+      });
+      if (violation) {
+        findings.notes.push(
+          `Skipped prior safety-snap cleanup for ${step.snapname}: ${violation}`,
+        );
+        continue;
+      }
+      const r = await executor.qmDelSnapshot(
+        options.node,
+        step.vmid,
+        step.snapname,
+      );
+      if (!r.ok) {
+        findings.notes.push(
+          `Failed to prune previous safety snapshot ${step.snapname}: ${r.error ?? "unknown error"}`,
+        );
+        continue;
+      }
+      executed.push(step);
+    }
+  } else if (!resumed && deferredCleanup.length > 0) {
+    findings.notes.push(
+      `Resume did not succeed; preserving previous safety snapshot(s) for rollback: ${deferredCleanup
+        .map((s) => s.snapname)
+        .join(", ")}`,
+    );
   }
 
   return {

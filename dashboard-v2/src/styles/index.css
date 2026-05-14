@@ -6156,6 +6156,13 @@ body, .sidebar-nav-item, .approval-btn {
   margin-bottom: 12px;
   opacity: 0.9;
 }
+.rhodes-login-lockup {
+  height: 56px;
+  width: auto;
+  max-width: 280px;
+  margin-bottom: 8px;
+  object-fit: contain;
+}
 .rhodes-login-wordmark {
   font-family: var(--font-brand);
   font-weight: 800;

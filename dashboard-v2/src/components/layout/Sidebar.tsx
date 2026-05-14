@@ -143,7 +143,7 @@ export default function Sidebar() {
     <aside className="sidebar">
       <div className="sidebar-logo">
         <img
-          src="/brand/rhodes-mark-white.svg"
+          src="/brand/rhodes-mark.png"
           alt=""
           aria-hidden="true"
           width="22"
@@ -152,7 +152,7 @@ export default function Sidebar() {
             const el = e.currentTarget as HTMLImageElement;
             if (!el.dataset.fallback) {
               el.dataset.fallback = "1";
-              el.src = "/brand/rhodes-mark.svg";
+              el.src = "/brand/rhodes-mark-white.svg";
             }
           }}
         />

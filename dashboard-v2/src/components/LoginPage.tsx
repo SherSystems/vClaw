@@ -72,14 +72,17 @@ export function LoginPage() {
       <div className="rhodes-login-card">
         <div className="rhodes-login-brand">
           <img
-            src="/brand/rhodes-mark-white.svg"
+            src="/brand/rhodes-lockup.png"
             alt="RHODES"
-            className="rhodes-login-mark"
+            className="rhodes-login-lockup"
             onError={(e) => {
-              (e.currentTarget as HTMLImageElement).style.display = "none";
+              const el = e.currentTarget as HTMLImageElement;
+              if (!el.dataset.fallback) {
+                el.dataset.fallback = "1";
+                el.src = "/brand/rhodes-mark.png";
+              }
             }}
           />
-          <div className="rhodes-login-wordmark">RHODES</div>
           <div className="rhodes-login-tagline">
             {isBootstrap ? "First-run setup" : "Sign in to continue"}
           </div>

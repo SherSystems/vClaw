@@ -328,6 +328,7 @@ async function main() {
         eventBus,
         governance.audit,
         runTelemetry,
+        config.dashboard.host,
       );
       await dashboard.start();
       dashboard.attachApprovalGate(governance.approvalGate);
@@ -416,6 +417,7 @@ async function main() {
         eventBus,
         governance.audit,
         runTelemetry,
+        config.dashboard.host,
       );
       await dashboard.start();
       dashboard.attachApprovalGate(governance.approvalGate);
@@ -434,6 +436,7 @@ async function main() {
         eventBus,
         governance.audit,
         runTelemetry,
+        config.dashboard.host,
       );
       await dashboard.start();
       dashboard.attachApprovalGate(governance.approvalGate);
@@ -511,6 +514,7 @@ async function main() {
         eventBus,
         governance.audit,
         runTelemetry,
+        config.dashboard.host,
       );
       await dashboard.start();
       dashboard.attachApprovalGate(governance.approvalGate);

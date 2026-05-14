@@ -110,6 +110,13 @@ export class DashboardServer {
   private migrationActive: Map<string, MigrationActiveRun> = new Map();
   private readonly startedAt: number = Date.now();
 
+  /**
+   * Bind host for the HTTP listener. Defaults to loopback (127.0.0.1) so the
+   * unauthenticated dashboard surface is not reachable from the LAN by default.
+   * See docs/audits/security-2026-05-14.md (Finding D-1).
+   */
+  private readonly host: string;
+
   constructor(
     private readonly port: number,
     private readonly agentCore: AgentCore,
@@ -117,7 +124,9 @@ export class DashboardServer {
     private readonly eventBus: EventBus,
     private readonly audit: AuditLog,
     private readonly runTelemetry?: RunTelemetryCollector,
+    host: string = "127.0.0.1",
   ) {
+    this.host = host;
     // Read-only fallback that loads persisted incidents from disk, used only
     // when no healer is attached.
     this.fallbackIncidentManager = new IncidentManager(eventBus, join(getDataDir(), "healing"));
@@ -138,8 +147,13 @@ export class DashboardServer {
         reject(err);
       });
 
-      this.server.listen(this.port, () => {
-        console.log(`[DashboardServer] Listening on http://localhost:${this.port}`);
+      this.server.listen(this.port, this.host, () => {
+        console.log(
+          `[DashboardServer] Listening on http://${this.host}:${this.port}` +
+            (this.host === "0.0.0.0" || this.host === "::"
+              ? " (WARNING: bound to all interfaces — dashboard has no authentication)"
+              : ""),
+        );
         resolve();
       });
     });
@@ -199,10 +213,19 @@ export class DashboardServer {
     const url = new URL(req.url || "/", `http://localhost:${this.port}`);
     const path = url.pathname;
 
-    // CORS headers for local development
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    // CORS: previously sent `Access-Control-Allow-Origin: *` for every
+    // method including POST/DELETE. Combined with the (still unauthenticated)
+    // state-mutating endpoints below, that turned any visited webpage on
+    // the same browser into a remote control for the dashboard. The fix is
+    // narrow: GET reads can still be CORS-shared for tooling, but writes
+    // must be same-origin (no ACAO header at all = browser blocks
+    // cross-origin reads of the response and blocks pre-flighted methods).
+    // See docs/audits/security-2026-05-14.md (Finding D-2).
+    if (req.method === "GET" || req.method === "OPTIONS") {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    }
 
     if (req.method === "OPTIONS") {
       res.writeHead(204);

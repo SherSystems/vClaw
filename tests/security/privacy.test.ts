@@ -6,7 +6,7 @@ describe("PrivacyRouter", () => {
 
   describe("redactText", () => {
     it("redacts Anthropic API keys", () => {
-      const text = "Using key sk-ant-api03-abc123def456ghi789jkl012mno345pq";
+      const text = "Using key sk-ant-api03-abc123def456ghi789jkl012mno345pq"; // secret-scan: allow
       const result = router.redactText(text);
       expect(result.text).not.toContain("sk-ant-api03");
       expect(result.text).toContain("[REDACTED:anthropic_key]");
@@ -87,7 +87,7 @@ describe("PrivacyRouter", () => {
     });
 
     it("handles multiple sensitive items in one text", () => {
-      const text = "Connect to 192.168.1.1 with password=admin123 and token sk-ant-api03-abcdefghijklmnopqrstuvwx";
+      const text = "Connect to 192.168.1.1 with password=admin123 and token sk-ant-api03-abcdefghijklmnopqrstuvwx"; // secret-scan: allow
       const result = router.redactText(text);
       expect(result.text).not.toContain("192.168.1.1");
       expect(result.text).not.toContain("admin123");

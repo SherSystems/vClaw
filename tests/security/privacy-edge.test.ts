@@ -37,7 +37,7 @@ describe("PrivacyRouter — Edge Cases", () => {
 
     it("redactText with EVERY pattern type simultaneously", () => {
       const input = `
-        API: sk-ant-api03-abc123def456ghijklmnop
+        API: sk-ant-api03-abc123def456ghijklmnop // secret-scan: allow
         Proxmox: PVEAPIToken=secret-token-value
         UUID: 550e8400-e29b-41d4-a716-446655440000
         Telegram: 123456789:ABC-DEF1234ghIkl-zyx57W2v1u123ew11

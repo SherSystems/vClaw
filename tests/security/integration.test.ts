@@ -152,7 +152,7 @@ describe("Vault + Config integration", () => {
         field: "password",
       },
       "ai.apiKey": {
-        value: "sk-ant-api03-realkey123456789012345678901234567890",
+        value: "sk-ant-api03-realkey123456789012345678901234567890", // secret-scan: allow (redactor test fixture)
         provider: "ai",
         field: "apiKey",
       },
@@ -171,7 +171,7 @@ describe("Vault + Config integration", () => {
     // Verify export returns all plaintext
     const exported = vault.exportPlaintext();
     expect(exported["proxmox.tokenSecret"]).toBe("aabbccdd-1122-3344-5566-778899aabbcc");
-    expect(exported["ai.apiKey"]).toBe("sk-ant-api03-realkey123456789012345678901234567890");
+    expect(exported["ai.apiKey"]).toBe("sk-ant-api03-realkey123456789012345678901234567890"); // secret-scan: allow
 
     // Verify listing shows metadata
     const list = vault.list();

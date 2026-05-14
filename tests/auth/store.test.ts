@@ -28,7 +28,7 @@ describe("UserStore", () => {
   it("round-trips users through JSON file", () => {
     const user = {
       username: "pranav",
-      bcrypt_hash: "$2b$12$abcdefghijklmnopqrstuv.fakefakefakefakefakefakefakefake",
+      bcrypt_hash: "$2b$12$abcdefghijklmnopqrstuv.fakefakefakefakefakefakefakefake", // secret-scan: allow
       role: "admin" as const,
       created_at: "2026-05-14T12:00:00.000Z",
     };

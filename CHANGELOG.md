@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.5] - 2026-05-14
+
+### Security
+
+- **CRITICAL: Dashboard server now binds to `127.0.0.1` by default** (was `0.0.0.0`). Opt into network exposure with `RHODES_DASHBOARD_HOST=0.0.0.0` (or a specific interface). Loud warning logged when the binding is non-loopback. Before this fix, anyone on the same LAN or tailnet could `POST /api/agent/command`, `/api/agent/approve`, `/api/chaos/execute`, `/api/migration/execute` without authentication.
+- **CRITICAL: `Access-Control-Allow-Origin: *` is only emitted for `GET` / `OPTIONS`, not for mutating methods.** Cross-origin POST / DELETE were a real CSRF vector — any webpage the operator visited could trigger destructive RHODES actions. Browser now blocks the cross-origin mutations as intended.
+
+### Added
+
+- **Planner hard rule: typed Proxmox lifecycle tools over `ssh_exec qm`** (`feature/planner-prefer-pve-api`). New rule #11 in `src/agent/prompts.ts`, modeled on the v0.2.2 AWS-instance-ID hard rule. Captures the actual failure mode from the 2026-05-14 esxi-01 save: planner picked `ssh_exec qm resume 200`, hit exit 255 from the unconfigured SSH path on the NUC. Now the LLM sees the steer both at prompt-construction time and inline in the tool description. Two new typed tools (`suspend_vm` safe_write, `reset_vm` risky_write) close gaps in the Proxmox adapter; the other four lifecycle tools (`resume_vm`, `start_vm`, `stop_vm`, `reboot_vm`, `shutdown_vm`) had their descriptions rewritten to say *"Prefer this over `ssh_exec qm <verb>`"*. Anti-regression test asserts each of the six descriptions still contains `ssh_exec` — rewording back to a stub trips the suite. +3 prompt-rule tests, +3 adapter tests.
+- **Telegram approval-pending deep links** (`feature/telegram-approval-deep-link`). When `RHODES_DASHBOARD_URL` is set, every approval-pending Supra/Telegram notification carries `Approve at: <DASHBOARD_URL>/?plan=<urlEncoded(plan_id)>`. The dashboard reads `?plan=<id>` on every Pending Approvals re-render: scrolls the matching card into view, pulses a 2s Rhodes-Blue ring around it, falls back to a toast (`Plan <id> has been <state>`) if the plan was already decided by the time the deep link is tapped. The card-already-renders-data-plan-id attribute from v0.4.4 needed no DOM changes; only the URL path shape changed (was `/plans/<id>`, now `?plan=<id>`). +7 notification-format tests.
+- **NUC → pranavlab SSH key bootstrap** (`feature/nuc-ssh-key-runbook`). ed25519 key generated on the NUC at `~/.ssh/rhodes-pranavlab` (mode 600); `~/.config/rhodes/ssh-targets.json` defines the `pranavlab` target with `sudo_allowlist=[systemctl, journalctl, qm]` and tier overrides; `RHODES_SSH_TARGETS_FILE` appended to `~/rhodes/.env`. Operator runbook at `docs/runbooks/nuc-ssh-to-pranavlab-bootstrap.md` (three install paths for the public key, smoke-test instructions, dashboard verification). `scripts/test-ssh-to-pranavlab.ts` smoke-test with distinct exit codes for "no target registered" / "auth failed" / "command failed". Operator still needs to install the public key on pranavlab + restart RHODES — service was deliberately not restarted by the swarm to preserve the live `current_plan` state.
+
+### Audits
+
+- **`docs/audits/security-2026-05-14.md`** — comprehensive injection / secrets / governance-bypass audit. 2 CRITICAL findings (fixed above). 3 HIGH documented: dashboard has zero authentication (loopback narrows blast radius but doesn't close it); `SystemAdapter.configureService` shell-interpolates without going through the SSH safety classifier; `ChaosEngine.execute` checks `requires_approval && risk_score > 70` but only updates a string instead of gating execution. 4 MEDIUM documented. Confirmed clean: zero SQL injection (`better-sqlite3` parameterized bindings throughout), no hardcoded credentials, no identity-file logging, MCP server is stdio-only. 9 transitive dependency CVEs flagged for `npm audit fix` hygiene.
+- **`docs/audits/correctness-2026-05-14.md`** — error-handling / race-condition / test-gap audit. 0 CRITICAL under the actual live state. 2 HIGH: `src/governance/approval.ts` keys decisions by `plan_id` only (prior plan-level approval auto-resolves later per-step `requestApproval` on the same plan, defeats `policy.explicit_tiers`); no LLM-call timeout (hung Anthropic/OpenAI call wedges `agentCore.run` for up to 10 min). 4 MEDIUM: SSE backpressure ignored, restart-loop guard in-memory only, **trigger collision between `jellyfin-service-probe` and `vm_in_guest_diagnostic`** (both match `service_http_status / state_change / critical`, only one fires per anomaly — the v0.4.4 release notes were wrong about auto-chaining), `setInterval` tick overlap. Both audits state the codebase is safe to keep running overnight under the apparently-current `shadow_mode: true` live state. Fixes for the HIGH findings are queued for v0.4.6 before the next shadow-off run.
+
+### Notes
+
+- Total tests: **2101 passing** (up from 2090 in v0.4.4, +11 net — security audit + planner agent both added tests).
+- Same pre-existing failure in `tests/frontends/dashboard-server-static.test.ts` (root-level static asset serving), unrelated to this release.
+- No new npm dependencies.
+- Five branches merged: `audit/security-injection-secrets-2026-05-14`, `feature/planner-prefer-pve-api`, `feature/telegram-approval-deep-link`, `feature/nuc-ssh-key-runbook`, `audit/correctness-quality-2026-05-14`.
+- Audit-process artifact: two stashes left by the security audit are preserved (`stash@{1}` and `stash@{2}`) and recoverable. Safe to drop after a smoke-test of the merged code.
+- Customer-voice release notes at [docs/releases/v0.4.5.md](docs/releases/v0.4.5.md).
+
 ## [0.4.4] - 2026-05-13
 
 ### Added

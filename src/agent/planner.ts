@@ -16,6 +16,7 @@ import type {
   ResourceEstimate,
 } from "../types.js";
 import { callLLM, type AIConfig } from "./llm.js";
+import type { EventBus } from "./events.js";
 import { PLANNER_PROMPT, REPLANNER_PROMPT, formatMultiClusterState } from "./prompts.js";
 
 export interface PlanningContext {
@@ -25,6 +26,13 @@ export interface PlanningContext {
   memory: MemoryEntry[];
   previousPlan?: Plan;
   config: AIConfig;
+  /**
+   * Optional event bus + run ID so a planner-level LLM timeout emits an
+   * `llm_timeout` event that dashboards and audits can pick up. Omitted by
+   * isolated unit tests that don't care about telemetry.
+   */
+  eventBus?: EventBus;
+  runId?: string;
 }
 
 interface LLMPlanStep {
@@ -88,6 +96,9 @@ export class Planner {
       system: systemPrompt,
       user: userMessage,
       config: context.config,
+      purpose: "plan",
+      eventBus: context.eventBus,
+      runId: context.runId,
     });
 
     const parsed = parseResponse(response);
@@ -160,6 +171,11 @@ export class Planner {
       system: systemPrompt,
       user: userMessage,
       config: context.config,
+      purpose: "plan",
+      eventBus: context.eventBus,
+      runId: context.runId,
+      planId: plan.id,
+      stepId: failedStep.id,
     });
 
     const parsed = parseResponse(response);

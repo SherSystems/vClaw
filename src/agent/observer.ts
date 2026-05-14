@@ -218,6 +218,8 @@ export class Observer {
         system: systemPrompt,
         user: userMessage,
         config,
+        purpose: "step",
+        stepId: step.id,
       });
 
       const parsed = JSON.parse(response) as {

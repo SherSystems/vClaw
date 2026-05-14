@@ -172,6 +172,9 @@ describe("callLLM", () => {
         temperature: 0,
         max_tokens: 4096,
       }),
+      // Second arg is the SDK request-options object carrying our
+      // AbortController signal — see correctness-2026-05-14 HIGH #2.
+      expect.objectContaining({ signal: expect.anything() }),
     );
   });
 });

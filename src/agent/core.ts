@@ -178,12 +178,20 @@ export class AgentCore {
       multiClusterState,
       memory: memories,
       config: this.config,
+      eventBus: this.eventBus,
+      runId,
     };
 
     let plan: Plan;
     try {
       plan = await this.planner.plan(goal, planningContext);
     } catch (err) {
+      // LlmTimeoutError surfaces here when the planner's LLM call hangs
+      // past its configured timeout (RHODES_LLM_PLAN_TIMEOUT_MS) on every
+      // retry. We treat it like any other planning failure: return a failed
+      // AgentRunResult so the caller (HealingExecutor) releases its
+      // `maxConcurrentHeals` slot via `activeHeals.delete(healId)`. The
+      // `llm_timeout` event was already emitted from inside `callLLM`.
       const errMsg = err instanceof Error ? err.message : String(err);
       return finalizeRun({
         success: false,
@@ -399,6 +407,8 @@ export class AgentCore {
               memory: memories,
               previousPlan: activePlan,
               config: this.config,
+              eventBus: this.eventBus,
+              runId,
             };
 
             const newPlan = await this.planner.replan(

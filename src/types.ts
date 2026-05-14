@@ -281,6 +281,7 @@ export enum AgentEventType {
   StepStarted = "step_started",
   StepCompleted = "step_completed",
   StepFailed = "step_failed",
+  LlmTimeout = "llm_timeout",
   Replan = "replan",
   InvestigationStarted = "investigation_started",
   InvestigationComplete = "investigation_complete",

@@ -54,6 +54,7 @@
     "@azure/identity": "^4.13.1",
     "@azure/storage-blob": "^12.31.0",
     "@modelcontextprotocol/sdk": "^1.12.1",
+    "bcryptjs": "^3.0.3",
     "better-sqlite3": "^11.7.0",
     "dotenv": "^16.4.7",
     "js-yaml": "^4.1.0",

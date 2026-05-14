@@ -37,6 +37,21 @@ import {
   buildTopResources as buildCostTopResources,
 } from "./cost-estimator.js";
 import type { CostComparisonMode } from "./cost-estimator.js";
+import { UserStore } from "../../auth/store.js";
+import { hashPassword, verifyPassword } from "../../auth/password.js";
+import {
+  buildClearCookie,
+  buildSessionCookie,
+  signSession,
+} from "../../auth/session.js";
+import {
+  clientIp,
+  getSession,
+  isAuthDisabled,
+  isMutatingMethod,
+  isPublicPath,
+  loginRateLimiter,
+} from "./auth.js";
 
 const STATIC_MIME: Record<string, string> = {
   ".js": "application/javascript",
@@ -116,6 +131,9 @@ export class DashboardServer {
    * See docs/audits/security-2026-05-14.md (Finding D-1).
    */
   private readonly host: string;
+
+  /** User store backing /api/auth/* (security D-3). */
+  private readonly userStore: UserStore = new UserStore();
 
   constructor(
     private readonly port: number,
@@ -231,6 +249,46 @@ export class DashboardServer {
       res.writeHead(204);
       res.end();
       return;
+    }
+
+    // ── Auth endpoints (always reachable; not gated) ────────
+    if (path === "/api/auth/login" && req.method === "POST") {
+      void this.handleAuthLogin(req, res);
+      return;
+    }
+    if (path === "/api/auth/logout" && req.method === "POST") {
+      this.handleAuthLogout(req, res);
+      return;
+    }
+    if (path === "/api/auth/whoami" && req.method === "GET") {
+      this.handleAuthWhoami(req, res);
+      return;
+    }
+    if (path === "/api/auth/bootstrap" && req.method === "POST") {
+      void this.handleAuthBootstrap(req, res);
+      return;
+    }
+    if (path === "/api/auth/bootstrap" && req.method === "GET") {
+      this.json(res, { bootstrap_required: !this.userStore.isBootstrapped() });
+      return;
+    }
+
+    // ── Auth gate ───────────────────────────────────────────
+    // Public paths (SPA shell, /api/healthz, /brand/*, static assets,
+    // auth endpoints) bypass. Every other route requires a session.
+    // Set RHODES_AUTH_DISABLED=true to opt out (test rig + ops escape).
+    if (!isAuthDisabled() && !isPublicPath(path)) {
+      const session = getSession(req);
+      if (!session) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "unauthorized" }));
+        return;
+      }
+      if (isMutatingMethod(req.method) && session.role !== "admin") {
+        res.writeHead(403, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "forbidden", required_role: "admin" }));
+        return;
+      }
     }
 
     try {
@@ -1899,6 +1957,123 @@ export class DashboardServer {
         // Client disconnected — clean up
         this.clients.delete(id);
       }
+    }
+  }
+
+  // ── Auth Endpoints ─────────────────────────────────────
+
+  private isRequestSecure(req: IncomingMessage): boolean {
+    // We bind 127.0.0.1 by default — most homelab deploys terminate TLS
+    // at a reverse proxy (Tailscale Funnel / Caddy / Nginx). Trust the
+    // X-Forwarded-Proto header set by such proxies.
+    const xfp = req.headers?.["x-forwarded-proto"];
+    if (typeof xfp === "string" && xfp.toLowerCase() === "https") return true;
+    return false;
+  }
+
+  private async handleAuthLogin(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const ip = clientIp(req);
+    if (loginRateLimiter.isBlocked(ip)) {
+      this.json(
+        res,
+        { error: "rate_limited", message: "Too many login attempts. Try again later." },
+        429,
+      );
+      return;
+    }
+
+    try {
+      const body = await this.parseBody(req);
+      const username = (body.username as string | undefined)?.trim();
+      const password = body.password as string | undefined;
+      if (!username || typeof password !== "string" || password.length === 0) {
+        loginRateLimiter.record(ip);
+        this.json(res, { error: "invalid_credentials" }, 401);
+        return;
+      }
+
+      const user = this.userStore.find(username);
+      if (!user) {
+        loginRateLimiter.record(ip);
+        this.json(res, { error: "invalid_credentials" }, 401);
+        return;
+      }
+
+      const ok = await verifyPassword(password, user.bcrypt_hash);
+      if (!ok) {
+        loginRateLimiter.record(ip);
+        this.json(res, { error: "invalid_credentials" }, 401);
+        return;
+      }
+
+      loginRateLimiter.reset(ip);
+      const token = signSession({ username: user.username, role: user.role });
+      const cookie = buildSessionCookie(token, { secure: this.isRequestSecure(req) });
+      res.writeHead(200, {
+        "Content-Type": "application/json",
+        "Set-Cookie": cookie,
+      });
+      res.end(JSON.stringify({ ok: true, role: user.role, username: user.username }));
+    } catch (err) {
+      console.error("[DashboardServer] Login error:", err);
+      this.json(res, { error: "invalid_request" }, 400);
+    }
+  }
+
+  private handleAuthLogout(req: IncomingMessage, res: ServerResponse): void {
+    const cookie = buildClearCookie({ secure: this.isRequestSecure(req) });
+    res.writeHead(204, { "Set-Cookie": cookie });
+    res.end();
+  }
+
+  private handleAuthWhoami(req: IncomingMessage, res: ServerResponse): void {
+    const session = getSession(req);
+    if (!session) {
+      this.json(res, { error: "unauthorized" }, 401);
+      return;
+    }
+    this.json(res, { username: session.username, role: session.role });
+  }
+
+  private async handleAuthBootstrap(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    // Bootstrap flow: only callable when zero users exist. Once any user
+    // is registered, this endpoint 410s to prevent the first-run hole from
+    // staying open.
+    if (this.userStore.isBootstrapped()) {
+      this.json(res, { error: "already_bootstrapped" }, 410);
+      return;
+    }
+    try {
+      const body = await this.parseBody(req);
+      const username = (body.username as string | undefined)?.trim();
+      const password = body.password as string | undefined;
+      if (!username || typeof password !== "string" || password.length < 8) {
+        this.json(
+          res,
+          { error: "invalid_request", message: "username required, password must be 8+ characters" },
+          400,
+        );
+        return;
+      }
+
+      const hash = await hashPassword(password);
+      this.userStore.upsert({
+        username,
+        bcrypt_hash: hash,
+        role: "admin",
+        created_at: new Date().toISOString(),
+      });
+
+      const token = signSession({ username, role: "admin" });
+      const cookie = buildSessionCookie(token, { secure: this.isRequestSecure(req) });
+      res.writeHead(200, {
+        "Content-Type": "application/json",
+        "Set-Cookie": cookie,
+      });
+      res.end(JSON.stringify({ ok: true, role: "admin", username }));
+    } catch (err) {
+      console.error("[DashboardServer] Bootstrap error:", err);
+      this.json(res, { error: "invalid_request" }, 400);
     }
   }
 

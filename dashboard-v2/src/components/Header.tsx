@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useStore } from "../store";
 import { fetchHealthz, type Healthz } from "../api/client";
+import UserMenu from "./UserMenu";
 
 function formatUptime(seconds: number | undefined): string {
   if (!Number.isFinite(seconds) || (seconds ?? 0) <= 0) return "0s";
@@ -100,6 +101,8 @@ export function Header() {
           <span className={`conn-dot${connected ? " live" : ""}`} aria-hidden="true" />
           {connected ? "LIVE" : "DOWN"}
         </span>
+
+        <UserMenu />
       </div>
     </header>
   );

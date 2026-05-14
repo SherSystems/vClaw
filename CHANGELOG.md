@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.7] - 2026-05-14
+
+### Security
+
+- **HIGH: Dashboard authentication** (`feature/dashboard-auth`). Closes the last open finding from the 2026-05-14 audits (security D-3): the dashboard had zero authentication on any endpoint. Loopback-by-default (v0.4.5) narrowed the blast radius; v0.4.7 closes the underlying gap.
+  - **Sessions** — HS256 JWT in an httpOnly + SameSite=Strict cookie (`rhodes_session`), 24h expiry. Secret from `RHODES_SESSION_SECRET` env. If unset on first boot, a random 32-byte secret is generated and persisted to `~/.rhodes/session-secret` (mode 0600) with a one-line log message.
+  - **Passwords** — `bcryptjs` (cost 12), no native build deps. New runtime dep.
+  - **User store** — file-backed JSON at `~/.rhodes/users.json` (mode 0600 enforced; refuse to read if mode is broader). Atomic write via temp + fsync + rename. Zod-validated schema.
+  - **Roles** — two-tier: `admin` (everything) and `viewer` (read-only). Every mutating method (POST/PUT/PATCH/DELETE) on every non-public path requires admin. Every GET requires at least viewer. Public-by-design: `/api/healthz`, `/healthz`, `GET /`, `/brand/*`, `/assets/*`, the three auth endpoints, and the bootstrap endpoint (only while zero users exist).
+  - **Bootstrap flow** — first-run setup page renders when `~/.rhodes/users.json` is missing or empty. `POST /api/auth/bootstrap` creates the first admin account, signs a session cookie, returns role=admin. Re-runs after that point return `410 already_bootstrapped`.
+  - **Rate-limit** — `POST /api/auth/login` capped at 5 attempts per IP per 15 min (sliding window, in-memory). Login attempts that exceed it return 429. Reset on service restart, fine for homelab scale.
+  - **CLI helpers** — `scripts/rhodes-user-add.ts`, `rhodes-user-remove.ts`, `rhodes-user-list.ts` for bootstrap-token-gated user management.
+  - **Test coverage** — +39 tests across `tests/auth/store.test.ts`, `tests/auth/middleware.test.ts`, `tests/auth/endpoints.test.ts`, `tests/auth/csrf.test.ts`.
+
+### Added
+
+- **`AdminBadge` + `UserMenu` components** in `dashboard-v2/src/components/`, wired into the customer-grade `Header.tsx` (rightmost slot, after the LIVE/DOWN chip). `UserMenu` renders the signed-in username + role + sign-out dropdown; the embedded `<AdminBadge />` surfaces a mono "ADMIN" pill in Rhodes Blue when role=admin (returns null for viewers).
+- **`LoginPage` component** in `dashboard-v2/src/components/LoginPage.tsx`. Centered card, RHODES lockup at top, username + password fields, "Sign in" button, error toast on bad creds, bootstrap variant on first run.
+- **`useAuth` hook** in `dashboard-v2/src/hooks/useAuth.ts`. Fetches `/api/auth/whoami` on mount, exposes `{user, role, isAuthenticated, isAdmin, signIn(u,p), signOut()}` via the Zustand store.
+- **`<Root>` shell in `dashboard-v2/src/main.tsx`** that routes to `<LoginPage />` when unauthenticated and `<App />` otherwise. App.tsx itself was not modified (the customer-polish agent owned that file in v0.4.6).
+- **Auth route protection** in `src/frontends/dashboard/server.ts` — `requireAuth` middleware on all non-public GETs, `requireAdmin` on all mutating routes. Disabled paths (per audit): `/api/healthz`, `/healthz`, `/`, `/brand/*`, `/assets/*`, `/api/auth/login`, `/api/auth/logout`, `/api/auth/whoami`, `/api/auth/bootstrap`. Escape hatch via `RHODES_AUTH_DISABLED=true` for emergency / dev workflows (logs loud warning at boot).
+
+### Notes
+
+- Total tests: **2212 passing** (was 2173 at v0.4.6, +39 from auth coverage). Same single pre-existing failure in `tests/frontends/dashboard-server-static.test.ts`, unrelated.
+- New runtime dependency: `bcryptjs ^3.0.3`. Pure-JS, no native build deps.
+- `npx tsc --noEmit` clean. `npm --prefix dashboard-v2 run build` succeeds. Bundle: 359KB JS gzip 104KB, 104KB CSS gzip 17KB.
+- **Deploy is a one-time UX moment.** The first dashboard visit after upgrade renders the bootstrap setup page. Choose your admin username + password (8+ chars enforced server-side). Subsequent visits land on the app directly.
+- Production sessions: set `RHODES_SESSION_SECRET` to a stable value in `~/rhodes/.env` BEFORE deploying — otherwise a fresh secret is auto-generated at `~/.rhodes/session-secret` on first boot, which will invalidate all existing sessions on container/VM re-creation.
+- Customer-voice release notes at [docs/releases/v0.4.7.md](docs/releases/v0.4.7.md).
+- **Every HIGH finding from the 2026-05-14 audits is now closed.**
+
 ## [0.4.6] - 2026-05-14
 
 A "close every HIGH from the audits" release plus a real customer-grade dashboard rebuild. **2173 tests passing**, up from 2110 at the start of the day.

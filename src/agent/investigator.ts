@@ -82,6 +82,7 @@ export class Investigator {
       system: systemPrompt,
       user: userMessage,
       config: context.config,
+      purpose: "step",
     });
 
     const parsed = parseInvestigationResponse(response);

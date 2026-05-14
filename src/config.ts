@@ -106,6 +106,20 @@ const AIConfigSchema = z.object({
   provider: z.enum(["anthropic", "openai"]).default("anthropic"),
   apiKey: z.string().default(""),
   model: z.string().default("claude-sonnet-4-20250514"),
+  /**
+   * Per-attempt timeout (ms) for plan-level LLM calls (planner.plan,
+   * planner.replan). Configurable via RHODES_LLM_PLAN_TIMEOUT_MS so an
+   * operator can dial it down if their network/model is consistently
+   * fast, or up if they're routinely hitting cold-start latency.
+   * Default 60_000ms — see correctness-2026-05-14 HIGH #2.
+   */
+  planTimeoutMs: z.coerce.number().int().nonnegative().default(60_000),
+  /**
+   * Per-attempt timeout (ms) for inline-reasoning LLM calls (observer,
+   * investigator). Configurable via RHODES_LLM_STEP_TIMEOUT_MS.
+   * Default 30_000ms.
+   */
+  stepTimeoutMs: z.coerce.number().int().nonnegative().default(30_000),
 });
 
 const DashboardConfigSchema = z.object({
@@ -304,6 +318,8 @@ export function getConfig(): Config {
       provider: process.env.AI_PROVIDER,
       apiKey: process.env.AI_API_KEY,
       model: process.env.AI_MODEL,
+      planTimeoutMs: process.env.RHODES_LLM_PLAN_TIMEOUT_MS,
+      stepTimeoutMs: process.env.RHODES_LLM_STEP_TIMEOUT_MS,
     },
     aws: {
       accessKeyId: process.env.AWS_ACCESS_KEY_ID,

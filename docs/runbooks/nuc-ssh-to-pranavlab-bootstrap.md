@@ -1,108 +1,126 @@
-# Runbook: NUC → pranavlab SSH key bootstrap
+# Runbook: NUC → Proxmox SSH key bootstrap
 
-**Audience:** operator with physical or local-network access to `pranavlab`
-(the Proxmox host at `192.168.86.50`).
+**Audience:** operator with physical or local-network access to the
+target Proxmox host.
 
 **Estimated time:** ~5 minutes (steps 1, 3, 4, 5, 6 take seconds each;
 step 2 is the only one that requires you to be on a machine with
-existing access).
+existing access to the Proxmox host).
 
-## Problem
+## Why this runbook exists
 
-On 2026-05-13 an autonomous RHODES remediation plan failed at step 10
-(`ssh_exec qm resume 200`) with `Exit code: 255`. Root cause: the RHODES
-instance running on the homelab NUC (`100.73.129.96`) had no SSH key
-trusted by `root@pranavlab`. Any playbook step that goes through the
-SSH adapter against `pranavlab` therefore fails, and the operator has
-to finish recovery by hitting the Proxmox API directly. We need a
-key-auth path from the NUC to `pranavlab` so `qm` fallbacks work
-unattended.
+When a RHODES playbook step goes through the SSH adapter against a
+Proxmox host (e.g. `qm resume` as a fallback when the Proxmox API
+isn't enough), the agent host needs an authorized key on the Proxmox
+node. The agent **cannot** install its own public key — it has no
+existing SSH access. The operator does step 2 below.
 
-The agent **cannot** install its own public key — it has no existing
-SSH access and password auth from the NUC is blocked
-(see `~/.claude/projects/-home-pranav/memory/reference_proxmox_ssh_jump.md`).
-The operator does step 2 below. Everything else has already been
-prepared by the agent.
+This runbook walks through bootstrapping that trust the first time.
+Everything except step 2 is automatable; we've kept it on rails so
+re-runs are deterministic.
+
+## Configuration
+
+These placeholders appear throughout the runbook. Set them once for
+your environment:
+
+```bash
+export RHODES_HOST=<your-rhodes-host>           # the host running rhodes.service (NUC, VM, container)
+export RHODES_USER=<your-rhodes-user>           # SSH user on RHODES_HOST (typically the operator account)
+export PROXMOX_HOST=<your-proxmox-host>         # the Proxmox node's IP or hostname on the LAN
+export TARGET_NAME=<symbolic-target-name>       # name registered in ssh-targets.json (e.g. "pve-01")
+```
+
+The example commands below use `${RHODES_HOST}`, `${RHODES_USER}`,
+etc. — substitute or `export` them in your shell first.
 
 ## What the agent has already done
 
-| Action | Where | When |
-|---|---|---|
-| Generated ed25519 keypair `~/.ssh/rhodes-pranavlab{,.pub}` | NUC (`100.73.129.96`, user `pranav`) | 2026-05-14 |
-| Created `~/.config/rhodes/ssh-targets.json` with a `pranavlab` entry | NUC | 2026-05-14 |
-| Appended `RHODES_SSH_TARGETS_FILE=/home/pranav/.config/rhodes/ssh-targets.json` to `~/rhodes/.env` (backup saved as `~/rhodes/.env.bak.<ts>`) | NUC | 2026-05-14 |
-| Wrote this runbook + `scripts/test-ssh-to-pranavlab.ts` | repo branch `feature/nuc-ssh-key-runbook` | 2026-05-14 |
+Before you start this runbook, the RHODES install script /
+provisioning flow has typically already done:
 
-The RHODES service on the NUC was **not** restarted — it is still
-running with the old in-memory config (no `pranavlab` target). It will
-pick up the new target on its next restart.
+| Action | Where |
+|---|---|
+| Generated ed25519 keypair `~/.ssh/rhodes-${TARGET_NAME}{,.pub}` | `${RHODES_HOST}`, user `${RHODES_USER}` |
+| Created `~/.config/rhodes/ssh-targets.json` with a `${TARGET_NAME}` entry | `${RHODES_HOST}` |
+| Appended `RHODES_SSH_TARGETS_FILE=...` to `~/rhodes/.env` | `${RHODES_HOST}` |
+
+The RHODES service is **not** automatically restarted by the bootstrap
+— it picks up the new target on its next restart, which the operator
+controls.
 
 ## Prerequisites
 
-- You have password (or existing key) access to `root@192.168.86.50`
-  from at least one machine on the local network. `pranavserver`
-  qualifies (it has `sshpass` installed per
-  `reference_proxmox_ssh_jump.md`).
-- You can SSH into the NUC as `pranav` (Tailscale → `100.73.129.96`).
+- You have password or existing-key access to `root@${PROXMOX_HOST}`
+  from at least one machine on the local network.
+- You can SSH into `${RHODES_HOST}` as `${RHODES_USER}` (key-based;
+  password auth is typically disabled).
 
 ## The public key
 
-This is what needs to land in `root@pranavlab:~/.ssh/authorized_keys`:
-
-```
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPAenk24SCpgVe/3m2xdFVCMQ+2AFw/F8TqVCKkbX+Qq rhodes@homelab -> pranavlab
-```
-
-(The private half lives only on the NUC at `/home/pranav/.ssh/rhodes-pranavlab`
-with mode `600`. It never leaves the NUC.)
-
-## Step 1 — Sanity-check the artifacts on the NUC
-
-From any machine that can SSH the NUC as `pranav`:
+The public half that needs to land in
+`root@${PROXMOX_HOST}:~/.ssh/authorized_keys`:
 
 ```bash
-ssh pranav@100.73.129.96 'ls -la ~/.ssh/rhodes-pranavlab* ~/.config/rhodes/ssh-targets.json && grep RHODES_SSH_TARGETS_FILE ~/rhodes/.env'
+ssh ${RHODES_USER}@${RHODES_HOST} cat ~/.ssh/rhodes-${TARGET_NAME}.pub
+```
+
+(The private half lives only on `${RHODES_HOST}` at
+`/home/${RHODES_USER}/.ssh/rhodes-${TARGET_NAME}` with mode `600`. It
+never leaves the agent host.)
+
+## Step 1 — Sanity-check the artifacts on the RHODES host
+
+```bash
+ssh ${RHODES_USER}@${RHODES_HOST} \
+  'ls -la ~/.ssh/rhodes-* ~/.config/rhodes/ssh-targets.json && grep RHODES_SSH_TARGETS_FILE ~/rhodes/.env'
 ```
 
 You should see:
 
-- `rhodes-pranavlab` mode `600`, owned by `pranav`
-- `rhodes-pranavlab.pub` readable
-- `ssh-targets.json` mode `600`, containing the `pranavlab` entry
-- `RHODES_SSH_TARGETS_FILE=/home/pranav/.config/rhodes/ssh-targets.json` in `.env`
+- `rhodes-${TARGET_NAME}` mode `600`, owned by `${RHODES_USER}`
+- `rhodes-${TARGET_NAME}.pub` readable
+- `ssh-targets.json` mode `600`, containing the `${TARGET_NAME}` entry
+- `RHODES_SSH_TARGETS_FILE=/home/${RHODES_USER}/.config/rhodes/ssh-targets.json` in `.env`
 
-If any of those is missing, stop and re-run the bootstrap.
+If any of those is missing, stop and re-run the bootstrap step in the
+install flow before continuing.
 
-## Step 2 — Install the public key on pranavlab
+## Step 2 — Install the public key on the Proxmox host
 
 Pick one of the paths below. (a) is the fastest if you're sitting at
-`pranavserver` or any machine that already has access; (b) and (c)
-are fallbacks.
+a machine that already has access; (b) and (c) are fallbacks for
+locked-down environments.
 
-### (a) From a machine with existing password/key access to root@pranavlab
-
-```bash
-echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPAenk24SCpgVe/3m2xdFVCMQ+2AFw/F8TqVCKkbX+Qq rhodes@homelab -> pranavlab' \
-  | ssh root@192.168.86.50 'mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys'
-```
-
-If you're on `pranavserver` and password is required, pipe through `sshpass`:
+### (a) From a machine with existing password/key access to `root@${PROXMOX_HOST}`
 
 ```bash
-echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPAenk24SCpgVe/3m2xdFVCMQ+2AFw/F8TqVCKkbX+Qq rhodes@homelab -> pranavlab' \
-  | sshpass -p 'Patel@0606' ssh -o StrictHostKeyChecking=no root@192.168.86.50 \
+PUBKEY=$(ssh ${RHODES_USER}@${RHODES_HOST} cat ~/.ssh/rhodes-${TARGET_NAME}.pub)
+
+echo "${PUBKEY}" \
+  | ssh root@${PROXMOX_HOST} \
       'mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys'
 ```
 
-### (b) Proxmox web UI
+If password auth is required and you have `sshpass` installed locally,
+read the password from your secrets manager — **do not hardcode it in
+shell scripts** and **do not paste it into a file that lives in a
+repo**:
 
-1. Open `https://192.168.86.50:8006` in a browser.
-2. Datacenter → Permissions → Users → `root@pam` does not directly let
-   you paste an SSH key; instead open the **node-level** shell:
-   Datacenter → `pranavlab` (node) → `>_ Shell`.
+```bash
+PROXMOX_PASS=$(pass show proxmox/root)   # or `op read`, `keyring get`, etc.
+echo "${PUBKEY}" \
+  | sshpass -p "${PROXMOX_PASS}" ssh -o StrictHostKeyChecking=no root@${PROXMOX_HOST} \
+      'mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys'
+```
+
+### (b) Proxmox web UI shell
+
+1. Open `https://${PROXMOX_HOST}:8006` in a browser.
+2. Open the node-level shell: Datacenter → `<node>` → `>_ Shell`.
 3. In the shell, paste:
    ```bash
-   echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPAenk24SCpgVe/3m2xdFVCMQ+2AFw/F8TqVCKkbX+Qq rhodes@homelab -> pranavlab' >> ~/.ssh/authorized_keys
+   echo '<paste the public key here>' >> ~/.ssh/authorized_keys
    chmod 600 ~/.ssh/authorized_keys
    ```
 
@@ -110,39 +128,46 @@ echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPAenk24SCpgVe/3m2xdFVCMQ+2AFw/F8TqVCK
 
 Same one-liner as (b) above, just typed at the console.
 
-## Step 3 — Verify from the NUC
+## Step 3 — Verify from the RHODES host
 
 ```bash
-ssh pranav@100.73.129.96 'ssh -o BatchMode=yes -i ~/.ssh/rhodes-pranavlab -o StrictHostKeyChecking=accept-new root@192.168.86.50 pveversion'
+ssh ${RHODES_USER}@${RHODES_HOST} \
+  "ssh -o BatchMode=yes -i ~/.ssh/rhodes-${TARGET_NAME} -o StrictHostKeyChecking=accept-new root@${PROXMOX_HOST} pveversion"
 ```
 
 Expect a single line like `pve-manager/8.x.y/...`. `BatchMode=yes`
 ensures it fails fast if the key is still not trusted (no password
 prompt).
 
-If you see `Permission denied (publickey)`, step 2 didn't take. Re-run.
+If you see `Permission denied (publickey)`, step 2 didn't take.
+Re-run.
 
 ## Step 4 — Restart RHODES so the SSH adapter picks up the new target
 
 ```bash
-ssh pranav@100.73.129.96 'systemctl --user restart rhodes && sleep 2 && systemctl --user status rhodes --no-pager | head -15'
+ssh ${RHODES_USER}@${RHODES_HOST} \
+  'systemctl --user restart rhodes && sleep 2 && systemctl --user status rhodes --no-pager | head -15'
 ```
 
-The new `pranavlab` target only registers at adapter init time, so a
-restart is required. (We held off doing this autonomously while the
-NUC was in shadow-off mode with a live `current_plan` — at runbook
-time the operator is awake and aware of the restart cost.)
+The new target only registers at adapter init time, so a restart is
+required. Time this restart for when RHODES is idle — a restart
+mid-plan clears `current_plan` state, and you don't want to drop an
+in-flight remediation.
 
-## Step 5 — Smoke-test via the new script
+## Step 5 — Smoke-test via the supplied script
 
 ```bash
-ssh pranav@100.73.129.96 'cd ~/rhodes && npx tsx scripts/test-ssh-to-pranavlab.ts'
+ssh ${RHODES_USER}@${RHODES_HOST} \
+  'cd ~/rhodes && npx tsx scripts/test-ssh-to-pranavlab.ts'
 ```
+
+(The script name is historical; it accepts any `${TARGET_NAME}` via
+its argv or by reading `ssh-targets.json`. See the script for usage.)
 
 Expected output ends with:
 
 ```
-[OK] pranavlab reachable via SSH adapter.
+[OK] <target> reachable via SSH adapter.
 ```
 
 The script does an offline classify (`ssh_dry_run`) of `pveversion`
@@ -152,30 +177,49 @@ target). Fix accordingly and re-run.
 
 ## Step 6 — Confirm the audit log
 
-Open the RHODES dashboard (homelab port `7412` over Tailscale) →
-**Audit Log** tab. Filter on `SshExec`. You should see a row from
-~30 seconds ago:
+Open the RHODES dashboard → **Audit Log** tab. Filter on `SshExec`.
+You should see a row from ~30 seconds ago:
 
-- `target=pranavlab`
+- `target=${TARGET_NAME}`
 - `command=pveversion`
 - `tier=read`
 - `exit_code=0`
 
 If the row is present, the SSH adapter is wired end-to-end and the
-next autonomous remediation plan that needs `qm resume` will succeed.
+next autonomous remediation plan that needs `qm <verb>` will succeed.
 
 ## Rollback
 
 If for any reason the new target causes problems and the daemon needs
-to forget pranavlab:
+to forget it:
 
 ```bash
-ssh pranav@100.73.129.96 'mv ~/.config/rhodes/ssh-targets.json ~/.config/rhodes/ssh-targets.json.disabled && systemctl --user restart rhodes'
+ssh ${RHODES_USER}@${RHODES_HOST} \
+  'mv ~/.config/rhodes/ssh-targets.json ~/.config/rhodes/ssh-targets.json.disabled && systemctl --user restart rhodes'
 ```
 
-The adapter falls back to its prior state (zero SSH targets, adapter
+The adapter falls back to its prior state (no SSH targets, adapter
 not registered at all).
 
-To revoke the key on `pranavlab`, delete the matching line from
-`/root/.ssh/authorized_keys` (the comment `rhodes@homelab -> pranavlab`
-makes it easy to find).
+To revoke the key on the Proxmox host, delete the matching line from
+`/root/.ssh/authorized_keys` (the trailing comment `rhodes@<host> ->
+<target>` makes it easy to find).
+
+## Security notes
+
+- The public key is fine to commit/share. The private key never
+  leaves `${RHODES_HOST}` and is mode `600`.
+- `sshpass` reads passwords from the command line, which leaks them
+  into shell history and process listings. Source the value from a
+  password manager (`pass`, `op`, `keyring`, etc.) and avoid
+  persisting it anywhere. If you've ever committed a literal password
+  into a runbook in this repo, **rotate it immediately** — git
+  history retains it even after redaction commits.
+- `BatchMode=yes` on the verification step is intentional: it ensures
+  step 3 fails loudly with `Permission denied (publickey)` instead of
+  silently prompting for a password and creating a misleading "it
+  worked" feeling.
+- Per-target tier overrides + sudo allowlist are in
+  `ssh-targets.json` — the adapter classifies `qm <verb>` calls
+  through the safety classifier before execution. See
+  `docs/ssh-governance.md`.

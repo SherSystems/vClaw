@@ -110,6 +110,12 @@ const AIConfigSchema = z.object({
 
 const DashboardConfigSchema = z.object({
   port: z.coerce.number().default(3000),
+  // SECURITY: default to loopback. The dashboard has NO authentication —
+  // see docs/audits/security-2026-05-14.md. Operators who want LAN/Tailscale
+  // reachability must set RHODES_DASHBOARD_HOST=0.0.0.0 (or a specific
+  // interface IP) explicitly, with the understanding that anyone on that
+  // network can hit /api/agent/command, /api/agent/approve, etc.
+  host: z.string().default("127.0.0.1"),
 });
 
 const MigrationConfigSchema = z.object({
@@ -323,6 +329,7 @@ export function getConfig(): Config {
     },
     dashboard: {
       port: process.env.DASHBOARD_PORT,
+      host: process.env.RHODES_DASHBOARD_HOST ?? process.env.DASHBOARD_HOST,
     },
     migration: {
       esxiHost: process.env.MIGRATION_ESXI_HOST,

@@ -1,5 +1,16 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, beforeAll, afterAll } from "vitest";
 import { DashboardServer } from "../../src/frontends/dashboard/server";
+
+// Tests in this file pre-date the dashboard auth layer (security D-3).
+// They exercise the request router without seeding sessions, so we opt
+// out of the auth gate for this suite. Production code paths are
+// covered by tests/auth/* and tests/auth/csrf.test.ts.
+beforeAll(() => {
+  process.env.RHODES_AUTH_DISABLED = "true";
+});
+afterAll(() => {
+  delete process.env.RHODES_AUTH_DISABLED;
+});
 
 function makeServer() {
   const eventBus = {

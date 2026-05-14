@@ -5130,3 +5130,246 @@ button, select, a, .tab, .incident-card, .incident-row, .audit-header, .audit-pl
     min-width: 560px;
   }
 }
+/* ── Auth: login page + bootstrap (security D-3) ──────────────────── */
+.rhodes-auth-splash {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: var(--bg-primary);
+}
+.rhodes-auth-splash-mark {
+  font-family: var(--font-brand);
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  font-size: 1.5rem;
+  color: var(--text-tertiary);
+}
+
+.rhodes-login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(ellipse at 50% 30%, rgba(77,163,247,0.06), transparent 60%), var(--bg-primary);
+  padding: 24px;
+}
+
+.rhodes-login-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 32px 28px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+}
+
+.rhodes-login-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 24px;
+}
+.rhodes-login-mark {
+  width: 36px;
+  height: 36px;
+  margin-bottom: 12px;
+  opacity: 0.9;
+}
+.rhodes-login-wordmark {
+  font-family: var(--font-brand);
+  font-weight: 800;
+  font-size: 1.5rem;
+  letter-spacing: 0.05em;
+  color: var(--text-accent);
+}
+.rhodes-login-tagline {
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-tertiary);
+}
+
+.rhodes-login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.rhodes-login-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+}
+.rhodes-login-label > span {
+  margin-left: 2px;
+}
+.rhodes-login-label input {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.95rem;
+  text-transform: none;
+  letter-spacing: normal;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.rhodes-login-label input:focus {
+  outline: none;
+  border-color: var(--blue);
+  background: var(--bg-hover);
+}
+
+.rhodes-login-error {
+  background: var(--red-muted);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  color: #fecaca;
+  font-size: 0.85rem;
+}
+
+.rhodes-login-submit {
+  margin-top: 6px;
+  background: var(--blue);
+  color: #06121f;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 11px 16px;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: filter 120ms ease, transform 120ms ease;
+}
+.rhodes-login-submit:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.rhodes-login-submit:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.rhodes-login-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.rhodes-login-help {
+  margin-top: 4px;
+  font-size: 0.8rem;
+  color: var(--text-tertiary);
+  line-height: 1.5;
+}
+
+/* ── Admin badge ──────────────────────────────────────────────────── */
+.rhodes-admin-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(77, 163, 247, 0.12);
+  border: 1px solid rgba(77, 163, 247, 0.20);
+  color: var(--blue);
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  padding: 2px 6px;
+  border-radius: 3px;
+  line-height: 1.1;
+}
+.rhodes-admin-badge-mark {
+  width: 10px;
+  height: 10px;
+  opacity: 0.9;
+}
+
+/* ── User menu ────────────────────────────────────────────────────── */
+.rhodes-user-menu {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.rhodes-user-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.85rem;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.rhodes-user-menu-trigger:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-focus);
+}
+.rhodes-user-menu-name {
+  color: var(--text-primary);
+}
+.rhodes-user-menu-caret {
+  color: var(--text-tertiary);
+  font-size: 0.7rem;
+}
+.rhodes-user-menu-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 200px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  z-index: 60;
+  padding: 8px;
+}
+.rhodes-user-menu-meta {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 6px;
+}
+.rhodes-user-menu-meta-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  padding: 2px 0;
+}
+.rhodes-user-menu-meta-key {
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.65rem;
+}
+.rhodes-user-menu-meta-val {
+  color: var(--text-primary);
+}
+.rhodes-user-menu-item {
+  display: block;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.85rem;
+  text-align: left;
+  padding: 8px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.rhodes-user-menu-item:hover {
+  background: var(--bg-hover);
+}
+

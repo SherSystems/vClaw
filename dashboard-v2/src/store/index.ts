@@ -131,7 +131,23 @@ function resolveRunId(
   return `legacy:${direction ?? "unknown"}:${vmId ?? "unknown"}`;
 }
 
+export type AuthRole = "admin" | "viewer";
+
+export interface AuthUser {
+  username: string;
+  role: AuthRole;
+}
+
 interface DashboardState {
+  // Auth (security D-3) — populated by useAuth() on mount.
+  // authReady=false means whoami() hasn't returned yet — render a splash,
+  // not the login page, to avoid flashing the login UI for a returning user.
+  authUser: AuthUser | null;
+  authReady: boolean;
+  setAuth: (user: AuthUser) => void;
+  clearAuth: () => void;
+  setAuthReady: (ready: boolean) => void;
+
   // Connection
   connected: boolean;
   setConnected: (v: boolean) => void;
@@ -238,6 +254,13 @@ interface DashboardState {
 }
 
 export const useStore = create<DashboardState>((set) => ({
+  // Auth — security D-3
+  authUser: null,
+  authReady: false,
+  setAuth: (user) => set({ authUser: user, authReady: true }),
+  clearAuth: () => set({ authUser: null, authReady: true }),
+  setAuthReady: (ready) => set({ authReady: ready }),
+
   connected: false,
   setConnected: (v) => set({ connected: v }),
 

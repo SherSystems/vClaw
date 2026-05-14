@@ -6,12 +6,23 @@
 //   POST /api/agent/approve { plan_id, decision, operator }
 // ============================================================
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from "vitest";
 import { ApprovalGate } from "../../src/governance/approval.js";
 import { DashboardServer } from "../../src/frontends/dashboard/server.js";
 import { EventBus } from "../../src/agent/events.js";
 import { AgentEventType } from "../../src/types.js";
 import type { ApprovalRequest } from "../../src/types.js";
+
+// Tests in this file pre-date the dashboard auth layer (security D-3).
+// They exercise approval HTTP endpoints without session cookies — opt
+// out of the auth gate for this suite. End-to-end auth is verified by
+// tests/auth/* and tests/auth/csrf.test.ts.
+beforeAll(() => {
+  process.env.RHODES_AUTH_DISABLED = "true";
+});
+afterAll(() => {
+  delete process.env.RHODES_AUTH_DISABLED;
+});
 
 // ── HTTP test helpers (same shape as dashboard-server-static.test.ts) ──
 

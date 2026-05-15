@@ -287,10 +287,10 @@ describe("tickets routes", () => {
     expect(captured.some((e) => e.type === "ticket_comment_added")).toBe(true);
   });
 
-  it("appendSlackThreadComment binds a slack reply as a comment", async () => {
+  it("appendSlackThreadComment binds a slack reply as a comment (legacy author when no notifier)", async () => {
     const { ticketId } = seedTicket(env.incidents, env.store);
     env.store.bindSlackThread(ticketId, "C123", "1234.5678");
-    const comment = env.router.appendSlackThreadComment("1234.5678", "slack reply", "U999");
+    const comment = await env.router.appendSlackThreadComment("1234.5678", "slack reply", "U999");
     expect(comment).toBeDefined();
     expect(comment?.author).toBe("slack:U999");
     expect(comment?.source).toBe("slack");
@@ -298,8 +298,48 @@ describe("tickets routes", () => {
     expect(fresh.comments).toHaveLength(1);
   });
 
-  it("appendSlackThreadComment is a no-op when no ticket matches", () => {
-    const comment = env.router.appendSlackThreadComment("nope.0000", "msg", "U1");
+  it("appendSlackThreadComment renders the resolved display name when the Notifier exposes one", async () => {
+    // Regression: comments used to show "slack:U0B3W7FDXMY" — the raw
+    // user_id — which is unreadable. The Notifier now offers a cached
+    // users.info lookup; the ticket router awaits it when present and
+    // stores the display name (e.g. "Pranav") as author. Caught during
+    // the v0.5.0 bidirectional-DM demo on 2026-05-15.
+    const { dbPath, dataDir } = fresh();
+    const bus = new EventBus();
+    const incidents = new IncidentManager(bus, dataDir);
+    const store = new TicketStore(dbPath);
+    const getSlackUserDisplayName = vi.fn(async (id: string) =>
+      id === "U0B3W7FDXMY" ? "Pranav" : undefined,
+    );
+    const router = createTicketRouter({
+      store,
+      incidents,
+      eventBus: bus,
+      notifier: { getSlackUserDisplayName } as unknown as Parameters<typeof createTicketRouter>[0]["notifier"],
+    });
+
+    const incident = incidents.open({
+      type: "threshold",
+      severity: "critical",
+      metric: "vm_status",
+      labels: { vmid: "101", node: "pranavlab", name: "JellyFinServer" },
+      value: 0,
+      description: "stopped",
+    });
+    const ticket = store.ensureForIncident(incident);
+    store.bindSlackThread(ticket.ticket_id, "D0B41UW8A6A", "1778876253.886399");
+
+    const comment = await router.appendSlackThreadComment(
+      "1778876253.886399",
+      "ack — looking at it",
+      "U0B3W7FDXMY",
+    );
+    expect(comment?.author).toBe("Pranav");
+    expect(getSlackUserDisplayName).toHaveBeenCalledWith("U0B3W7FDXMY");
+  });
+
+  it("appendSlackThreadComment is a no-op when no ticket matches", async () => {
+    const comment = await env.router.appendSlackThreadComment("nope.0000", "msg", "U1");
     expect(comment).toBeUndefined();
   });
 

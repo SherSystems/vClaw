@@ -44,6 +44,13 @@ export class SlackProvider implements AlertProvider {
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
 
+  /** Cache of slack user_id → display name. Filled lazily on first
+   *  lookup; never expires within the process lifetime (display names
+   *  change rarely and a fresh boot picks up any changes). Bounded to
+   *  ~hundreds of entries in practice — the homelab has one operator
+   *  and the team channel has a handful of members. */
+  private readonly userDisplayNameCache: Map<string, string> = new Map();
+
   constructor(options: SlackProviderOptions) {
     if (!options.botToken.startsWith("xoxb-")) {
       throw new Error("SlackProvider: botToken must start with 'xoxb-' (got a different shape)");
@@ -54,6 +61,54 @@ export class SlackProvider implements AlertProvider {
     this.dashboardUrl = options.dashboardUrl;
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  }
+
+  /** Resolve a slack user_id (e.g. `U0B3W7FDXMY`) to a human-readable
+   *  display name via the `users.info` API. Prefers
+   *  `profile.display_name`, falls back to `profile.real_name`, then
+   *  the legacy `name` field, and finally returns `undefined` if the
+   *  call fails or the user is missing all three. Caches successful
+   *  lookups for the process lifetime to avoid hitting Slack on every
+   *  ticket comment. Requires the `users:read` scope on the bot. */
+  async getUserDisplayName(userId: string): Promise<string | undefined> {
+    if (!userId) return undefined;
+    const cached = this.userDisplayNameCache.get(userId);
+    if (cached !== undefined) return cached;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const res = await this.fetchImpl(
+        `${SLACK_API_BASE}/users.info?user=${encodeURIComponent(userId)}`,
+        {
+          method: "GET",
+          headers: { Authorization: `Bearer ${this.botToken}` },
+          signal: controller.signal,
+        },
+      );
+      if (!res.ok) return undefined;
+      const body = (await safeJson(res)) as
+        | {
+            ok?: boolean;
+            user?: {
+              name?: string;
+              profile?: { display_name?: string; real_name?: string };
+            };
+          }
+        | undefined;
+      if (!body || body.ok !== true || !body.user) return undefined;
+      const display =
+        body.user.profile?.display_name?.trim() ||
+        body.user.profile?.real_name?.trim() ||
+        body.user.name?.trim();
+      if (!display) return undefined;
+      this.userDisplayNameCache.set(userId, display);
+      return display;
+    } catch {
+      return undefined;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /**

@@ -78,7 +78,7 @@ export interface TicketRouter {
     threadTs: string,
     text: string,
     slackUserId: string,
-  ): TicketComment | undefined;
+  ): Promise<TicketComment | undefined>;
   /** Direct read of a ticket joined with its Incident. Used by
    *  slack-routes for `/rhodes ticket <id>`. */
   getTicket(ticketId: string): { ticket: TicketRecord; incident: Incident | undefined } | undefined;
@@ -412,17 +412,33 @@ class TicketRouterImpl implements TicketRouter {
 
   // ── Slack glue ────────────────────────────────────────────
 
-  appendSlackThreadComment(
+  async appendSlackThreadComment(
     threadTs: string,
     text: string,
     slackUserId: string,
-  ): TicketComment | undefined {
+  ): Promise<TicketComment | undefined> {
     const ticket = this.ctx.store.findByThreadTs(threadTs);
     if (!ticket) return undefined;
     const trimmed = text.trim();
     if (trimmed.length === 0) return undefined;
+    // Render a human-readable author when we can resolve the slack
+    // user_id to a display name (e.g. "Pranav" instead of
+    // "slack:U0B3W7FDXMY"). Falls back to the legacy "slack:UID"
+    // format when the resolver is absent, the lookup fails, or the
+    // user has no display/real/legacy name. The Notifier caches
+    // resolved names for the process lifetime to keep this cheap.
+    let author = `slack:${slackUserId || "unknown"}`;
+    if (slackUserId && this.ctx.notifier?.getSlackUserDisplayName) {
+      try {
+        const name = await this.ctx.notifier.getSlackUserDisplayName(slackUserId);
+        if (name) author = name;
+      } catch {
+        // Resolver failure must not block the comment write — fall
+        // through with the legacy author string.
+      }
+    }
     const comment = this.ctx.store.addComment(ticket.ticket_id, {
-      author: `slack:${slackUserId || "unknown"}`,
+      author,
       body: trimmed,
       source: "slack",
     });

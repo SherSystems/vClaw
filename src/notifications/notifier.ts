@@ -225,4 +225,25 @@ export class Notifier {
       lastAlert: this.lastAlert,
     };
   }
+
+  /** Resolve a slack user_id to a human-readable display name. Returns
+   *  undefined if no Slack provider is attached, the lookup fails, or
+   *  the user has no display/real/legacy name. Used by the ticket layer
+   *  to render Slack-thread comments with "Pranav" instead of
+   *  "slack:U0B3W7FDXMY". */
+  async getSlackUserDisplayName(userId: string): Promise<string | undefined> {
+    const slackProvider = [this.provider, ...this.secondary].find(
+      (p) => p.id === "slack",
+    );
+    if (!slackProvider) return undefined;
+    const provider = slackProvider as unknown as {
+      getUserDisplayName?: (userId: string) => Promise<string | undefined>;
+    };
+    if (typeof provider.getUserDisplayName !== "function") return undefined;
+    try {
+      return await provider.getUserDisplayName(userId);
+    } catch {
+      return undefined;
+    }
+  }
 }

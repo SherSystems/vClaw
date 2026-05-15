@@ -53,6 +53,16 @@ import {
   loginRateLimiter,
 } from "./auth.js";
 import { createSlackRouter, type SlackRouterHandlers } from "./slack-routes.js";
+import {
+  createTicketRouter,
+  buildTicketListBlocks,
+  buildTicketDetailBlocks,
+  type TicketRouter,
+} from "./tickets-routes.js";
+import { TicketStore } from "../../healing/ticket-store.js";
+import { parseTicketId } from "../../healing/ticket-ids.js";
+import type { Notifier } from "../../notifications/notifier.js";
+import type { AIConfig } from "../../agent/llm.js";
 
 const STATIC_MIME: Record<string, string> = {
   ".js": "application/javascript",
@@ -161,6 +171,12 @@ export class DashboardServer {
    *  trust the request shape and stamp `slack:<user_id>` for audit. */
   private slackRouter: SlackRouterHandlers | null = null;
 
+  /** Ticket layer — TicketStore + router + coordinator hooks. Attached
+   *  by `attachTicketSystem` after the healer is wired so the
+   *  coordinator can fire the open/resolve hooks the router exposes. */
+  private ticketRouter: TicketRouter | null = null;
+  private ticketStore: TicketStore | null = null;
+
   constructor(
     private readonly port: number,
     private readonly agentCore: AgentCore,
@@ -208,6 +224,53 @@ export class DashboardServer {
    * approval gates blocking under systemd surface as `AwaitingApproval`
    * SSE events and resolve via POST /api/agent/approve.
    */
+  /**
+   * Wire the Ticket system: build a TicketStore against
+   * `<dataDir>/healing/tickets.db`, register a TicketRouter, and
+   * attach open/resolve hooks to the healer's IncidentCoordinator so
+   * each Incident is mirrored as a long-lived Ticket. When a Notifier
+   * is supplied, the open-hook posts a `ticket_opened` Block Kit
+   * message and captures the resulting Slack thread_ts.
+   *
+   * Idempotent — repeat calls reuse the existing TicketStore.
+   */
+  attachTicketSystem(options: {
+    dataDir: string;
+    notifier?: Notifier;
+    aiConfig?: AIConfig;
+    postmortemTimeoutMs?: number;
+  }): TicketRouter | null {
+    if (!this.healer) {
+      console.warn(
+        "[DashboardServer] attachTicketSystem called before healer attached — tickets disabled",
+      );
+      return null;
+    }
+    if (this.ticketRouter) return this.ticketRouter;
+
+    const ticketDbPath = join(options.dataDir, "tickets.db");
+    this.ticketStore = new TicketStore(ticketDbPath);
+    const router = createTicketRouter({
+      store: this.ticketStore,
+      incidents: this.healer.incidentManager,
+      eventBus: this.eventBus,
+      notifier: options.notifier,
+      aiConfig: options.aiConfig,
+      postmortemTimeoutMs: options.postmortemTimeoutMs,
+    });
+    this.ticketRouter = router;
+
+    // Wire the open / resolve hooks into the coordinator. After this
+    // point, every Incident the coordinator opens or resolves flows
+    // through the Ticket layer.
+    this.healer.coordinator.attachTicketStore(this.ticketStore, {
+      onOpened: (ticket, incident) => router.onTicketOpened(ticket, incident),
+      onResolved: (ticket, incident) =>
+        router.onTicketResolved(ticket, incident),
+    });
+    return router;
+  }
+
   attachApprovalGate(gate: ApprovalGate): void {
     if (this.unsubscribeApproval) this.unsubscribeApproval();
     this.approvalGate = gate;
@@ -481,6 +544,27 @@ export class DashboardServer {
           this.handleTopologyGraph(res);
           break;
         default:
+          // Ticket routes: /api/tickets, /api/tickets/:id, /api/tickets/:id/{comments,close,postmortem,regenerate-postmortem}
+          if (path.startsWith("/api/tickets") && this.ticketRouter) {
+            void this.ticketRouter
+              .dispatch(req, res, path)
+              .then((handled) => {
+                if (!handled) {
+                  res.writeHead(404, { "Content-Type": "application/json" });
+                  res.end(JSON.stringify({ error: "Not found" }));
+                }
+              })
+              .catch((err) => {
+                console.error("[DashboardServer] ticket dispatch error:", err);
+                try {
+                  res.writeHead(500, { "Content-Type": "application/json" });
+                  res.end(JSON.stringify({ error: "Internal server error" }));
+                } catch {
+                  // socket may already be closed
+                }
+              });
+            break;
+          }
           // Dynamic topology routes: /api/topology/apps/:id, /api/topology/apps/:id/members, etc.
           if (path.startsWith("/api/topology/")) {
             this.handleTopologyDynamic(req, res, path);
@@ -2210,7 +2294,69 @@ export class DashboardServer {
         return { ok: true };
       },
       getBotUserId: () => process.env.RHODES_SLACK_BOT_USER_ID,
+      listTickets: (status) => {
+        if (!this.ticketRouter) return [];
+        return this.ticketRouter.listTickets(status).map((row) => ({
+          ticket: {
+            ticket_id: row.ticket.ticket_id,
+            title: row.ticket.title,
+            status: row.ticket.status,
+            opened_at: row.ticket.opened_at,
+            resolved_at: row.ticket.resolved_at,
+            postmortem: row.ticket.postmortem,
+            comments: row.ticket.comments.map((c) => ({
+              author: c.author,
+              body: c.body,
+              timestamp: c.timestamp,
+              source: c.source,
+            })),
+            plan_ids: row.ticket.plan_ids,
+          },
+          incident: row.incident
+            ? { severity: row.incident.severity }
+            : undefined,
+        }));
+      },
+      getTicket: (ticketId) => {
+        if (!this.ticketRouter) return undefined;
+        if (!parseTicketId(ticketId)) return undefined;
+        const found = this.ticketRouter.getTicket(ticketId);
+        if (!found) return undefined;
+        return {
+          ticket: {
+            ticket_id: found.ticket.ticket_id,
+            title: found.ticket.title,
+            status: found.ticket.status,
+            opened_at: found.ticket.opened_at,
+            resolved_at: found.ticket.resolved_at,
+            postmortem: found.ticket.postmortem,
+            comments: found.ticket.comments.map((c) => ({
+              author: c.author,
+              body: c.body,
+              timestamp: c.timestamp,
+              source: c.source,
+            })),
+            plan_ids: found.ticket.plan_ids,
+          },
+          incident: found.incident
+            ? { severity: found.incident.severity }
+            : undefined,
+        };
+      },
+      appendTicketThreadComment: (threadTs, text, slackUserId) => {
+        if (!this.ticketRouter) return undefined;
+        return this.ticketRouter.appendSlackThreadComment(
+          threadTs,
+          text,
+          slackUserId,
+        );
+      },
     });
+    // Quiet unused-import warning for buildTicket*Blocks (they may be
+    // imported by tests later). Reference them lazily so tree-shaking
+    // keeps both available.
+    void buildTicketListBlocks;
+    void buildTicketDetailBlocks;
     return this.slackRouter;
   }
 

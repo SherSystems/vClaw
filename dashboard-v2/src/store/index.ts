@@ -14,6 +14,10 @@ import type {
   MigrationDirection,
   MigrationLiveRun,
   MigrationPlan,
+  Ticket,
+  TicketComment,
+  TicketJoined,
+  TicketStatus,
 } from "../types";
 import type { PendingApproval } from "../api/client";
 
@@ -194,6 +198,18 @@ interface DashboardState {
   remediateState: Record<string, "pending" | "done">;
   setRemediateState: (incidentId: string, state: "pending" | "done" | null) => void;
 
+  // Tickets — engineering ticket layer that wraps Incidents.
+  tickets: TicketJoined[];
+  ticketsById: Record<string, TicketJoined>;
+  ticketStatusFilter: TicketStatus | "all";
+  viewingTicketId: string | null;
+  setTickets: (rows: TicketJoined[]) => void;
+  upsertTicket: (row: TicketJoined) => void;
+  patchTicket: (ticketId: string, patch: Partial<Ticket>) => void;
+  appendTicketComment: (ticketId: string, comment: TicketComment) => void;
+  setTicketStatusFilter: (status: TicketStatus | "all") => void;
+  setViewingTicketId: (id: string | null) => void;
+
   // Incidents
   activeIncidents: Incident[];
   recentIncidents: Incident[];
@@ -355,6 +371,65 @@ export const useStore = create<DashboardState>((set) => ({
       }
       return { remediateState: next };
     }),
+
+  tickets: [],
+  ticketsById: {},
+  ticketStatusFilter: "all",
+  viewingTicketId: null,
+  setTickets: (rows) =>
+    set(() => ({
+      tickets: rows,
+      ticketsById: Object.fromEntries(
+        rows.map((r) => [r.ticket.ticket_id, r]),
+      ),
+    })),
+  upsertTicket: (row) =>
+    set((s) => {
+      const map = { ...s.ticketsById, [row.ticket.ticket_id]: row };
+      const list = Object.values(map).sort(
+        (a, b) =>
+          new Date(b.ticket.opened_at).getTime() -
+          new Date(a.ticket.opened_at).getTime(),
+      );
+      return { tickets: list, ticketsById: map };
+    }),
+  patchTicket: (ticketId, patch) =>
+    set((s) => {
+      const existing = s.ticketsById[ticketId];
+      if (!existing) return s;
+      const merged: TicketJoined = {
+        ...existing,
+        ticket: { ...existing.ticket, ...patch },
+      };
+      const map = { ...s.ticketsById, [ticketId]: merged };
+      return {
+        ticketsById: map,
+        tickets: s.tickets.map((row) =>
+          row.ticket.ticket_id === ticketId ? merged : row,
+        ),
+      };
+    }),
+  appendTicketComment: (ticketId, comment) =>
+    set((s) => {
+      const existing = s.ticketsById[ticketId];
+      if (!existing) return s;
+      const merged: TicketJoined = {
+        ...existing,
+        ticket: {
+          ...existing.ticket,
+          comments: [...existing.ticket.comments, comment],
+        },
+      };
+      const map = { ...s.ticketsById, [ticketId]: merged };
+      return {
+        ticketsById: map,
+        tickets: s.tickets.map((row) =>
+          row.ticket.ticket_id === ticketId ? merged : row,
+        ),
+      };
+    }),
+  setTicketStatusFilter: (status) => set({ ticketStatusFilter: status }),
+  setViewingTicketId: (id) => set({ viewingTicketId: id }),
 
   activeIncidents: [],
   recentIncidents: [],

@@ -44,6 +44,11 @@ export type OrchestratorStatus = HealingEngineStatus;
 
 export class HealingOrchestrator {
   readonly incidentManager: IncidentCoordinator["incidentManager"];
+  /** The IncidentCoordinator that owns the in-flight anomaly tracking
+   *  and resolve-recovery scan. Exposed so the dashboard can wire the
+   *  Ticket layer's open/resolved hooks (Slack notification +
+   *  postmortem generation) without reaching into private state. */
+  readonly coordinator: IncidentCoordinator;
 
   private readonly healthMonitor: HealthMonitor;
   private readonly anomalyDetector: AnomalyDetector;
@@ -77,6 +82,7 @@ export class HealingOrchestrator {
 
     this.incidentCoordinator = new IncidentCoordinator(options.eventBus, options.dataDir);
     this.incidentManager = this.incidentCoordinator.incidentManager;
+    this.coordinator = this.incidentCoordinator;
 
     this.rcaAnalyzer = new RCAAnalyzer({
       agentCore: options.agentCore,

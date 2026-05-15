@@ -192,6 +192,32 @@ export class Notifier {
     return result;
   }
 
+  /**
+   * Send an alert exclusively via Slack and return the raw delivery
+   * result. Used by the ticket-opened dispatch path so the caller can
+   * capture the `{channel, ts}` returned by `chat.postMessage` and
+   * bind it as the ticket's Slack thread. Returns `undefined` when no
+   * Slack provider is attached.
+   */
+  async sendOnSlack(
+    alert: Alert,
+  ): Promise<NotificationDeliveryResult | undefined> {
+    const slackProvider = [this.provider, ...this.secondary].find(
+      (p) => p.id === "slack",
+    );
+    if (!slackProvider) return undefined;
+    const ts = alert.timestamp ?? new Date().toISOString();
+    try {
+      return await slackProvider.send({ ...alert, timestamp: ts });
+    } catch (err) {
+      return {
+        delivered: false,
+        provider: "slack",
+        error: `Notifier.sendOnSlack threw: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  }
+
   getStatus(): NotifierStatus {
     return {
       provider: this.provider.id,

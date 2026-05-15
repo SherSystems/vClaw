@@ -70,6 +70,41 @@ export interface SlackRoutesContext {
   ) => { ok: boolean };
   /** Optional bot user id for self-loop detection (event.user === botUserId). */
   getBotUserId?: () => string | undefined;
+  /** Optional ticket-list lookup (e.g. for `/rhodes tickets`). */
+  listTickets?: (status?: TicketStatusFilter) => TicketRow[];
+  /** Optional single-ticket lookup (e.g. for `/rhodes ticket <id>`). */
+  getTicket?: (ticketId: string) => TicketRow | undefined;
+  /** Bind a Slack thread reply back to a ticket as a comment.
+   *  Called from the events handler when a `message` arrives whose
+   *  `thread_ts` matches a known ticket. Returns the comment if
+   *  appended. */
+  appendTicketThreadComment?: (
+    threadTs: string,
+    text: string,
+    slackUserId: string,
+  ) => unknown | undefined;
+}
+
+export type TicketStatusFilter =
+  | "open"
+  | "investigating"
+  | "healing"
+  | "resolved"
+  | "closed"
+  | "failed";
+
+export interface TicketRow {
+  ticket: {
+    ticket_id: string;
+    title: string;
+    status: string;
+    opened_at: string;
+    resolved_at?: string;
+    postmortem?: string;
+    comments: Array<{ author: string; body: string; timestamp: string; source: string }>;
+    plan_ids: string[];
+  };
+  incident: { severity?: string } | undefined;
 }
 
 /** The handlers exposed by `createSlackRouter`. */
@@ -159,6 +194,39 @@ export async function handleSlackCommand(
         slack_channel: channelId,
       });
       sendBlockKit(res, buildPlanningBlocks(subcommand.text));
+      return;
+    }
+
+    case "tickets": {
+      // Without a backing ticket store the slash command degrades to a
+      // friendly note rather than 500-ing. The dashboard server attaches
+      // listTickets only after attachTicketSystem fires.
+      if (!ctx.listTickets) {
+        sendBlockKit(res, buildEphemeralBlocks(
+          ":information_source: Ticket system not attached on this RHODES instance.",
+        ));
+        return;
+      }
+      const rows = ctx.listTickets(subcommand.status);
+      sendBlockKit(res, buildTicketsCommandBlocks(rows, subcommand.status));
+      return;
+    }
+
+    case "ticket": {
+      if (!ctx.getTicket) {
+        sendBlockKit(res, buildEphemeralBlocks(
+          ":information_source: Ticket system not attached on this RHODES instance.",
+        ));
+        return;
+      }
+      const row = ctx.getTicket(subcommand.ticket_id);
+      if (!row) {
+        sendBlockKit(res, buildEphemeralBlocks(
+          `:warning: No ticket \`${subcommand.ticket_id}\`.`,
+        ));
+        return;
+      }
+      sendBlockKit(res, buildTicketDetailCommandBlocks(row));
       return;
     }
   }
@@ -302,12 +370,40 @@ export async function handleSlackEvents(
         slack_thread_ts: event.ts,
       });
     }
+    // If the mention came in a thread, also append it as a ticket
+    // comment when the thread is bound to a ticket. Mirrors the
+    // dashboard "comment box" behaviour from Slack so the operator
+    // can see every channel back-and-forth on the ticket page.
+    if (event.thread_ts) {
+      maybeAppendTicketComment(ctx, event.thread_ts, stripped, event.user ?? "");
+    }
     recordAudit(ctx, {
       action: "slack.event.app_mention",
       params: {
         slack_user_id: event.user ?? "",
         slack_channel: event.channel ?? "",
         text: stripped,
+      },
+    });
+    sendJson(res, { ok: true }, 200);
+    return;
+  }
+
+  // Thread reply with NO mention — bind to a ticket if `thread_ts`
+  // matches a known ticket. We refuse to do anything else with these
+  // messages (the bot does not auto-reply unless explicitly @-mentioned)
+  // because we'd otherwise spam channels with bot turns.
+  if (event.type === "message" && event.thread_ts && !event.channel_type) {
+    const text = (event.text ?? "").trim();
+    if (text.length > 0 && event.user) {
+      maybeAppendTicketComment(ctx, event.thread_ts, text, event.user);
+    }
+    recordAudit(ctx, {
+      action: "slack.event.thread_reply",
+      params: {
+        slack_user_id: event.user ?? "",
+        slack_channel: event.channel ?? "",
+        thread_ts: event.thread_ts,
       },
     });
     sendJson(res, { ok: true }, 200);
@@ -351,7 +447,11 @@ export type Subcommand =
   | { kind: "incidents" }
   | { kind: "approvals" }
   | { kind: "investigate"; target: string }
-  | { kind: "freeform"; text: string };
+  | { kind: "freeform"; text: string }
+  /** `/rhodes tickets [status]` — list tickets, optionally filtered. */
+  | { kind: "tickets"; status?: TicketStatusFilter }
+  /** `/rhodes ticket <RHODES-YYYY-NNN>` — single ticket detail. */
+  | { kind: "ticket"; ticket_id: string };
 
 export function parseSubcommand(text: string): Subcommand {
   const trimmed = text.trim();
@@ -378,6 +478,32 @@ export function parseSubcommand(text: string): Subcommand {
       // word "investigate" isn't useful.
       if (rest.length === 0) return { kind: "help" };
       return { kind: "investigate", target: rest };
+    case "tickets": {
+      const lower = rest.toLowerCase();
+      const allowed: TicketStatusFilter[] = [
+        "open",
+        "investigating",
+        "healing",
+        "resolved",
+        "closed",
+        "failed",
+      ];
+      if (lower.length === 0) return { kind: "tickets" };
+      if ((allowed as string[]).includes(lower)) {
+        return { kind: "tickets", status: lower as TicketStatusFilter };
+      }
+      // Single-arg starting with RHODES- → treat as ticket detail
+      // shortcut, since `/rhodes tickets RHODES-2026-001` reads
+      // naturally even though we technically prefer `/rhodes ticket`.
+      if (/^RHODES-\d{4}-\d{3,}$/i.test(rest)) {
+        return { kind: "ticket", ticket_id: rest.toUpperCase() };
+      }
+      return { kind: "tickets" };
+    }
+    case "ticket": {
+      if (rest.length === 0) return { kind: "help" };
+      return { kind: "ticket", ticket_id: rest.toUpperCase() };
+    }
     default:
       return { kind: "freeform", text: trimmed };
   }
@@ -403,6 +529,8 @@ export function buildHelpBlocks(): unknown[] {
           "• `/rhodes status` — current version, mode, providers, open incidents",
           "• `/rhodes incidents` — list active incidents, click to remediate",
           "• `/rhodes approvals` — list pending plans, click to approve/reject",
+          "• `/rhodes tickets [open|resolved|closed]` — list engineering tickets",
+          "• `/rhodes ticket <RHODES-YYYY-NNN>` — show a single ticket detail",
           "• `/rhodes investigate <vmid>` — kick the agent to diagnose a VM",
           "• `/rhodes <any natural-language>` — talk to RHODES. plan returns asynchronously.",
         ].join("\n"),
@@ -563,6 +691,132 @@ export function buildEphemeralBlocks(text: string): unknown[] {
   ];
 }
 
+export function buildTicketsCommandBlocks(
+  rows: TicketRow[],
+  status: TicketStatusFilter | undefined,
+): unknown[] {
+  if (rows.length === 0) {
+    return [
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: status
+            ? `:white_check_mark: No tickets with status \`${escapeMrkdwn(status)}\`.`
+            : ":white_check_mark: No tickets.",
+        },
+      },
+    ];
+  }
+
+  const blocks: unknown[] = [
+    {
+      type: "header",
+      text: {
+        type: "plain_text",
+        text: status
+          ? `RHODES — ${rows.length} ${status} ticket(s)`
+          : `RHODES — ${rows.length} ticket(s)`,
+        emoji: false,
+      },
+    },
+  ];
+
+  for (const row of rows.slice(0, 20)) {
+    const sev = row.incident?.severity ?? "warning";
+    const comments = row.ticket.comments.length;
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: [
+          `*${escapeMrkdwn(row.ticket.ticket_id)}* — ${escapeMrkdwn(row.ticket.title)}`,
+          `_${escapeMrkdwn(sev)}_ · _${escapeMrkdwn(row.ticket.status)}_ · opened ${escapeMrkdwn(row.ticket.opened_at)} · ${comments} comment${comments === 1 ? "" : "s"}`,
+        ].join("\n"),
+      },
+    });
+  }
+  return blocks;
+}
+
+export function buildTicketDetailCommandBlocks(row: TicketRow): unknown[] {
+  const sev = row.incident?.severity ?? "warning";
+  const blocks: unknown[] = [
+    {
+      type: "header",
+      text: {
+        type: "plain_text",
+        text: `${row.ticket.ticket_id} — ${row.ticket.title}`.slice(0, 150),
+        emoji: false,
+      },
+    },
+    {
+      type: "section",
+      fields: [
+        { type: "mrkdwn", text: `*Status*\n${escapeMrkdwn(row.ticket.status)}` },
+        { type: "mrkdwn", text: `*Severity*\n${escapeMrkdwn(sev)}` },
+        { type: "mrkdwn", text: `*Opened*\n${escapeMrkdwn(row.ticket.opened_at)}` },
+        {
+          type: "mrkdwn",
+          text: `*Resolved*\n${escapeMrkdwn(row.ticket.resolved_at ?? "—")}`,
+        },
+      ],
+    },
+  ];
+
+  if (row.ticket.postmortem && row.ticket.postmortem.length > 0) {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*Postmortem*\n${escapeMrkdwn(truncate(row.ticket.postmortem, 2500))}`,
+      },
+    });
+  }
+
+  if (row.ticket.comments.length > 0) {
+    const lastN = row.ticket.comments.slice(-5);
+    const text = lastN
+      .map(
+        (c) =>
+          `*${escapeMrkdwn(c.author)}* (${escapeMrkdwn(c.timestamp)}): ${escapeMrkdwn(truncate(c.body, 300))}`,
+      )
+      .join("\n");
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: `*Comments*\n${text}` },
+    });
+  }
+
+  if (row.ticket.plan_ids.length > 0) {
+    blocks.push({
+      type: "context",
+      elements: [
+        {
+          type: "mrkdwn",
+          text: `*Plans:* ${row.ticket.plan_ids.map((p) => `\`${escapeMrkdwn(p)}\``).join(", ")}`,
+        },
+      ],
+    });
+  }
+
+  return blocks;
+}
+
+function maybeAppendTicketComment(
+  ctx: SlackRoutesContext,
+  threadTs: string,
+  text: string,
+  userId: string,
+): void {
+  if (!ctx.appendTicketThreadComment) return;
+  try {
+    ctx.appendTicketThreadComment(threadTs, text, userId);
+  } catch (err) {
+    console.error("[slack-routes] appendTicketThreadComment failed:", err);
+  }
+}
+
 // ── Internal helpers ──────────────────────────────────────────
 
 /** Slack messages returned to a slash command default to `ephemeral`
@@ -703,6 +957,9 @@ interface SlackInnerEvent {
   channel?: string;
   channel_type?: string;
   ts?: string;
+  /** Set on a reply inside a thread — matches the parent message's
+   *  `ts`. Used to bind Slack replies back to a ticket. */
+  thread_ts?: string;
   bot_id?: string;
   subtype?: string;
 }

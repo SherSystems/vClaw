@@ -12,7 +12,12 @@ export type AlertKind =
   | "approval_needed"
   | "execution_complete"
   | "execution_failed"
-  | "health_check_failed";
+  | "health_check_failed"
+  /** Engineering ticket opened — Block Kit message with ticket id,
+   *  title, severity badge, labels and a "View ticket" link. The
+   *  resulting Slack message ts is captured as `slack_thread_ts` on
+   *  the Ticket so subsequent comments thread under it. */
+  | "ticket_opened";
 
 export interface Alert {
   /** Brief one-line subject; surfaces in Telegram preview. */

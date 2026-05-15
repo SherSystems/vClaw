@@ -321,6 +321,14 @@ export enum AgentEventType {
   /** Structured per-run audit record (always emitted, regardless of outcome). */
   ChaosAudited = "chaos_audited",
   IncidentRca = "incident_rca",
+  // Ticket lifecycle — emitted by tickets-routes.ts in addition to the
+  // underlying Incident* events. Dashboard subscribes via SSE to keep
+  // the operator-facing Tickets view in sync.
+  TicketOpened = "ticket_opened",
+  TicketUpdated = "ticket_updated",
+  TicketResolved = "ticket_resolved",
+  TicketClosed = "ticket_closed",
+  TicketCommentAdded = "ticket_comment_added",
   MultiProviderGoalStarted = "multi_provider_goal_started",
   MultiProviderGoalCompleted = "multi_provider_goal_completed",
   MultiProviderQuery = "multi_provider_query",

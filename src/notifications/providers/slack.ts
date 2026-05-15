@@ -151,10 +151,71 @@ export class SlackProvider implements AlertProvider {
         return this.executionBlocks(alert, "fail");
       case "health_check_failed":
         return this.healthFailedBlocks(alert);
+      case "ticket_opened":
+        return this.ticketOpenedBlocks(alert);
       case "event":
       default:
         return this.eventBlocks(alert);
     }
+  }
+
+  private ticketOpenedBlocks(alert: Alert): unknown[] {
+    const ticketId = (alert.context?.["ticket_id"] as string | undefined) ?? "";
+    const severity = (alert.context?.["severity"] as string | undefined) ?? "warning";
+    const labels =
+      (alert.context?.["labels"] as Record<string, string> | undefined) ?? {};
+
+    const sevEmoji = severity === "critical" ? ":rotating_light:" : ":warning:";
+    const labelFields = Object.entries(labels)
+      .slice(0, 6)
+      .map(([k, v]) => ({
+        type: "mrkdwn",
+        text: `*${escapeMrkdwn(k)}*\n${escapeMrkdwn(String(v))}`,
+      }));
+
+    const blocks: unknown[] = [
+      {
+        type: "header",
+        text: {
+          type: "plain_text",
+          text: `${ticketId || "RHODES ticket"} — ${alert.title}`.slice(0, 150),
+          emoji: false,
+        },
+      },
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `${sevEmoji} *${escapeMrkdwn(severity.toUpperCase())}*\n${escapeMrkdwn(truncate(alert.body, 1500))}`,
+        },
+      },
+    ];
+
+    if (labelFields.length > 0) {
+      blocks.push({ type: "section", fields: labelFields });
+    }
+
+    if (this.dashboardUrl && ticketId) {
+      blocks.push({
+        type: "actions",
+        elements: [
+          {
+            type: "button",
+            text: { type: "plain_text", text: "View ticket", emoji: false },
+            action_id: "rhodes_view_ticket",
+            url: this.buildTicketUrl(ticketId),
+          },
+        ],
+      });
+    }
+
+    return blocks;
+  }
+
+  private buildTicketUrl(ticketId: string): string {
+    if (!this.dashboardUrl) return "";
+    const base = this.dashboardUrl.replace(/\/+$/, "");
+    return `${base}/?ticket=${encodeURIComponent(ticketId)}`;
   }
 
   private approvalNeededBlocks(alert: Alert): unknown[] {

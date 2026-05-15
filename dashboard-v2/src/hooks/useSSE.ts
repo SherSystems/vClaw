@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useStore } from "../store";
 import type { AgentEvent } from "../types";
+import { fetchTicket } from "../api/client";
 
 const EVENT_TYPES = [
   "plan_created", "plan_approved", "plan_rejected", "awaiting_approval", "replan",
@@ -9,6 +10,8 @@ const EVENT_TYPES = [
   "investigation_started", "investigation_complete",
   "incident_opened", "incident_action", "incident_resolved",
   "incident_failed", "incident_rca",
+  "ticket_opened", "ticket_updated", "ticket_resolved",
+  "ticket_closed", "ticket_comment_added",
   "healing_started", "healing_completed", "healing_failed",
   "healing_paused", "healing_escalated",
   "chaos_simulated", "chaos_started", "chaos_recovery_detected",
@@ -137,6 +140,42 @@ export function applySseEvent(event: AgentEvent, s: StoreSnapshot) {
         rca: d.rca as import("../types").RootCauseAnalysis,
       });
       break;
+
+    case "ticket_opened":
+    case "ticket_updated":
+    case "ticket_resolved":
+    case "ticket_closed": {
+      const ticketId = d.ticket_id as string | undefined;
+      if (!ticketId) break;
+      const existing = s.ticketsById[ticketId];
+      if (existing) {
+        // Don't have full ticket data here — server pushes a minimal
+        // payload. Patch what we have; full hydration comes from the
+        // polling refresh / a per-ticket fetch.
+        s.patchTicket(ticketId, {
+          status: (d.status as import("../types").TicketStatus) ?? existing.ticket.status,
+          title: (d.title as string) ?? existing.ticket.title,
+        });
+      }
+      if (event.type === "ticket_opened" && !existing) {
+        // We learn of a brand-new ticket — schedule a fetch so the
+        // full ticket payload lands without waiting for the next list
+        // poll. Avoid spamming: this fires once per ticket open.
+        fetchTicket(ticketId)
+          .then((row) => s.upsertTicket(row))
+          .catch(() => undefined);
+      }
+      break;
+    }
+
+    case "ticket_comment_added": {
+      const ticketId = d.ticket_id as string | undefined;
+      const comment = d.comment as import("../types").TicketComment | undefined;
+      if (ticketId && comment) {
+        s.appendTicketComment(ticketId, comment);
+      }
+      break;
+    }
 
     case "healing_started":
       s.updateIncident(d.incident_id as string, { status: "healing" });

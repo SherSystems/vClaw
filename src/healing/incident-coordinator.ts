@@ -5,12 +5,37 @@ import type { MetricStore } from "../monitoring/health.js";
 import { AgentEventType } from "../types.js";
 import { IncidentManager } from "./incidents.js";
 import type { Incident } from "./incidents.js";
+import type { TicketStore, TicketRecord } from "./ticket-store.js";
 
 const ESCALATION_THRESHOLD = 3;
 const ESCALATION_WINDOW_MS = 30 * 60 * 1000;
 
+/** Callback fired after an Incident moves to `resolved` and the
+ *  corresponding Ticket row is updated. The dashboard server hooks
+ *  this to (a) generate a postmortem via the LLM and (b) broadcast a
+ *  `ticket_resolved` SSE event. Kept generic so tests can stub it. */
+export type TicketResolvedHook = (
+  ticket: TicketRecord,
+  incident: Incident,
+) => void | Promise<void>;
+
+/** Callback fired when a new Incident is opened, after the Ticket
+ *  row is allocated. Dashboard server uses this to post a Block Kit
+ *  `ticket_opened` alert and capture the resulting `thread_ts`. */
+export type TicketOpenedHook = (
+  ticket: TicketRecord,
+  incident: Incident,
+) => void | Promise<void>;
+
 export class IncidentCoordinator {
   readonly incidentManager: IncidentManager;
+  /** Optional Ticket layer. When attached, every open/resolve/fail also
+   *  updates the corresponding ticket row + fires the appropriate
+   *  hook. Left undefined for cli/mcp callers that don't need
+   *  ticket-mode persistence. */
+  ticketStore?: TicketStore;
+  ticketOpenedHook?: TicketOpenedHook;
+  ticketResolvedHook?: TicketResolvedHook;
 
   private readonly eventBus: EventBus;
   private readonly inFlightAnomalies: Set<string> = new Set();
@@ -20,6 +45,20 @@ export class IncidentCoordinator {
   constructor(eventBus: EventBus, dataDir: string) {
     this.eventBus = eventBus;
     this.incidentManager = new IncidentManager(eventBus, dataDir);
+  }
+
+  /** Wire in a TicketStore + the open/resolve hooks. Called once by
+   *  the dashboard server during startup once it knows the
+   *  data-dir + LLM config. The coordinator stays useable without
+   *  tickets — callers that don't wire this in get the legacy
+   *  incident-only behaviour. */
+  attachTicketStore(
+    store: TicketStore,
+    hooks: { onOpened?: TicketOpenedHook; onResolved?: TicketResolvedHook } = {},
+  ): void {
+    this.ticketStore = store;
+    this.ticketOpenedHook = hooks.onOpened;
+    this.ticketResolvedHook = hooks.onResolved;
   }
 
   beginAnomaly(anomaly: Anomaly): { key: string; acquired: boolean } {
@@ -45,7 +84,7 @@ export class IncidentCoordinator {
   }
 
   openIncident(anomaly: Anomaly): Incident {
-    return this.incidentManager.open({
+    const incident = this.incidentManager.open({
       type: anomaly.type,
       severity: anomaly.severity,
       metric: anomaly.metric,
@@ -53,6 +92,48 @@ export class IncidentCoordinator {
       value: anomaly.current_value,
       description: anomaly.message,
     });
+    this.handleTicketForOpened(incident);
+    return incident;
+  }
+
+  /** Allocate (or look up) the Ticket for `incident`, then fire the
+   *  open-hook. Hook errors are swallowed — a busted Slack/dashboard
+   *  must not block incident creation. */
+  private handleTicketForOpened(incident: Incident): void {
+    if (!this.ticketStore) return;
+    let ticket: TicketRecord;
+    try {
+      ticket = this.ticketStore.ensureForIncident(incident);
+    } catch (err) {
+      console.error("[incident-coordinator] ticketStore.ensureForIncident failed:", err);
+      return;
+    }
+    if (!this.ticketOpenedHook) return;
+    void Promise.resolve()
+      .then(() => this.ticketOpenedHook?.(ticket, incident))
+      .catch((err) => {
+        console.error("[incident-coordinator] ticketOpenedHook failed:", err);
+      });
+  }
+
+  /** Sync the Ticket row to the incident's current state and fire the
+   *  resolve-hook. Called from the resolveRecoveredIncidents path
+   *  immediately after `incidentManager.resolve`. */
+  private handleTicketForResolved(incident: Incident): void {
+    if (!this.ticketStore) return;
+    let ticket: TicketRecord;
+    try {
+      ticket = this.ticketStore.syncFromIncident(incident);
+    } catch (err) {
+      console.error("[incident-coordinator] ticketStore.syncFromIncident failed:", err);
+      return;
+    }
+    if (!this.ticketResolvedHook) return;
+    void Promise.resolve()
+      .then(() => this.ticketResolvedHook?.(ticket, incident))
+      .catch((err) => {
+        console.error("[incident-coordinator] ticketResolvedHook failed:", err);
+      });
   }
 
   shouldEscalate(key: string): boolean {
@@ -221,6 +302,8 @@ export class IncidentCoordinator {
             incident.id,
             `VM ${displayName} state recovered: ${before} → ${latestRuntimeStatus}`,
           );
+          const fresh = this.incidentManager.getById(incident.id);
+          if (fresh) this.handleTicketForResolved(fresh);
 
           this.emitEvent(AgentEventType.AlertResolved, {
             incident_id: incident.id,
@@ -244,6 +327,8 @@ export class IncidentCoordinator {
           incident.id,
           `Metrics returned to normal (${latest.value.toFixed(1)} < ${incident.trigger_value.toFixed(1)})`,
         );
+        const fresh = this.incidentManager.getById(incident.id);
+        if (fresh) this.handleTicketForResolved(fresh);
 
         this.emitEvent(AgentEventType.AlertResolved, {
           incident_id: incident.id,

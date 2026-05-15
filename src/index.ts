@@ -366,6 +366,18 @@ async function main() {
       healer.start();
       (dashboard as unknown as { healer: HealingOrchestrator }).healer = healer;
 
+      // Ticket layer — long-lived engineering tickets that wrap
+      // Incidents. Allocates RHODES-YYYY-NNN ids, posts a Block Kit
+      // alert to Slack, and runs the LLM postmortem generator when
+      // each Incident resolves. Must be attached AFTER the healer is
+      // wired since it hooks the IncidentCoordinator's open/resolve.
+      dashboard.attachTicketSystem({
+        dataDir: join(dataDir, "healing"),
+        notifier,
+        aiConfig: config.ai,
+        postmortemTimeoutMs: config.ai.planTimeoutMs,
+      });
+
       // Chaos engineering engine — required for /api/chaos/* routes.
       const chaosEngine = new ChaosEngine({
         agentCore,
@@ -489,6 +501,14 @@ async function main() {
 
       // Expose orchestrator on dashboard for API routes
       (dashboard as unknown as { healer: HealingOrchestrator }).healer = healer;
+
+      // Ticket layer (see comment in `dashboard` case).
+      dashboard.attachTicketSystem({
+        dataDir: join(dataDir, "healing"),
+        notifier,
+        aiConfig: config.ai,
+        postmortemTimeoutMs: config.ai.planTimeoutMs,
+      });
 
       // Chaos engineering engine
       const chaosEngine = new ChaosEngine({

@@ -13,6 +13,7 @@ import Costs from "./components/pages/Costs";
 import Chaos from "./components/Chaos";
 import Health from "./components/pages/Health";
 import Playbooks from "./components/pages/Playbooks";
+import Tickets from "./components/pages/Tickets";
 import CommandPalette from "./components/CommandPalette";
 import ToastContainer from "./components/Toast";
 
@@ -41,6 +42,7 @@ export function App() {
               {activeTab === "chaos" && <Chaos />}
               {activeTab === "health" && <Health />}
               {activeTab === "playbooks" && <Playbooks />}
+              {activeTab === "tickets" && <Tickets />}
             </div>
           </main>
         </div>

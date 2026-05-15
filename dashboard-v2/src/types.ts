@@ -128,6 +128,50 @@ export interface IncidentAction {
   detail?: string;
 }
 
+// ── Tickets ──────────────────────────────────────────────────
+// Long-lived engineering records that wrap an Incident. The Ticket
+// keeps the operator-facing surface (human id, comments, postmortem,
+// closure state); the Incident remains the source of truth for what
+// RHODES saw and did.
+
+export type TicketStatus =
+  | "open"
+  | "investigating"
+  | "healing"
+  | "resolved"
+  | "closed"
+  | "failed";
+
+export interface TicketComment {
+  id: string;
+  ticket_id: string;
+  author: string;
+  body: string;
+  source: "dashboard" | "slack" | "agent";
+  timestamp: string;
+}
+
+export interface Ticket {
+  ticket_id: string;
+  incident_id: string;
+  title: string;
+  summary?: string;
+  status: TicketStatus;
+  opened_at: string;
+  resolved_at?: string;
+  closed_at?: string;
+  postmortem?: string;
+  slack_thread_ts?: string;
+  slack_channel?: string;
+  plan_ids: string[];
+  comments: TicketComment[];
+}
+
+export interface TicketJoined {
+  ticket: Ticket;
+  incident?: Incident;
+}
+
 export interface RootCauseAnalysis {
   summary: string;
   contributing_factors: string[];
@@ -515,5 +559,6 @@ export type PageId =
   | "costs"
   | "chaos"
   | "health"
-  | "playbooks";
+  | "playbooks"
+  | "tickets";
 export type TabId = PageId;

@@ -315,6 +315,41 @@ export const fetchIncidentTimeline = (incidentId: string) =>
     timeline: IncidentTimelineEntry[];
   }>(`/api/incidents/${encodeURIComponent(incidentId)}/timeline`);
 
+// Tickets — engineering ticket layer that wraps Incidents.
+export const fetchTickets = (status?: import("../types").TicketStatus) => {
+  const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+  return request<{
+    tickets: Array<import("../types").TicketJoined>;
+  }>(`/api/tickets${qs}`);
+};
+
+export const fetchTicket = (ticketId: string) =>
+  request<import("../types").TicketJoined>(`/api/tickets/${encodeURIComponent(ticketId)}`);
+
+export const postTicketComment = (ticketId: string, body: string, author?: string) =>
+  request<{ comment: import("../types").TicketComment }>(
+    `/api/tickets/${encodeURIComponent(ticketId)}/comments`,
+    { method: "POST", body: JSON.stringify({ body, author }) },
+  );
+
+export const closeTicket = (ticketId: string) =>
+  request<{ ticket: import("../types").Ticket }>(
+    `/api/tickets/${encodeURIComponent(ticketId)}/close`,
+    { method: "POST" },
+  );
+
+export const patchTicketPostmortem = (ticketId: string, postmortem: string) =>
+  request<{ ticket: import("../types").Ticket }>(
+    `/api/tickets/${encodeURIComponent(ticketId)}/postmortem`,
+    { method: "PATCH", body: JSON.stringify({ postmortem }) },
+  );
+
+export const regenerateTicketPostmortem = (ticketId: string) =>
+  request<{ status: string }>(
+    `/api/tickets/${encodeURIComponent(ticketId)}/regenerate-postmortem`,
+    { method: "POST" },
+  );
+
 // Audit
 export const fetchAudit = (limit = 100) =>
   request<import("../types").AuditEntry[]>(`/api/audit?limit=${limit}`);

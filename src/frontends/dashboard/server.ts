@@ -2279,12 +2279,21 @@ export class DashboardServer {
         return this.agentCore.run(goal);
       },
       postSlackThreadReply: async ({ channel, thread_ts, command, result, error }) => {
-        // Reply once in the thread with a consolidated summary of what
-        // the agent did. Designed for an employee-grade UX: not noisy,
-        // not stepwise, just the answer + a dashboard link for the
-        // operator to dig deeper if they want.
+        // Reply in the thread the way an SRE coworker would — a few
+        // sentences in the first person, naming actual values from the
+        // step outputs, optionally ending with a next-step question.
+        // The LLM-generated reply path uses the same model + timeouts
+        // as the agent's planner (`AgentRunResult` → reply via
+        // `generateConversationalReply`). On timeout / no API key we
+        // fall back to a short templated message so the operator
+        // isn't left hanging.
         if (!this.notifier) return;
-        const summary = buildSlackAgentReplySummary({ command, result, error });
+        const summary = await buildSlackAgentReplySummary({
+          command,
+          result,
+          error,
+          aiConfig: this.agentCore.aiConfig,
+        });
         await this.notifier.sendOnSlack({
           title: summary.title,
           body: summary.body,
@@ -2296,6 +2305,7 @@ export class DashboardServer {
             steps_completed: summary.steps_completed,
             success: summary.success,
             dashboard_url: summary.dashboard_url,
+            llm_generated: summary.llm_generated,
           },
         });
       },
@@ -2403,76 +2413,143 @@ export class DashboardServer {
 
 /**
  * Build the one-message reply the bot posts back into a Slack thread
- * after an agent run kicked off via @-mention or DM. Designed to read
- * like an employee summarizing what they just did — not stepwise event
- * spam. Keeps the noisy stuff (audit log + dashboard) where it belongs.
+ * after an agent run kicked off via @-mention or DM. The LLM-backed
+ * generator runs the agent's `AgentRunResult` through a conversational
+ * voice contract — first-person, 1-3 sentences, specific values from
+ * the step outputs, optional next-step question. On timeout / no API
+ * key configured the templated fallback inside
+ * `generateConversationalReply` kicks in.
  *
- * Shape of `result` comes from `agentCore.run()` (`AgentRunResult`):
- *   { success: boolean, steps_completed: number, plan_id: string,
- *     final_result?: unknown }
+ * Shape of `result` is `AgentRunResult`:
+ *   { success, plan, steps_completed, steps_failed, replans,
+ *     duration_ms, errors, outputs: StepOutput[] }
  *
- * We treat it as `unknown` here because slack-routes.ts intentionally
- * doesn't import agent-core types — extract the fields defensively.
+ * We treat it as `unknown` because the caller (slack-routes.ts) doesn't
+ * import agent-core types — extract the fields defensively.
  */
-function buildSlackAgentReplySummary(params: {
+async function buildSlackAgentReplySummary(params: {
   command: string;
   result: unknown;
   error?: string;
-}): {
+  aiConfig: import("../../agent/llm.js").AIConfig;
+}): Promise<{
   title: string;
   body: string;
   plan_id?: string;
   steps_completed?: number;
   success?: boolean;
   dashboard_url?: string;
-} {
+  llm_generated: boolean;
+}> {
   const dashboard = (process.env.RHODES_DASHBOARD_URL ?? "").replace(/\/+$/, "");
 
+  // The agent path threw — surface that honestly, no LLM call.
   if (params.error) {
     return {
-      title: "RHODES — run failed",
-      body: `I tried to handle *${escapeSlackText(params.command)}* but hit an error: ${escapeSlackText(params.error.slice(0, 280))}.`,
+      title: "RHODES",
+      body: `I tried to handle "${params.command.trim()}" but hit an error: ${params.error.slice(0, 280)}.`,
+      llm_generated: false,
     };
   }
 
   const result = (params.result ?? {}) as Record<string, unknown>;
-  const planId = typeof result["plan_id"] === "string" ? (result["plan_id"] as string) : undefined;
+  const plan = (result["plan"] ?? {}) as { id?: string };
+  const planId =
+    typeof plan["id"] === "string"
+      ? (plan["id"] as string)
+      : typeof result["plan_id"] === "string"
+      ? (result["plan_id"] as string)
+      : undefined;
   const stepsCompleted =
     typeof result["steps_completed"] === "number" ? (result["steps_completed"] as number) : undefined;
   const success = typeof result["success"] === "boolean" ? (result["success"] as boolean) : undefined;
+  const outputs = Array.isArray(result["outputs"]) ? (result["outputs"] as Array<Record<string, unknown>>) : [];
 
   const planUrl = dashboard && planId ? `${dashboard}/?plan=${encodeURIComponent(planId)}` : undefined;
 
-  // Title varies by outcome — keep it short, mono in the rendered Block Kit.
-  const title =
-    success === false
-      ? "RHODES — run did not complete cleanly"
-      : success === true
-      ? "RHODES — done"
-      : "RHODES — update";
+  // Compact each step into a one-liner the LLM can synthesize across.
+  // We deliberately don't include the entire raw `data` payload here —
+  // a get_vm_status return alone can be 30 KB of QEMU block stats.
+  // The summarizer trims to the salient fields per action; unknown
+  // actions get a generic "ok"/"failed" marker.
+  const stepSummaries = outputs.slice(0, 30).map((o) => ({
+    step_id: String(o["step_id"] ?? "?"),
+    action: String(o["action"] ?? "?"),
+    outcome_brief: summarizeStepOutput(o),
+    ok: o["success"] !== false,
+  }));
 
-  // Body reads like a short note from a coworker, not a status report.
-  const parts: string[] = [];
-  parts.push(`I just handled *${escapeSlackText(params.command)}*.`);
-  if (typeof stepsCompleted === "number") {
-    parts.push(`${stepsCompleted} step${stepsCompleted === 1 ? "" : "s"} ran${success === false ? " (with a failure along the way)" : ""}.`);
-  }
-  if (planUrl) {
-    parts.push(`Plan details: <${planUrl}|open in dashboard>.`);
-  } else if (planId) {
-    parts.push(`Plan id: \`${planId}\`.`);
-  }
+  const { generateConversationalReply } = await import("../../agent/conversational-reply.js");
+
+  const llmReply = await generateConversationalReply(
+    {
+      command: params.command,
+      success: success ?? true,
+      steps_completed: stepsCompleted ?? stepSummaries.length,
+      plan_id: planId,
+      step_summaries: stepSummaries,
+      dashboard_url: planUrl,
+    },
+    {
+      aiConfig: params.aiConfig,
+    },
+  );
+
+  // Add the dashboard link as a separate trailing line so the LLM's
+  // sentence stays clean and the operator still has the link to dig in.
+  const body = planUrl
+    ? `${llmReply.reply}\n_<${planUrl}|Open plan in dashboard>_`
+    : llmReply.reply;
 
   return {
-    title,
-    body: parts.join(" "),
+    title: "RHODES",
+    body,
     plan_id: planId,
     steps_completed: stepsCompleted,
     success,
     dashboard_url: planUrl,
+    llm_generated: llmReply.generated_by_llm,
   };
 }
 
-function escapeSlackText(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+/**
+ * One-line digest of a single StepOutput for the conversational reply
+ * prompt. Pulls the salient fields per common action so the LLM has
+ * facts to quote without drowning in 30 KB of QEMU block-stat dump.
+ */
+function summarizeStepOutput(o: Record<string, unknown>): string {
+  const ok = o["success"] !== false;
+  const errSuffix = ok ? "" : ` (failed: ${String((o["error"] as string) ?? "unknown")})`;
+  const data = o["data"];
+  if (data == null || typeof data !== "object") {
+    return `${ok ? "ok" : "failed"}${errSuffix}`;
+  }
+  const d = data as Record<string, unknown>;
+
+  // Salient-field picks per known action shape. Anything not in the
+  // table falls back to a key-count summary.
+  const action = String(o["action"] ?? "");
+  switch (action) {
+    case "get_vm_status":
+      return `status=${d["status"] ?? "?"} qmpstatus=${d["qmpstatus"] ?? "?"} uptime=${d["uptime"] ?? "?"}s${errSuffix}`;
+    case "get_vm_config": {
+      const tags = String((d["tags"] as string) ?? "");
+      const memory = d["memory"];
+      const sockets = d["sockets"];
+      const cores = d["cores"];
+      return `name=${d["name"] ?? "?"} mem=${memory ?? "?"} ${sockets ?? "?"}x${cores ?? "?"} tags=${tags || "-"}${errSuffix}`;
+    }
+    case "list_snapshots": {
+      const snaps = (d["data"] as Array<{ name?: string }> | undefined) ?? (d["snapshots"] as Array<{ name?: string }> | undefined) ?? [];
+      return `${snaps.length} snapshot(s)${errSuffix}`;
+    }
+    case "get_node_stats":
+      return `cpu=${d["cpu"] ?? "?"} mem=${d["mem"] ?? "?"} load=${d["loadavg"] ?? "?"}${errSuffix}`;
+    case "list_storage": {
+      const items = (d["data"] as Array<{ storage?: string; used_fraction?: number }> | undefined) ?? [];
+      return `${items.length} storage(s)${errSuffix}`;
+    }
+    default:
+      return `${ok ? "ok" : "failed"} (${Object.keys(d).length} fields)${errSuffix}`;
+  }
 }

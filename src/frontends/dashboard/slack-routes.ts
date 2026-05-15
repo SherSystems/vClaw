@@ -428,10 +428,22 @@ export async function handleSlackEvents(
   if (event.type === "message" && event.channel_type === "im") {
     const text = (event.text ?? "").trim();
     if (text.length > 0 && event.user) {
+      // If the DM message is a thread reply under a ticket-opened
+      // bot DM, the matching `event.thread_ts` lets us append it as
+      // a ticket comment. This is the v0.5.0 bidirectional surface:
+      // the operator can reply in the DM thread and have the message
+      // show up on the dashboard's ticket comment timeline, just like
+      // a channel @-mention or dashboard textarea entry. Without this
+      // branch, DM thread replies only ran the agent and never
+      // landed on the ticket — leaving the dashboard view incomplete.
+      if (event.thread_ts) {
+        maybeAppendTicketComment(ctx, event.thread_ts, text, event.user);
+      }
       void runAgentSafely(ctx, text, {
         source: "slack",
         slack_user_id: event.user,
         slack_channel: event.channel,
+        slack_thread_ts: event.thread_ts,
       });
     }
     recordAudit(ctx, {
@@ -439,6 +451,7 @@ export async function handleSlackEvents(
       params: {
         slack_user_id: event.user ?? "",
         slack_channel: event.channel ?? "",
+        thread_ts: event.thread_ts ?? "",
         text,
       },
     });

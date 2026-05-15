@@ -444,6 +444,48 @@ describe("handleSlackEvents", () => {
     expect(res.getStatusCode()).toBe(200);
   });
 
+  it("appends DM thread replies as ticket comments when thread_ts matches a known ticket", async () => {
+    // Regression: in v0.5.0-pre, DM thread replies under a ticket-
+    // opened bot DM only ran the agent — they never appeared as
+    // comments on the ticket. The dashboard's comment timeline was
+    // missing the operator's own Slack messages, breaking the
+    // bidirectional surface the release was supposed to provide.
+    const runAgentCommand = vi.fn(async () => ({ ok: true }));
+    const appendTicketThreadComment = vi.fn(() => ({
+      id: "c-1",
+      ticket_id: "RHODES-2026-099",
+      body: "ack — looking at it",
+    }));
+    const ctx = makeCtx({ runAgentCommand, appendTicketThreadComment });
+    const router = createSlackRouter(ctx);
+
+    const req = makeJsonReq({
+      type: "event_callback",
+      event: {
+        type: "message",
+        channel_type: "im",
+        user: "UHUMAN",
+        text: "ack — looking at it",
+        channel: "D42",
+        thread_ts: "1778876253.886399",
+      },
+    });
+    const res = makeRes();
+    await router.handleSlackEvents(req, res as any);
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Both paths fire: ticket-comment append AND agent invocation.
+    expect(appendTicketThreadComment).toHaveBeenCalledTimes(1);
+    expect(appendTicketThreadComment.mock.calls[0][0]).toBe("1778876253.886399");
+    expect(appendTicketThreadComment.mock.calls[0][1]).toBe("ack — looking at it");
+    expect(appendTicketThreadComment.mock.calls[0][2]).toBe("UHUMAN");
+    expect(runAgentCommand).toHaveBeenCalledTimes(1);
+    expect(runAgentCommand.mock.calls[0][1]).toMatchObject({
+      slack_thread_ts: "1778876253.886399",
+    });
+    expect(res.getStatusCode()).toBe(200);
+  });
+
   it("drops IM messages emitted by the bot itself (bot_id set)", async () => {
     const runAgentCommand = vi.fn(async () => ({ ok: true }));
     const ctx = makeCtx({ runAgentCommand });

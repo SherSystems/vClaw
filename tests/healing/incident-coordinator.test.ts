@@ -171,6 +171,69 @@ describe("IncidentCoordinator", () => {
     expect(events[0].data.runtime_status_after).toBe("running");
   });
 
+  it("resolves running→stopped (threshold-typed) incident when latest sample shows runtime_status=running", () => {
+    // Regression: the live state-change detector emits anomaly_type
+    // "threshold" (not "state_change") for running→stopped, and for
+    // a cleanly-stopped VM `labels.reason` is absent — only
+    // `labels.runtime_status: "stopped"` is set. Both used to make
+    // resolveRecoveredIncidents skip these incidents and leave the
+    // dashboard stuck in HEALING forever. See v0.5.0 Jellyfin demo
+    // 2026-05-15.
+    const { eventBus, coordinator } = makeCoordinator();
+    const events: { type: string; data: Record<string, unknown> }[] = [];
+    eventBus.on(AgentEventType.AlertResolved, (event) =>
+      events.push(event as { type: string; data: Record<string, unknown> }),
+    );
+
+    const store = new MetricStore();
+    // Live running→stopped transition: value=0, runtime_status="stopped",
+    // NO reason label (matches what health.ts emits for plain stopped).
+    store.record("vm_status", 0, {
+      vmid: "101",
+      node: "pranavlab",
+      name: "JellyFinServer",
+      runtime_status: "stopped",
+    });
+    const incident = coordinator.openIncident({
+      id: "anomaly-stopped",
+      type: "threshold",
+      severity: "critical",
+      metric: "vm_status",
+      labels: {
+        vmid: "101",
+        node: "pranavlab",
+        name: "JellyFinServer",
+        runtime_status: "stopped",
+      },
+      current_value: 0,
+      message: "VM JellyFinServer on pranavlab stopped unexpectedly",
+      detected_at: new Date().toISOString(),
+    });
+    expect(incident.status).toBe("open");
+    expect(incident.anomaly_type).toBe("threshold");
+
+    // VM comes back to running.
+    store.record("vm_status", 1, {
+      vmid: "101",
+      node: "pranavlab",
+      name: "JellyFinServer",
+      runtime_status: "running",
+    });
+
+    coordinator.resolveRecoveredIncidents(store, new Set());
+
+    const updated = coordinator.incidentManager.getById(incident.id);
+    expect(updated?.status).toBe("resolved");
+    expect(updated?.resolution).toContain("JellyFinServer");
+    expect(updated?.resolution).toContain("stopped");
+    expect(updated?.resolution).toContain("running");
+    expect(updated?.resolution).toContain("state recovered");
+
+    expect(events).toHaveLength(1);
+    expect(events[0].data.runtime_status_before).toBe("stopped");
+    expect(events[0].data.runtime_status_after).toBe("running");
+  });
+
   it("keeps state_change incident open when latest sample still shows the bad runtime_status", () => {
     const { eventBus, coordinator } = makeCoordinator();
     const events: unknown[] = [];

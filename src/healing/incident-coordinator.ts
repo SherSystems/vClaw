@@ -242,6 +242,7 @@ export class IncidentCoordinator {
       "paused_other",
       "locked",
       "error",
+      "stopped",
     ]);
 
     for (const incident of this.incidentManager.getOpen()) {
@@ -249,24 +250,29 @@ export class IncidentCoordinator {
         continue;
       }
 
-      // ── State-change recovery path ────────────────────────────
+      // ── VM-state recovery path ────────────────────────────────
       //
-      // For vm_status state-change incidents (e.g. boot-eval synthesized
-      // a discovered_state_change for a VM already paused with io-error),
-      // the numeric threshold check below never fires: the recorded
-      // value is just a marker (always 1 for "vm exists", 0 for stopped)
-      // and `incident.trigger_value * 0.7` is never crossed. So those
-      // incidents stay open forever even after the VM returns to
-      // `running`. Detect that case and resolve when the latest sample
-      // for the same vmid+node has a healthy runtime_status.
-      const incidentReason = incident.labels.reason;
-      const isStateChangeIncident =
+      // For any vm_status incident with a known-bad runtime_status —
+      // whether it came from boot-eval (anomaly_type=state_change for
+      // a VM already paused) or from a live running→stopped transition
+      // (anomaly_type=threshold via detectVmStateChanges) — the numeric
+      // threshold check below cannot resolve it: vm_status is a 0/1
+      // marker, not a metric, so `latest.value < trigger * 0.7` is
+      // never true in the recovery direction. Detect those cases and
+      // resolve when the latest sample for the same vmid+node has a
+      // healthy runtime_status.
+      //
+      // For `stopped` incidents, `labels.reason` is often absent (only
+      // `labels.runtime_status` is populated — see health.ts), so we
+      // fall back to `runtime_status` to classify the incident.
+      const incidentReason =
+        incident.labels.reason ?? incident.labels.runtime_status;
+      const isVmStateIncident =
         incident.metric === "vm_status" &&
-        incident.anomaly_type === "state_change" &&
         incidentReason !== undefined &&
         badRuntimeStates.has(incidentReason);
 
-      if (isStateChangeIncident) {
+      if (isVmStateIncident) {
         const vmid = incident.labels.vmid;
         const node = incident.labels.node;
         if (!vmid || !node) continue;

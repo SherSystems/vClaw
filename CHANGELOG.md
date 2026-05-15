@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`vm_status` incidents now resolve when the VM returns to `running`.** Two interacting bugs in `IncidentCoordinator.resolveRecoveredIncidents` left `running → stopped` incidents stuck in HEALING forever, preventing the postmortem-on-resolve hook from firing and starving the dashboard ticket lifecycle:
+  1. The recovery gate was scoped to `anomaly_type === "state_change"`, but the live state-change detector emits `anomaly_type: "threshold"` for running→stopped transitions. The numeric-threshold fallback can't fire for vm_status either (it's a 0/1 marker, `latest.value < trigger * 0.7` is never true in the recovery direction).
+  2. `badRuntimeStates` listed `paused_io_error / paused_other / locked / error` but omitted `"stopped"`, and the classifier read `labels.reason` only — but for a cleanly stopped VM, `health.ts` populates `labels.runtime_status="stopped"` without setting `labels.reason`.
+  Fix: classify any vm_status incident with a known-bad runtime_status (read from `reason ?? runtime_status`) into the runtime-recovery path, regardless of anomaly_type. Caught during the v0.5.0 Jellyfin live demo on 2026-05-15.
+
 ## [0.4.7] - 2026-05-14
 
 ### Security

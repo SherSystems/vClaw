@@ -345,6 +345,7 @@ async function main() {
       );
       await dashboard.start();
       dashboard.attachApprovalGate(governance.approvalGate);
+      dashboard.attachNotifier(notifier);
 
       // Self-healing orchestrator — needed for /api/healing/* routes and as a
       // dependency of the chaos engine. Use a tighter poll than autopilot's
@@ -447,6 +448,7 @@ async function main() {
       );
       await dashboard.start();
       dashboard.attachApprovalGate(governance.approvalGate);
+      dashboard.attachNotifier(notifier);
       break;
     }
 
@@ -466,6 +468,7 @@ async function main() {
       );
       await dashboard.start();
       dashboard.attachApprovalGate(governance.approvalGate);
+      dashboard.attachNotifier(notifier);
 
       // Autopilot (if enabled)
       if (config.autopilot.enabled) {
@@ -553,6 +556,7 @@ async function main() {
       );
       await dashboard.start();
       dashboard.attachApprovalGate(governance.approvalGate);
+      dashboard.attachNotifier(notifier);
 
       // Self-healing orchestrator
       const devHealer = new HealingOrchestrator({

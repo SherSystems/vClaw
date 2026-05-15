@@ -145,6 +145,11 @@ export class DashboardServer {
   chaosEngine?: ChaosEngine;
   migrationAdapter?: MigrationAdapter;
   topologyStore?: TopologyStore;
+  /** Notifier wired in via `attachNotifier()` after construction.
+   *  Needed by the Slack inbound flow so `runAgentCommand` can post
+   *  a thread reply when the agent run completes. Null when no
+   *  alert bridge is configured (e.g. cli/mcp modes). */
+  notifier?: import("../../notifications/notifier.js").Notifier;
   /** Approval gate. Set via attachApprovalGate() so the dashboard can
    *  surface pending approvals from POST /api/agent/approve. */
   private approvalGate: ApprovalGate | null = null;
@@ -281,6 +286,13 @@ export class DashboardServer {
         data: entry as unknown as Record<string, unknown>,
       });
     });
+  }
+
+  /** Wire the Notifier so the Slack inbound flow can post agent
+   *  replies back into the originating thread. Optional in cli/mcp
+   *  modes where there's no alert bridge. */
+  attachNotifier(notifier: import("../../notifications/notifier.js").Notifier): void {
+    this.notifier = notifier;
   }
 
   stop(): void {

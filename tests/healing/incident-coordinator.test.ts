@@ -274,6 +274,73 @@ describe("IncidentCoordinator", () => {
     expect(events[0].data.runtime_status_after).toBe("running");
   });
 
+  it("rescues a failed vm_status incident when the underlying VM is now healthy", () => {
+    // Regression: autopilot rules and the healing engine remediate
+    // the same anomalies in parallel. Autopilot succeeds in seconds;
+    // the healing engine's "VM Crashed" playbook starts later and
+    // sometimes fails on a stale verify step (VM is already running,
+    // verify returns unexpected state). The incident hits `failed`
+    // before resolveRecoveredIncidents would naturally fire — the
+    // postmortem-on-resolve hook never runs, the operator gets a scary
+    // "incident_failed" team-channel broadcast with no resolved DM.
+    // Caught during the v0.5.0 esxi-01 test on 2026-05-15 (incident
+    // 03b460a6 / RHODES-2026-015).
+    const { eventBus, coordinator } = makeCoordinator();
+    const events: { type: string; data: Record<string, unknown> }[] = [];
+    eventBus.on(AgentEventType.AlertResolved, (event) =>
+      events.push(event as { type: string; data: Record<string, unknown> }),
+    );
+
+    const store = new MetricStore();
+    store.record("vm_status", 0, {
+      vmid: "200",
+      node: "pranavlab",
+      name: "esxi-01",
+      runtime_status: "stopped",
+    });
+    const incident = coordinator.openIncident({
+      id: "anomaly-stopped",
+      type: "threshold",
+      severity: "critical",
+      metric: "vm_status",
+      labels: {
+        vmid: "200",
+        node: "pranavlab",
+        name: "esxi-01",
+        runtime_status: "stopped",
+      },
+      current_value: 0,
+      message: "VM esxi-01 on pranavlab stopped unexpectedly",
+      detected_at: new Date().toISOString(),
+    });
+    // Healing engine fails the incident (e.g. playbook verify step
+    // timed out while autopilot succeeded on a parallel path).
+    coordinator.incidentManager.fail(incident.id, "Healing failed: verify step timed out");
+    expect(coordinator.incidentManager.getById(incident.id)?.status).toBe(
+      "failed",
+    );
+
+    // Out-of-band recovery: VM is back up (autopilot restarted it).
+    store.record("vm_status", 1, {
+      vmid: "200",
+      node: "pranavlab",
+      name: "esxi-01",
+      runtime_status: "running",
+    });
+
+    coordinator.resolveRecoveredIncidents(store, new Set());
+
+    const updated = coordinator.incidentManager.getById(incident.id);
+    expect(updated?.status).toBe("resolved");
+    expect(updated?.resolution).toContain("esxi-01");
+    expect(updated?.resolution).toContain("stopped");
+    expect(updated?.resolution).toContain("running");
+
+    expect(events).toHaveLength(1);
+    expect(events[0].data.runtime_status_before).toBe("stopped");
+    expect(events[0].data.runtime_status_after).toBe("running");
+  });
+
   it("keeps state_change incident open when latest sample still shows the bad runtime_status", () => {
     const { eventBus, coordinator } = makeCoordinator();
     const events: unknown[] = [];

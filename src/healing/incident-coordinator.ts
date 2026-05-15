@@ -275,7 +275,22 @@ export class IncidentCoordinator {
       "stopped",
     ]);
 
-    for (const incident of this.incidentManager.getOpen()) {
+    // Iterate every non-resolved incident — this widens the scope from
+    // open/healing to ALSO rescue `failed` vm_status incidents that
+    // recovered out-of-band. Background: autopilot rules and the
+    // healing engine remediate the same anomalies in parallel. The
+    // autopilot rule "Auto-restart stopped VMs" succeeds in ~2s; the
+    // healing engine's "VM Crashed" playbook starts a few seconds later
+    // and fails ~40s in (the VM is already running, so its verify step
+    // times out or returns an unexpected state, marking the incident
+    // failed with an empty resolution). Without this rescue, the
+    // incident stays failed, the postmortem-on-resolve hook never
+    // fires, and the operator gets a scary `incident_failed` Block Kit
+    // card with no resolved DM. Caught during the v0.5.0 esxi-01 test
+    // on 2026-05-15 (incident 03b460a6 / RHODES-2026-015). The numeric
+    // threshold fallback below stays scoped to open/healing — we do
+    // NOT want to retroactively rescue a failed CPU/memory incident.
+    for (const incident of this.incidentManager.getNonResolved()) {
       if (activeIncidentIds.has(incident.id)) {
         continue;
       }
@@ -354,6 +369,13 @@ export class IncidentCoordinator {
       }
 
       // ── Numeric-threshold recovery path ───────────────────────
+      // Stays scoped to open/healing (the original getOpen() set):
+      // a failed CPU/memory incident shouldn't get retroactively
+      // marked resolved just because the current sample dipped under
+      // the trigger threshold — the failure had its own reason.
+      if (incident.status !== "open" && incident.status !== "healing") {
+        continue;
+      }
       const latest = store.getLatest(incident.metric, incident.labels);
       if (!latest) {
         continue;

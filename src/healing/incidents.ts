@@ -201,6 +201,16 @@ export class IncidentManager {
     );
   }
 
+  /** Every incident not yet in a terminal `resolved` state — includes
+   *  `failed` incidents that may have recovered out-of-band (e.g. the
+   *  autopilot rule restarted a VM while the healing playbook was
+   *  declaring failure on a different path). The recovery loop uses
+   *  this to rescue VM-state incidents whose underlying VM is now
+   *  healthy, even after the healing engine marked them failed. */
+  getNonResolved(): Incident[] {
+    return this.allIncidents().filter((i) => i.status !== "resolved");
+  }
+
   getRecent(count: number): Incident[] {
     return this.allIncidents()
       .sort(

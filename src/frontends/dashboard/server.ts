@@ -52,6 +52,7 @@ import {
   isPublicPath,
   loginRateLimiter,
 } from "./auth.js";
+import { createSlackRouter, type SlackRouterHandlers } from "./slack-routes.js";
 
 const STATIC_MIME: Record<string, string> = {
   ".js": "application/javascript",
@@ -95,6 +96,26 @@ interface MigrationActiveRun {
   progressPct: number;
 }
 
+// ── Slack metadata tagging ─────────────────────────────────
+
+/** Build a one-line tag describing the slack origin of a goal. Empty
+ *  string if no metadata is present. Stamped onto Goal.raw_input so
+ *  downstream notification providers can find it without a schema
+ *  change to the Goal type. */
+function formatSlackMeta(meta: {
+  source: "slack";
+  slack_user_id?: string;
+  slack_channel?: string;
+  slack_thread_ts?: string;
+}): string {
+  const parts: string[] = ["[via=slack"];
+  if (meta.slack_user_id) parts.push(`user=${meta.slack_user_id}`);
+  if (meta.slack_channel) parts.push(`channel=${meta.slack_channel}`);
+  if (meta.slack_thread_ts) parts.push(`thread=${meta.slack_thread_ts}`);
+  parts[parts.length - 1] += "]";
+  return parts.join(" ");
+}
+
 // ── Dashboard Server ───────────────────────────────────────
 
 export class DashboardServer {
@@ -134,6 +155,11 @@ export class DashboardServer {
 
   /** User store backing /api/auth/* (security D-3). */
   private readonly userStore: UserStore = new UserStore();
+
+  /** Lazily-constructed Slack inbound router (slash + interactivity + events).
+   *  The shim verifies Slack signatures before relaying — these endpoints
+   *  trust the request shape and stamp `slack:<user_id>` for audit. */
+  private slackRouter: SlackRouterHandlers | null = null;
 
   constructor(
     private readonly port: number,
@@ -411,6 +437,30 @@ export class DashboardServer {
         case "/api/agent/pending-approvals":
           this.handlePendingApprovals(res);
           break;
+        case "/api/integrations/slack/command":
+          if (req.method === "POST") {
+            void this.getSlackRouter().handleSlackCommand(req, res);
+          } else {
+            res.writeHead(405, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "Method not allowed" }));
+          }
+          break;
+        case "/api/integrations/slack/interact":
+          if (req.method === "POST") {
+            void this.getSlackRouter().handleSlackInteract(req, res);
+          } else {
+            res.writeHead(405, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "Method not allowed" }));
+          }
+          break;
+        case "/api/integrations/slack/events":
+          if (req.method === "POST") {
+            void this.getSlackRouter().handleSlackEvents(req, res);
+          } else {
+            res.writeHead(405, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "Method not allowed" }));
+          }
+          break;
         case "/api/costs/summary":
           this.handleCostSummary(res, url);
           break;
@@ -656,72 +706,78 @@ export class DashboardServer {
     }
   }
 
+  /** Build the healthz payload. Extracted so the Slack inbound `/rhodes
+   *  status` subcommand can render the same view without an HTTP round-trip. */
+  private buildHealthzPayload(): Record<string, unknown> {
+    const dryRun = (process.env.RHODES_DRY_RUN ?? process.env.VCLAW_DRY_RUN ?? "")
+      .toLowerCase() === "true";
+
+    const history = this.eventBus.getHistory(200);
+    const lastAlert = [...history]
+      .reverse()
+      .find(
+        (e) =>
+          e.type === AgentEventType.AlertFired ||
+          e.type === AgentEventType.IncidentOpened ||
+          e.type === AgentEventType.HealingEscalated,
+      );
+
+    const activePlans = [...history]
+      .reverse()
+      .filter(
+        (e) =>
+          e.type === AgentEventType.PlanCreated ||
+          e.type === AgentEventType.Replan,
+      )
+      .slice(0, 5)
+      .map((e) => ({
+        id: (e.data?.id as string) ?? (e.data?.plan_id as string) ?? null,
+        mode: (e.data?.mode as string | undefined) ?? null,
+        created_at: e.timestamp,
+      }));
+
+    const openIncidents = (() => {
+      try { return this.incidentManager.getOpen().length; } catch { return 0; }
+    })();
+
+    const playbooks = (() => {
+      try {
+        const engine = (this.healer as unknown as { playbookEngine?: { getAll?: () => unknown[] } })?.playbookEngine;
+        return engine?.getAll ? engine.getAll().length : 0;
+      } catch {
+        return 0;
+      }
+    })();
+
+    return {
+      ok: true,
+      version: this.getPackageVersion(),
+      uptime_s: Math.round((Date.now() - this.startedAt) / 1000),
+      process_uptime_s: Math.round(process.uptime()),
+      dry_run: dryRun,
+      shadow_mode: dryRun,
+      providers_connected: 0, // Aggregated state requires async fan-out — keep healthz cheap.
+      sse_clients: this.clients.size,
+      open_incidents: openIncidents,
+      registered_playbooks: playbooks,
+      last_alert: lastAlert
+        ? {
+            type: lastAlert.type,
+            timestamp: lastAlert.timestamp,
+            summary:
+              (lastAlert.data?.message as string) ??
+              (lastAlert.data?.description as string) ??
+              null,
+          }
+        : null,
+      active_plans: activePlans,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
   private handleHealthz(res: ServerResponse): void {
     try {
-      const dryRun = (process.env.RHODES_DRY_RUN ?? process.env.VCLAW_DRY_RUN ?? "")
-        .toLowerCase() === "true";
-
-      const history = this.eventBus.getHistory(200);
-      const lastAlert = [...history]
-        .reverse()
-        .find(
-          (e) =>
-            e.type === AgentEventType.AlertFired ||
-            e.type === AgentEventType.IncidentOpened ||
-            e.type === AgentEventType.HealingEscalated,
-        );
-
-      const activePlans = [...history]
-        .reverse()
-        .filter(
-          (e) =>
-            e.type === AgentEventType.PlanCreated ||
-            e.type === AgentEventType.Replan,
-        )
-        .slice(0, 5)
-        .map((e) => ({
-          id: (e.data?.id as string) ?? (e.data?.plan_id as string) ?? null,
-          mode: (e.data?.mode as string | undefined) ?? null,
-          created_at: e.timestamp,
-        }));
-
-      const openIncidents = (() => {
-        try { return this.incidentManager.getOpen().length; } catch { return 0; }
-      })();
-
-      const playbooks = (() => {
-        try {
-          const engine = (this.healer as unknown as { playbookEngine?: { getAll?: () => unknown[] } })?.playbookEngine;
-          return engine?.getAll ? engine.getAll().length : 0;
-        } catch {
-          return 0;
-        }
-      })();
-
-      this.json(res, {
-        ok: true,
-        version: this.getPackageVersion(),
-        uptime_s: Math.round((Date.now() - this.startedAt) / 1000),
-        process_uptime_s: Math.round(process.uptime()),
-        dry_run: dryRun,
-        shadow_mode: dryRun,
-        providers_connected: 0, // Aggregated state requires async fan-out — keep healthz cheap.
-        sse_clients: this.clients.size,
-        open_incidents: openIncidents,
-        registered_playbooks: playbooks,
-        last_alert: lastAlert
-          ? {
-              type: lastAlert.type,
-              timestamp: lastAlert.timestamp,
-              summary:
-                (lastAlert.data?.message as string) ??
-                (lastAlert.data?.description as string) ??
-                null,
-            }
-          : null,
-        active_plans: activePlans,
-        timestamp: new Date().toISOString(),
-      });
+      this.json(res, this.buildHealthzPayload());
     } catch (err) {
       console.error("[DashboardServer] healthz error:", err);
       this.json(res, { ok: false, error: "healthz failed" }, 500);
@@ -2075,6 +2131,87 @@ export class DashboardServer {
       console.error("[DashboardServer] Bootstrap error:", err);
       this.json(res, { error: "invalid_request" }, 400);
     }
+  }
+
+  // ── Slack inbound router (lazy) ────────────────────────
+
+  /** Returns the slack inbound router, constructing it on first call.
+   *  Built lazily because the wiring needs the approval gate / healer,
+   *  which are attached after the server is constructed. */
+  private getSlackRouter(): SlackRouterHandlers {
+    if (this.slackRouter) return this.slackRouter;
+    this.slackRouter = createSlackRouter({
+      audit: this.audit,
+      getHealthz: () => this.buildHealthzPayload(),
+      getOpenIncidents: () => {
+        try {
+          return this.incidentManager.getOpen().map((i) => ({
+            id: i.id,
+            severity: i.severity,
+            description: i.description,
+            detected_at: i.detected_at,
+          }));
+        } catch {
+          return [];
+        }
+      },
+      getPendingApprovals: () => {
+        const pending = this.approvalGate?.getPendingApprovals() ?? [];
+        return pending.map((p) => ({
+          plan_id: p.plan_id,
+          step_id: p.step_id,
+          action: p.action,
+          tier: p.tier,
+          requested_at: p.requested_at,
+          reasoning: p.reasoning,
+        }));
+      },
+      runAgentCommand: async (command, meta) => {
+        // Free-form Slack goals share the same dispatch as the Cmd+K
+        // palette. Slack-origin metadata (user/channel/thread) is
+        // stamped onto raw_input as a prefix so the outbound slack
+        // provider can thread replies — the `Goal` shape has no
+        // first-class context field today (see types.ts:29).
+        const tag = formatSlackMeta(meta);
+        const goal: Goal = {
+          id: randomUUID(),
+          mode: "build",
+          description: command.trim(),
+          raw_input: tag ? `${tag}\n${command.trim()}` : command.trim(),
+          created_at: new Date().toISOString(),
+        };
+        return this.agentCore.run(goal);
+      },
+      submitApprovalDecision: (planId, decision, operator, stepId) => {
+        if (!this.approvalGate) return { ok: false };
+        const outcome = this.approvalGate.submitApiDecision(
+          planId,
+          decision,
+          operator,
+          stepId,
+        );
+        if (!outcome.ok) return { ok: false };
+        // Mirror onto the SSE bus so the operator dashboard reflects
+        // the Slack-side decision without a round-trip.
+        this.eventBus.emit({
+          type: outcome.record.decision === "approve"
+            ? AgentEventType.PlanApproved
+            : AgentEventType.PlanRejected,
+          timestamp: outcome.record.timestamp,
+          data: {
+            plan_id: outcome.record.plan_id,
+            ...(outcome.record.step_id ? { step_id: outcome.record.step_id } : {}),
+            operator: outcome.record.operator,
+            decision: outcome.record.decision,
+            idempotent: !outcome.resolved,
+            source: "slack",
+          },
+        });
+        return { ok: true };
+      },
+      getBotUserId: () => process.env.RHODES_SLACK_BOT_USER_ID,
+    });
+    return this.slackRouter;
   }
 
   // ── Helpers ─────────────────────────────────────────────

@@ -54,6 +54,12 @@ const PUBLIC_PATHS = new Set<string>([
 const PUBLIC_PREFIXES: string[] = [
   "/brand/",
   "/assets/",
+  // Slack inbound endpoints are exposed via the shim service, which
+  // verifies Slack's request signature before relaying. From RHODES's
+  // perspective the shim IS the auth boundary — operator-session
+  // checks would block the request. The slash-command/interactivity
+  // handlers stamp `slack:<user_id>` for audit instead.
+  "/api/integrations/slack/",
 ];
 
 const STATIC_EXTENSIONS = [

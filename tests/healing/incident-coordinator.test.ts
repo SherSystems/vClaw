@@ -88,6 +88,46 @@ describe("IncidentCoordinator", () => {
     expect(coordinator.detectVmStateChanges(store)).toHaveLength(0);
   });
 
+  it("does not flap-fire state-change anomalies when a stale series sits alongside a fresh one", async () => {
+    // Regression: a single VM with two series in retention (e.g.
+    // labels.runtime_status="stopped" stale, labels.runtime_status="running"
+    // fresh) used to flap previousVmStatus between 1 and 0 every tick
+    // because both samples were iterated. Coalescing by (vmid, node) →
+    // pick freshest fixes the loop. Caught during v0.5.0 Jellyfin live
+    // demo on 2026-05-15 (RHODES-2026-004..007+ DM spam).
+    const { coordinator } = makeCoordinator();
+    const store = new MetricStore();
+
+    // First, a stale stopped sample (the "old" series).
+    store.record("vm_status", 0, {
+      vmid: "101",
+      node: "pranavlab",
+      name: "JellyFinServer",
+      runtime_status: "stopped",
+    });
+    // Slight delay so the running sample's timestamp strictly beats the
+    // stopped one — coalesce relies on `>` not `>=`.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    // Fresh running sample (separate series because runtime_status differs).
+    store.record("vm_status", 1, {
+      vmid: "101",
+      node: "pranavlab",
+      name: "JellyFinServer",
+      runtime_status: "running",
+    });
+
+    // First tick: VM coalesces to running (freshest = value 1). No
+    // transition, no anomaly. previousVmStatus["101|pranavlab|JellyFinServer"]
+    // = 1.
+    expect(coordinator.detectVmStateChanges(store)).toHaveLength(0);
+
+    // Subsequent ticks with no new samples — must stay quiet, NOT flap
+    // back to 0 because of the still-present stale stopped series.
+    for (let i = 0; i < 5; i++) {
+      expect(coordinator.detectVmStateChanges(store)).toHaveLength(0);
+    }
+  });
+
   it("resolves only recovered incidents and emits alert_resolved events", () => {
     const { eventBus, coordinator } = makeCoordinator();
     const events: unknown[] = [];

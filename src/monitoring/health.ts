@@ -108,14 +108,18 @@ export class MetricStore {
     return this.series.size;
   }
 
-  /** Return the latest value for every series matching a metric name prefix */
-  getAllLatest(metric: string): Array<{ value: number; labels: Record<string, string> }> {
+  /** Return the latest value for every series matching a metric name prefix.
+   *  Each entry includes the sample timestamp so callers that need to
+   *  coalesce multiple series for the same logical object (e.g. a single
+   *  VM whose labels.runtime_status changes over time → two series) can
+   *  pick the freshest one. */
+  getAllLatest(metric: string): Array<{ value: number; labels: Record<string, string>; timestamp: number }> {
     const prefix = `${metric}{`;
-    const results: Array<{ value: number; labels: Record<string, string> }> = [];
+    const results: Array<{ value: number; labels: Record<string, string>; timestamp: number }> = [];
     for (const [key, points] of this.series) {
       if (key.startsWith(prefix) && points.length > 0) {
         const last = points[points.length - 1];
-        results.push({ value: last.value, labels: last.labels });
+        results.push({ value: last.value, labels: last.labels, timestamp: last.timestamp });
       }
     }
     return results;

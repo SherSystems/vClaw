@@ -160,8 +160,25 @@ export class IncidentCoordinator {
     const anomalies: Anomaly[] = [];
     const allVmStatus = store.getAllLatest("vm_status");
 
-    for (const { value, labels } of allVmStatus) {
-      const vmKey = `${labels.vmid}|${labels.node}|${labels.name || ""}`;
+    // Coalesce by (vmid, node) — a single VM can have multiple series
+    // in retention if its labels (e.g. `runtime_status`) change over
+    // time, and `getAllLatest` returns the latest per series. Without
+    // coalescing, a stale `runtime_status="stopped"` series sits next
+    // to a fresh `runtime_status="running"` series and the iteration
+    // order flaps the per-vmKey previousVmStatus map between 1 and 0
+    // every tick, opening a new `running → stopped` incident every
+    // poll interval. Caught during the v0.5.0 Jellyfin live demo on
+    // 2026-05-15 (RHODES-2026-004..007 spam).
+    const freshestByVm = new Map<string, { value: number; labels: Record<string, string>; timestamp: number }>();
+    for (const sample of allVmStatus) {
+      const vmKey = `${sample.labels.vmid}|${sample.labels.node}|${sample.labels.name || ""}`;
+      const current = freshestByVm.get(vmKey);
+      if (!current || sample.timestamp > current.timestamp) {
+        freshestByVm.set(vmKey, sample);
+      }
+    }
+
+    for (const [vmKey, { value, labels }] of freshestByVm) {
       const previousValue = this.previousVmStatus.get(vmKey);
 
       if (previousValue === 1 && value === 0) {
@@ -208,7 +225,20 @@ export class IncidentCoordinator {
     const allVmStatus = store.getAllLatest("vm_status");
     const detectedAt = new Date().toISOString();
 
-    for (const { value, labels } of allVmStatus) {
+    // Coalesce by (vmid, node) so a stale `paused_io_error` series
+    // sitting alongside a fresh `running` series doesn't cause boot-
+    // eval to resurrect an already-recovered incident. Same pattern
+    // as detectVmStateChanges — see comment there for why.
+    const freshestByVm = new Map<string, { value: number; labels: Record<string, string>; timestamp: number }>();
+    for (const sample of allVmStatus) {
+      const vmKey = `${sample.labels.vmid}|${sample.labels.node}|${sample.labels.name || ""}`;
+      const current = freshestByVm.get(vmKey);
+      if (!current || sample.timestamp > current.timestamp) {
+        freshestByVm.set(vmKey, sample);
+      }
+    }
+
+    for (const { value, labels } of freshestByVm.values()) {
       const reason = labels.reason || labels.runtime_status;
       if (!reason) continue;
 
@@ -281,22 +311,23 @@ export class IncidentCoordinator {
         // labels-exact getLatest() because the recovered sample no
         // longer carries `reason` / the bad runtime_status, so its
         // series key is different. Instead scan all latest-per-series
-        // entries and pick the ones matching vmid+node. A VM with a
-        // healthy current sample is considered recovered regardless of
-        // whether the stale bad-state series is still in the 24h
-        // retention window.
+        // entries, pick the FRESHEST one for this vmid+node (a stale
+        // running-series alongside a fresh stopped-series would
+        // otherwise falsely resolve the incident), and only resolve
+        // if that freshest sample reports a healthy runtime_status.
         const allLatest = store.getAllLatest("vm_status");
         const samplesForVm = allLatest.filter(
           (entry) => entry.labels.vmid === vmid && entry.labels.node === node,
         );
         if (samplesForVm.length === 0) continue;
 
-        const healthySample = samplesForVm.find((entry) => {
-          const rs = entry.labels.runtime_status;
-          return rs !== undefined && healthyRuntimeStates.has(rs);
-        });
-        if (!healthySample) continue;
-        const latestRuntimeStatus = healthySample.labels.runtime_status!;
+        const freshest = samplesForVm.reduce((a, b) =>
+          a.timestamp > b.timestamp ? a : b,
+        );
+        const rs = freshest.labels.runtime_status;
+        if (rs === undefined || !healthyRuntimeStates.has(rs)) continue;
+        const healthySample = freshest;
+        const latestRuntimeStatus = rs;
 
         if (healthyRuntimeStates.has(latestRuntimeStatus)) {
           const before =

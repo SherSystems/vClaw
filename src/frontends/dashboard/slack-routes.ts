@@ -83,6 +83,20 @@ export interface SlackRoutesContext {
     text: string,
     slackUserId: string,
   ) => unknown | undefined;
+  /** Resolve an upgrade-plan proposal from a cluster id (and optional
+   *  target version). Wired in v0.7.2.3 against the graph; until then
+   *  the upgrade subcommand short-circuits with "not attached". */
+  resolveUpgradePlan?: (
+    clusterId: string,
+    targetVersion: string | undefined,
+    operator: string,
+  ) => Promise<{
+    planId: string;
+    clusterResourceId: string;
+    sourceVersion: string;
+    targetVersion: string;
+    hostCount: number;
+  } | { error: string }>;
   /** Post the agent's reply back to the originating Slack thread.
    *  Called after `runAgentCommand` resolves (or rejects). The bot
    *  behaves like an employee — one consolidated message in the
@@ -242,6 +256,52 @@ export async function handleSlackCommand(
         return;
       }
       sendBlockKit(res, buildTicketDetailCommandBlocks(row));
+      return;
+    }
+
+    case "upgrade_help": {
+      sendBlockKit(res, buildEphemeralBlocks(
+        ":wrench: Usage: `/rhodes upgrade <cluster_id> [to <target_version>]`\n" +
+          "Example: `/rhodes upgrade proxmox:proxmox_cluster:prod to 8.0u3`",
+      ));
+      return;
+    }
+
+    case "upgrade": {
+      if (!ctx.resolveUpgradePlan) {
+        sendBlockKit(res, buildEphemeralBlocks(
+          ":warning: Upgrade orchestrator not attached on this RHODES instance.",
+        ));
+        return;
+      }
+      const operator = `slack:${userName || userId}`;
+      const clusterId = subcommand.clusterId;
+      const targetVersion = subcommand.targetVersion;
+      // Fire-and-forget resolution — Slack's 3s window forbids
+      // waiting on the graph + plan-creation round-trip. The outbound
+      // path (v0.7.2.3) posts the resulting plan + approval Block-Kit
+      // back to the channel.
+      void Promise.resolve()
+        .then(() => ctx.resolveUpgradePlan!(clusterId, targetVersion, operator))
+        .then((result) => {
+          if ("error" in result) {
+            console.warn(
+              `[slack] upgrade plan resolution failed for cluster=${clusterId}: ${result.error}`,
+            );
+            return;
+          }
+          console.log(
+            `[slack] upgrade plan ${result.planId} created for cluster=${result.clusterResourceId} ` +
+              `(${result.sourceVersion} → ${result.targetVersion}, ${result.hostCount} hosts) by ${operator}`,
+          );
+        })
+        .catch((err) => {
+          console.error("[slack] upgrade plan resolution error:", err);
+        });
+      const versionFragment = targetVersion ? ` to \`${targetVersion}\`` : "";
+      sendBlockKit(res, buildEphemeralBlocks(
+        `:gear: Resolving upgrade plan for cluster \`${clusterId}\`${versionFragment} — approval will land in this channel shortly.`,
+      ));
       return;
     }
   }
@@ -479,7 +539,16 @@ export type Subcommand =
   /** `/rhodes tickets [status]` — list tickets, optionally filtered. */
   | { kind: "tickets"; status?: TicketStatusFilter }
   /** `/rhodes ticket <RHODES-YYYY-NNN>` — single ticket detail. */
-  | { kind: "ticket"; ticket_id: string };
+  | { kind: "ticket"; ticket_id: string }
+  /**
+   * `/rhodes upgrade <cluster_id> [to <target_version>]` — v0.7.2.2.
+   * Kicks the orchestrator's plan-resolution path; the plan + approval
+   * Block-Kit message lands in the channel via the outbound side
+   * (v0.7.2.3 wires the actual posting + runner kickoff).
+   */
+  | { kind: "upgrade"; clusterId: string; targetVersion?: string }
+  /** `/rhodes upgrade` with no cluster arg → usage reminder. */
+  | { kind: "upgrade_help" };
 
 export function parseSubcommand(text: string): Subcommand {
   const trimmed = text.trim();
@@ -531,6 +600,17 @@ export function parseSubcommand(text: string): Subcommand {
     case "ticket": {
       if (rest.length === 0) return { kind: "help" };
       return { kind: "ticket", ticket_id: rest.toUpperCase() };
+    }
+    case "upgrade": {
+      if (rest.length === 0) return { kind: "upgrade_help" };
+      // `upgrade <cluster_id> [to <target_version>]`
+      // Cluster id is the first whitespace-delimited token; if a
+      // `to <version>` clause follows, version is everything after it.
+      const m = rest.match(/^(\S+)(?:\s+to\s+(.+))?$/i);
+      if (!m) return { kind: "upgrade_help" };
+      const clusterId = m[1];
+      const targetVersion = m[2]?.trim() || undefined;
+      return { kind: "upgrade", clusterId, targetVersion };
     }
     default:
       return { kind: "freeform", text: trimmed };

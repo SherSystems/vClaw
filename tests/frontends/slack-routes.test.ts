@@ -126,6 +126,46 @@ describe("parseSubcommand", () => {
       text: "why is web-01 slow?",
     });
   });
+
+  // v0.7.2.2 — /rhodes upgrade subcommand
+  it("parses upgrade with just a cluster id", () => {
+    expect(parseSubcommand("upgrade proxmox:proxmox_cluster:prod")).toEqual({
+      kind: "upgrade",
+      clusterId: "proxmox:proxmox_cluster:prod",
+      targetVersion: undefined,
+    });
+  });
+
+  it("parses upgrade with `to <version>` clause", () => {
+    expect(
+      parseSubcommand("upgrade proxmox:proxmox_cluster:prod to 8.0u3"),
+    ).toEqual({
+      kind: "upgrade",
+      clusterId: "proxmox:proxmox_cluster:prod",
+      targetVersion: "8.0u3",
+    });
+  });
+
+  it("accepts multi-token target version after `to`", () => {
+    expect(parseSubcommand("upgrade c1 to PVE 8.2")).toEqual({
+      kind: "upgrade",
+      clusterId: "c1",
+      targetVersion: "PVE 8.2",
+    });
+  });
+
+  it("returns upgrade_help when no cluster id supplied", () => {
+    expect(parseSubcommand("upgrade")).toEqual({ kind: "upgrade_help" });
+    expect(parseSubcommand("upgrade   ")).toEqual({ kind: "upgrade_help" });
+  });
+
+  it("is case-insensitive on the verb but preserves case in cluster id and version", () => {
+    expect(parseSubcommand("UPGRADE MyCluster TO 8.0")).toEqual({
+      kind: "upgrade",
+      clusterId: "MyCluster",
+      targetVersion: "8.0",
+    });
+  });
 });
 
 // ── stripLeadingMention ───────────────────────────────────────

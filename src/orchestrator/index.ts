@@ -23,3 +23,6 @@ export type { CreatePlanInput } from "./store.js";
 export { OrchestratorStore } from "./store.js";
 
 export { transition } from "./state-machine.js";
+
+export type { RunnerHooks } from "./runner.js";
+export { UpgradeRunner, providerFromResourceId } from "./runner.js";

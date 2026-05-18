@@ -119,6 +119,28 @@ export interface ProxmoxPrimitivesDeps {
    * state survives restarts.
    */
   tracker?: MaintenanceTracker;
+  /**
+   * Shell exec runner — only used by remediateHost (apt full-upgrade
+   * + reboot). Decoupled from any specific SSH adapter so the
+   * primitive can be wired against the existing SshAdapter, a thin
+   * ssh2 wrapper, or a fake in tests. Bootstrap wires whatever it
+   * already has.
+   */
+  execRunner?: ExecRunner;
+}
+
+/**
+ * Minimal shell-execution interface the primitives need for
+ * host-level remediation. Implementations decide their own auth +
+ * connection lifecycle; the primitive just wants a fire-and-await
+ * call with stdout/stderr/exitCode.
+ */
+export interface ExecRunner {
+  exec(
+    target: string,
+    command: string,
+    opts?: { timeoutSec?: number },
+  ): Promise<{ exitCode: number; stdout: string; stderr: string }>;
 }
 
 const CAPS: ProviderCapabilities = {
@@ -305,8 +327,75 @@ export function createProxmoxPrimitives(
     async remediateHost(
       input: RemediateHostInput,
     ): Promise<PrimitiveResult> {
-      void input;
-      throw new PrimitiveNotImplemented(PROVIDER, "remediateHost", "v0.7.1.3");
+      const node = nodeNameFromHostId(input.hostId);
+      const runner = deps.execRunner;
+      if (!runner) {
+        throw new PrimitiveNotImplemented(
+          PROVIDER,
+          "remediateHost",
+          "configureProxmoxPrimitives({ execRunner }) at bootstrap",
+        );
+      }
+
+      // 1. apt-get update
+      const update = await runner.exec(node, "apt-get update", {
+        timeoutSec: 120,
+      });
+      if (update.exitCode !== 0) {
+        throw new Error(
+          `remediateHost: apt-get update failed on '${node}' (exit=${update.exitCode}): ${truncate(update.stderr, 400)}`,
+        );
+      }
+
+      // 2. apt-get full-upgrade. `image` is interpreted as an APT
+      //    target release (e.g., 'bookworm-backports') when provided;
+      //    otherwise we just upgrade against the configured channel.
+      const releaseArg = input.image
+        ? ` --target-release ${shellQuote(input.image)}`
+        : "";
+      const upgrade = await runner.exec(
+        node,
+        `DEBIAN_FRONTEND=noninteractive apt-get -y${releaseArg} full-upgrade`,
+        { timeoutSec: 1800 },
+      );
+      if (upgrade.exitCode !== 0) {
+        throw new Error(
+          `remediateHost: apt-get full-upgrade failed on '${node}' (exit=${upgrade.exitCode}): ${truncate(upgrade.stderr, 400)}`,
+        );
+      }
+
+      // 3. Check whether a reboot is required.
+      const rebootCheck = await runner.exec(
+        node,
+        "test -f /var/run/reboot-required && echo NEEDED || echo NO",
+        { timeoutSec: 10 },
+      );
+      const needsReboot = rebootCheck.stdout.trim() === "NEEDED";
+
+      // 4. If yes, kick a reboot. The SSH connection will drop; the
+      //    orchestrator's awaiting_reboot sub-state handles waiting
+      //    for the node to come back online. We swallow the post-
+      //    reboot disconnect because it's expected.
+      if (needsReboot) {
+        try {
+          await runner.exec(node, "systemctl reboot", { timeoutSec: 10 });
+        } catch {
+          // Expected — the connection drops as reboot tears down sshd.
+        }
+      }
+
+      return {
+        success: true,
+        message: needsReboot
+          ? `remediated '${node}' (apt full-upgrade succeeded; reboot triggered)`
+          : `remediated '${node}' (apt full-upgrade succeeded; no reboot needed)`,
+        data: {
+          node,
+          needsReboot,
+          targetRelease: input.image ?? null,
+          upgradeStdoutTail: truncate(upgrade.stdout, 600),
+        },
+      };
     },
 
     async rollback(input: RollbackInput): Promise<PrimitiveResult> {
@@ -374,6 +463,21 @@ function requireMethod<K extends keyof ProxmoxPrimitivesClient>(
       `ProxmoxPrimitivesClient.${String(method)}() — extend the wrapper / client to provide it`,
     );
   }
+}
+
+/** Trim a long string to a max length with an ellipsis marker. */
+function truncate(s: string, max: number): string {
+  if (s.length <= max) return s;
+  return `${s.slice(0, max - 1)}…`;
+}
+
+/**
+ * Quote a string for safe embedding in a shell command. Very
+ * conservative — wraps in single quotes and escapes any single
+ * quote inside via the POSIX `'\''` pattern.
+ */
+function shellQuote(s: string): string {
+  return `'${s.replace(/'/g, "'\\''")}'`;
 }
 
 /**

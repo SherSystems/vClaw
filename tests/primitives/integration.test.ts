@@ -129,8 +129,11 @@ describe("provider capability surface — uniform invariants", () => {
             });
             break;
           case "remediateHost":
+            // Use the proper host-id format so providers that have
+            // shipped this verb (proxmox v0.7.1.3) hit their
+            // requireRunner guard rather than malformed-id parse.
             invocation = impl.remediateHost({
-              hostId: `${provider}:host:test`,
+              hostId: `${provider}:${provider}_node:test`,
               provider,
             });
             break;

@@ -54,6 +54,7 @@ import {
   type MaintenanceTracker,
 } from "./proxmox-maintenance.js";
 import {
+  CapabilityUnsupported,
   PrimitiveNotImplemented,
   type EnterMaintenanceInput,
   type EvacuateWorkloadInput,
@@ -399,8 +400,41 @@ export function createProxmoxPrimitives(
     },
 
     async rollback(input: RollbackInput): Promise<PrimitiveResult> {
-      void input;
-      throw new PrimitiveNotImplemented(PROVIDER, "rollback", "v0.7.1.4");
+      // Strategy gate first — reject the cloud-only strategies up
+      // front (Proxmox publishes only snapshot_restore + inverse_mutation
+      // in capabilities()). This is the planner's safety net: even if
+      // someone misroutes a blue_green/surge_teardown to Proxmox, the
+      // primitive refuses before doing anything.
+      if (!CAPS.rollbackStrategies.includes(input.strategy)) {
+        throw new CapabilityUnsupported(
+          PROVIDER,
+          "rollback",
+          input.strategy,
+        );
+      }
+
+      // The actual rollback bodies need orchestrator-recorded context
+      // that doesn't exist yet:
+      //
+      //   - snapshot_restore: needs the snapshot name to revert to.
+      //     Real impl will be a per-VM call to
+      //     POST /api2/json/nodes/{node}/qemu/{vmid}/snapshot/{snap}/rollback
+      //     once the orchestrator's rollback ladder records the
+      //     pre-step snapshot it took.
+      //
+      //   - inverse_mutation: needs the inverse spec. Real impl will
+      //     replay the inverse-mutation stack the orchestrator built
+      //     during forward execution.
+      //
+      // Both land alongside the v0.8 rollback-ladder orchestrator
+      // module (the orchestrator runner currently stubs out
+      // runRollback with success). For now this throws so the
+      // contract is honest about what's missing.
+      throw new PrimitiveNotImplemented(
+        PROVIDER,
+        "rollback",
+        "v0.8 (orchestrator rollback ladder + per-step inverse context)",
+      );
     },
   };
 }

@@ -126,7 +126,10 @@ describe("proxmox capabilities", () => {
     expect(lower).toMatch(/emulated|ha cordon|cordon/);
   });
 
-  it("verb methods throw PrimitiveNotImplemented (v0.6.0 stub)", async () => {
+  it("unshipped verbs throw PrimitiveNotImplemented (v0.7.1.2+ pending)", async () => {
+    // evacuateWorkload, remediateHost, rollback are still stubs per
+    // the v0.7.1.1 scope. enterMaintenance + exitMaintenance got real
+    // bodies in v0.7.1.1 — verified separately in proxmox-primitives.test.ts.
     await expect(
       proxmoxPrimitives.evacuateWorkload({
         targetId: "proxmox:proxmox_vm:200",
@@ -136,10 +139,9 @@ describe("proxmox capabilities", () => {
     ).rejects.toBeInstanceOf(PrimitiveNotImplemented);
 
     await expect(
-      proxmoxPrimitives.enterMaintenance({
+      proxmoxPrimitives.remediateHost({
         hostId: "proxmox:proxmox_node:pve1",
         provider: "proxmox",
-        evacuate: false,
       }),
     ).rejects.toBeInstanceOf(PrimitiveNotImplemented);
 
@@ -151,6 +153,20 @@ describe("proxmox capabilities", () => {
         strategy: "snapshot_restore",
       }),
     ).rejects.toBeInstanceOf(PrimitiveNotImplemented);
+  });
+
+  it("enterMaintenance + exitMaintenance return success (v0.7.1.1 shipped)", async () => {
+    const enter = await proxmoxPrimitives.enterMaintenance({
+      hostId: "proxmox:proxmox_node:caps-test",
+      provider: "proxmox",
+      evacuate: false,
+    });
+    expect(enter.success).toBe(true);
+    const exit = await proxmoxPrimitives.exitMaintenance({
+      hostId: "proxmox:proxmox_node:caps-test",
+      provider: "proxmox",
+    });
+    expect(exit.success).toBe(true);
   });
 });
 

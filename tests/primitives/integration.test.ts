@@ -85,12 +85,23 @@ describe("provider capability surface — uniform invariants", () => {
     },
   );
 
+  /**
+   * As primitives get real bodies, add (provider, method) tuples here
+   * so the "every stub throws" loop knows to skip them. Verbs that
+   * are still stubs MUST throw PrimitiveNotImplemented — that contract
+   * is the orchestrator's safety net.
+   */
+  const IMPLEMENTED: ReadonlySet<string> = new Set([
+    "proxmox:enterMaintenance", // v0.7.1.1
+    "proxmox:exitMaintenance", // v0.7.1.1
+  ]);
+
   it.each(VERB_METHODS)(
-    "every provider's '%s' method throws PrimitiveNotImplemented (stub contract)",
+    "every provider's '%s' method either throws PrimitiveNotImplemented (still a stub) or is in the IMPLEMENTED allow-list",
     async (method) => {
       for (const provider of BUILT_IN_PROVIDERS) {
+        if (IMPLEMENTED.has(`${provider}:${method}`)) continue;
         const impl = getPrimitives(provider);
-        // Build a minimal valid-looking input. The bodies don't read it.
         let invocation: Promise<unknown>;
         switch (method) {
           case "evacuateWorkload":

@@ -52,7 +52,11 @@ import {
   isPublicPath,
   loginRateLimiter,
 } from "./auth.js";
-import { createSlackRouter, type SlackRouterHandlers } from "./slack-routes.js";
+import {
+  createSlackRouter,
+  type SlackRouterHandlers,
+  type SlackRoutesContext,
+} from "./slack-routes.js";
 import {
   createTicketRouter,
   buildTicketListBlocks,
@@ -184,6 +188,11 @@ export class DashboardServer {
    *  The shim verifies Slack signatures before relaying — these endpoints
    *  trust the request shape and stamp `slack:<user_id>` for audit. */
   private slackRouter: SlackRouterHandlers | null = null;
+  /** Captured reference to the SlackRoutesContext passed into
+   *  createSlackRouter(). Kept so v0.7.2.3 + future attach methods
+   *  can mutate fields in-place after construction — the router's
+   *  handler closures see the latest values on every call. */
+  private slackCtx: SlackRoutesContext | null = null;
 
   /** Ticket layer — TicketStore + router + coordinator hooks. Attached
    *  by `attachTicketSystem` after the healer is wired so the
@@ -198,6 +207,40 @@ export class DashboardServer {
    *  optional onApproved hook the bootstrap uses to kick the runner. */
   private orchestratorRouter: OrchestratorRouter | null = null;
   private orchestratorStore: OrchestratorStore | null = null;
+  /** v0.7.2.3 — Slack-facing upgrade handlers (resolveUpgradePlan,
+   *  approveUpgradePlan, rejectUpgradePlan). Wired by bootstrap when
+   *  the orchestrator layer + runner are constructed; read by
+   *  getSlackRouter() to populate the SlackRoutesContext fields.
+   *  Left null when the upgrade flow isn't wired — slash command
+   *  short-circuits with "not attached" in that case. */
+  private slackUpgradeHandlers: {
+    resolveUpgradePlan?: (
+      clusterId: string,
+      targetVersion: string | undefined,
+      operator: string,
+    ) => Promise<
+      | {
+          planId: string;
+          clusterResourceId: string;
+          sourceVersion: string;
+          targetVersion: string;
+          hostCount: number;
+        }
+      | { error: string }
+    >;
+    approveUpgradePlan?: (
+      planId: string,
+      operator: string,
+    ) => Promise<
+      | { ok: true; runId: string }
+      | { ok: false; error: string }
+    >;
+    rejectUpgradePlan?: (
+      planId: string,
+      operator: string,
+      reason?: string,
+    ) => Promise<{ ok: true } | { ok: false; error: string }>;
+  } | null = null;
 
   constructor(
     private readonly port: number,
@@ -310,6 +353,31 @@ export class DashboardServer {
       onApproved: options.onApproved,
     });
     return this.orchestratorRouter;
+  }
+
+  /** Expose the OrchestratorStore so the bootstrap can construct
+   *  the UpgradeRunner + plan resolver against the same instance
+   *  that backs the HTTP routes. Returns null when
+   *  attachOrchestratorSystem hasn't been called. */
+  getOrchestratorStore(): OrchestratorStore | null {
+    return this.orchestratorStore;
+  }
+
+  /** v0.7.2.3 — Slack-facing upgrade handlers. Bootstrap wires these
+   *  once the runner + resolver + notifier are all available. The
+   *  slack-routes ctx reads them lazily from this field via the
+   *  getSlackRouter() construction. */
+  attachSlackUpgradeHandlers(
+    handlers: NonNullable<DashboardServer["slackUpgradeHandlers"]>,
+  ): void {
+    this.slackUpgradeHandlers = handlers;
+    // If the slack ctx is already built (handlers attached after
+    // first router-construction), wire them in immediately.
+    if (this.slackCtx) {
+      this.slackCtx.resolveUpgradePlan = handlers.resolveUpgradePlan;
+      this.slackCtx.approveUpgradePlan = handlers.approveUpgradePlan;
+      this.slackCtx.rejectUpgradePlan = handlers.rejectUpgradePlan;
+    }
   }
 
   attachApprovalGate(gate: ApprovalGate): void {
@@ -2292,8 +2360,21 @@ export class DashboardServer {
    *  Built lazily because the wiring needs the approval gate / healer,
    *  which are attached after the server is constructed. */
   private getSlackRouter(): SlackRouterHandlers {
-    if (this.slackRouter) return this.slackRouter;
-    this.slackRouter = createSlackRouter({
+    if (this.slackRouter) {
+      // Router exists. If upgrade handlers were attached after
+      // construction, re-apply them onto the captured ctx so the
+      // closures see them.
+      if (this.slackUpgradeHandlers && this.slackCtx) {
+        this.slackCtx.resolveUpgradePlan =
+          this.slackUpgradeHandlers.resolveUpgradePlan;
+        this.slackCtx.approveUpgradePlan =
+          this.slackUpgradeHandlers.approveUpgradePlan;
+        this.slackCtx.rejectUpgradePlan =
+          this.slackUpgradeHandlers.rejectUpgradePlan;
+      }
+      return this.slackRouter;
+    }
+    const ctx: SlackRoutesContext = {
       audit: this.audit,
       getHealthz: () => this.buildHealthzPayload(),
       getOpenIncidents: () => {
@@ -2451,12 +2532,27 @@ export class DashboardServer {
           slackUserId,
         );
       },
-    });
+    };
+    this.slackCtx = ctx;
+    this.slackRouter = createSlackRouter(ctx);
     // Quiet unused-import warning for buildTicket*Blocks (they may be
     // imported by tests later). Reference them lazily so tree-shaking
     // keeps both available.
     void buildTicketListBlocks;
     void buildTicketDetailBlocks;
+
+    // v0.7.2.3 — splice in upgrade handlers if the bootstrap wired
+    // them via attachSlackUpgradeHandlers(). The slack-router's
+    // handlers all close over `ctx`, so mutating ctx fields here
+    // takes effect on the next inbound Slack call. Bootstrap can
+    // call attachSlackUpgradeHandlers any time; getSlackRouter()
+    // applies them lazily on every invocation.
+    if (this.slackUpgradeHandlers) {
+      ctx.resolveUpgradePlan = this.slackUpgradeHandlers.resolveUpgradePlan;
+      ctx.approveUpgradePlan = this.slackUpgradeHandlers.approveUpgradePlan;
+      ctx.rejectUpgradePlan = this.slackUpgradeHandlers.rejectUpgradePlan;
+    }
+
     return this.slackRouter;
   }
 

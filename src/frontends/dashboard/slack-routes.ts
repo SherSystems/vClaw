@@ -97,6 +97,25 @@ export interface SlackRoutesContext {
     targetVersion: string;
     hostCount: number;
   } | { error: string }>;
+  /** v0.7.2.3 — fired when the operator clicks Approve on the
+   *  upgrade-plan Block-Kit message. Bootstrap wires this against
+   *  the OrchestratorStore (recordApproval → createRun) and the
+   *  UpgradeRunner (drive in the background). Until wired, the
+   *  interaction handler returns a friendly "not attached" message. */
+  approveUpgradePlan?: (
+    planId: string,
+    operator: string,
+  ) => Promise<
+    | { ok: true; runId: string }
+    | { ok: false; error: string }
+  >;
+  /** Fired when the operator clicks Reject. The plan is left alone
+   *  (no run created) but the slash command UX gets a confirmation. */
+  rejectUpgradePlan?: (
+    planId: string,
+    operator: string,
+    reason?: string,
+  ) => Promise<{ ok: true } | { ok: false; error: string }>;
   /** Post the agent's reply back to the originating Slack thread.
    *  Called after `runAgentCommand` resolves (or rejects). The bot
    *  behaves like an employee — one consolidated message in the
@@ -385,6 +404,76 @@ export async function handleSlackInteract(
     sendBlockKit(res, buildEphemeralBlocks(
       `:white_check_mark: ${verb} plan \`${planId}\` as \`${operator}\`.`,
     ));
+    return;
+  }
+
+  // v0.7.2.3 — cluster upgrade approval buttons. Action values are
+  // the plan id as a bare string (no JSON wrapper) per
+  // upgrade-approval-blocks.ts.
+  if (actionId === "upgrade_approve" || actionId === "upgrade_reject") {
+    const isApprove = actionId === "upgrade_approve";
+    const planId = (action?.value ?? "").trim();
+    if (!planId) {
+      sendJson(res, { error: "missing_plan_id" }, 400);
+      return;
+    }
+    const operator = `slack:${userId || "unknown"}`;
+
+    if (isApprove) {
+      if (!ctx.approveUpgradePlan) {
+        sendBlockKit(
+          res,
+          buildEphemeralBlocks(
+            ":warning: Upgrade orchestrator not attached on this RHODES instance.",
+          ),
+        );
+        return;
+      }
+      const result = await ctx.approveUpgradePlan(planId, operator);
+      if (!result.ok) {
+        sendBlockKit(
+          res,
+          buildEphemeralBlocks(
+            `:warning: Could not approve plan \`${planId}\`: ${result.error}`,
+          ),
+        );
+        return;
+      }
+      sendBlockKit(
+        res,
+        buildEphemeralBlocks(
+          `:white_check_mark: Approved plan \`${planId}\` as \`${operator}\`. Run \`${result.runId}\` started.`,
+        ),
+      );
+      return;
+    }
+
+    // reject path
+    if (!ctx.rejectUpgradePlan) {
+      sendBlockKit(
+        res,
+        buildEphemeralBlocks(
+          ":warning: Upgrade orchestrator not attached on this RHODES instance.",
+        ),
+      );
+      return;
+    }
+    const result = await ctx.rejectUpgradePlan(planId, operator);
+    if (!result.ok) {
+      sendBlockKit(
+        res,
+        buildEphemeralBlocks(
+          `:warning: Could not reject plan \`${planId}\`: ${result.error}`,
+        ),
+      );
+      return;
+    }
+    sendBlockKit(
+      res,
+      buildEphemeralBlocks(
+        `:no_entry: Rejected plan \`${planId}\` as \`${operator}\`.`,
+      ),
+    );
     return;
   }
 

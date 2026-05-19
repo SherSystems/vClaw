@@ -453,174 +453,18 @@ async function main() {
         postmortemTimeoutMs: config.ai.planTimeoutMs,
       });
 
-      // v0.7.2.3c — cluster upgrade orchestrator wiring.
-      // HTTP routes (POST /api/orchestrator/plans, GET /runs, etc.)
-      // and the Slack flow (/rhodes upgrade slash command +
-      // Approve/Reject buttons + Block-Kit approval card). Only the
-      // HTTP routes activate unconditionally; the Slack flow needs
-      // the graph to be ON (graphDiscovery — used by the resolver to
-      // read cluster topology) AND a notifier (used to post the
-      // approval card).
-      dashboard.attachOrchestratorSystem({
-        dataDir: join(dataDir, "orchestrator"),
+      // v0.7.2.3c / v0.7.3.x — cluster upgrade orchestrator wiring.
+      // Extracted to a helper so both `dashboard` and `full` modes
+      // attach it identically — drift here is the kind of bug that
+      // silently breaks the demo in prod (full mode) while passing
+      // every dev test (dashboard mode).
+      attachUpgradeOrchestrator({
+        dashboard,
+        graphDiscovery,
+        notifier,
+        dataDir,
+        config,
       });
-      const orchestratorStore = dashboard.getOrchestratorStore();
-      if (orchestratorStore && graphDiscovery) {
-        // v0.7.3.1 — track the Slack approval message coordinates per
-        // plan so the runner's onTransition hook can post progress
-        // replies into the same thread. Populated by the resolveUpgradePlan
-        // wrapper below when sendOnSlack returns a {channel, ts} pair.
-        const approvalThreads = new Map<
-          string,
-          { channel: string; thread_ts: string }
-        >();
-
-        const upgradeRunner = new UpgradeRunner(orchestratorStore, {
-          // v0.7.3.1 — Slack progress hooks. Posts a thread reply for
-          // every meaningful FSM transition: preflight outcome, host
-          // sub-state advancement, host completion / failure, rollback,
-          // terminal phase. Errors are swallowed by the runner so a
-          // Slack outage can't stall an upgrade.
-          onTransition: async (prev, next, event) => {
-            const plan = orchestratorStore.getPlan(next.planId);
-            if (!plan) return;
-            const thread = approvalThreads.get(next.planId);
-            if (!thread) return; // resolveUpgradePlan didn't capture a thread
-            const text = buildUpgradeProgressText(prev, next, event, plan);
-            if (!text) return; // not operator-interesting
-            // Pre-build a minimal block carrying the progress text as
-            // mrkdwn. The text is already escapeMrkdwn'd by the helper —
-            // wrapping it in a caller-supplied block bypasses the slack
-            // provider's eventBlocks path, which would otherwise re-escape
-            // and double-encode `<>&` in error reasons.
-            await notifier.sendOnSlack({
-              title: `Upgrade progress — ${plan.clusterResourceId}`,
-              body: text,
-              kind: "upgrade_progress",
-              blocks: [
-                {
-                  type: "section",
-                  text: { type: "mrkdwn", text },
-                },
-              ],
-              context: {
-                plan_id: plan.id,
-                run_id: next.id,
-                slack_channel: thread.channel,
-                slack_thread_ts: thread.thread_ts,
-              },
-            });
-          },
-        });
-        const defaultResolver = createPlanResolver({
-          graph: graphDiscovery.store,
-          orchestrator: orchestratorStore,
-        });
-
-        const resolveUpgradePlan: NonNullable<
-          Parameters<typeof dashboard.attachSlackUpgradeHandlers>[0]["resolveUpgradePlan"]
-        > = async (clusterId, targetVersion, operator) => {
-          const result = await defaultResolver(clusterId, targetVersion, operator);
-          if ("error" in result) return result;
-          // Plan created → post the Block-Kit approval card with
-          // Approve/Reject buttons. Awaited so we can capture the
-          // returned {channel, ts} and use it as the thread anchor
-          // for subsequent progress replies (v0.7.3.1). The ephemeral
-          // slash-command response was already sent to the caller —
-          // this is the public-channel artifact operators act on.
-          const plan = orchestratorStore.getPlan(result.planId);
-          if (plan) {
-            const blocks = buildUpgradeApprovalBlocks(plan, {
-              dashboardBaseUrl: `http://${config.dashboard.host}:${config.dashboard.port}`,
-            });
-            try {
-              const delivery = await notifier.sendOnSlack({
-                title: `Upgrade plan ready — ${plan.clusterResourceId}`,
-                body:
-                  `Cluster ${plan.clusterResourceId} ready to upgrade ` +
-                  `${plan.sourceVersion} → ${plan.targetVersion} ` +
-                  `(${plan.hostResourceIds.length} hosts).`,
-                kind: "upgrade_approval",
-                blocks,
-                context: { plan_id: plan.id, operator },
-              });
-              const response = delivery?.response as
-                | { channel?: string; ts?: string }
-                | undefined;
-              if (
-                delivery?.delivered &&
-                response?.channel &&
-                response?.ts
-              ) {
-                approvalThreads.set(plan.id, {
-                  channel: response.channel,
-                  thread_ts: response.ts,
-                });
-              }
-            } catch (err) {
-              console.error(
-                `[upgrade] approval Block-Kit dispatch failed for plan ${plan.id}:`,
-                err,
-              );
-            }
-          }
-          return result;
-        };
-
-        const approveUpgradePlan: NonNullable<
-          Parameters<typeof dashboard.attachSlackUpgradeHandlers>[0]["approveUpgradePlan"]
-        > = async (planId, operator) => {
-          try {
-            orchestratorStore.recordApproval(planId, operator);
-            const run = orchestratorStore.createRun(planId);
-            // Drive in the background — runner does all its own
-            // persistence; the operator gets progress thread replies
-            // when v0.7.3.1 progress hooks land.
-            void upgradeRunner.drive(run.id).catch((err) => {
-              console.error(
-                `[upgrade] runner.drive(${run.id}) failed:`,
-                err,
-              );
-            });
-            return { ok: true, runId: run.id };
-          } catch (err) {
-            return {
-              ok: false,
-              error: err instanceof Error ? err.message : String(err),
-            };
-          }
-        };
-
-        // v0.7.2.3c keeps reject as a no-op success — the plan is
-        // left in `pending` and aged out via retention. A future
-        // commit can add a markRejected method to OrchestratorStore
-        // for explicit persistence.
-        const rejectUpgradePlan: NonNullable<
-          Parameters<typeof dashboard.attachSlackUpgradeHandlers>[0]["rejectUpgradePlan"]
-        > = async (planId, operator) => {
-          console.log(
-            `[upgrade] plan ${planId} rejected by ${operator} (no-op for v0.7.2.3c)`,
-          );
-          return { ok: true };
-        };
-
-        dashboard.attachSlackUpgradeHandlers({
-          resolveUpgradePlan,
-          approveUpgradePlan,
-          rejectUpgradePlan,
-        });
-        console.log(
-          "[rhodes] Upgrade orchestrator: ON (Slack /rhodes upgrade + dashboard routes)",
-        );
-      } else if (orchestratorStore) {
-        console.log(
-          "[rhodes] Upgrade orchestrator: PARTIAL (HTTP routes only — set RHODES_GRAPH_DISCOVERY=on for /rhodes upgrade slash command)",
-        );
-      } else {
-        console.log(
-          "[rhodes] Upgrade orchestrator: OFF (attach failed)",
-        );
-      }
 
       // Chaos engineering engine — required for /api/chaos/* routes.
       const chaosEngine = new ChaosEngine({
@@ -754,6 +598,17 @@ async function main() {
         notifier,
         aiConfig: config.ai,
         postmortemTimeoutMs: config.ai.planTimeoutMs,
+      });
+
+      // v0.7.3.3 — upgrade orchestrator (was previously only attached
+      // in `dashboard` mode; prod runs in `full` mode so the demo
+      // didn't actually work end-to-end until this call was added).
+      attachUpgradeOrchestrator({
+        dashboard,
+        graphDiscovery,
+        notifier,
+        dataDir,
+        config,
       });
 
       // Chaos engineering engine
@@ -1077,6 +932,158 @@ function bootAttribution(
 
   const correlator = new AttributionCorrelator(store);
   return { store, registry, correlator, sourceCount };
+}
+
+/**
+ * v0.7.3.3 — Attach the cluster-upgrade orchestrator to a dashboard
+ * instance. Extracted from `case "dashboard"` so prod's `full` mode
+ * can call it identically: the previous inline copy lived only in
+ * dashboard mode and silently broke the end-to-end demo because
+ * `rhodes.service` runs `node dist/index.js full`.
+ *
+ * Three reachable boot-log lines map to three reachable states:
+ *   "ON"      — Slack /rhodes upgrade + dashboard routes
+ *   "PARTIAL" — HTTP routes only (graph discovery off → resolver
+ *               can't read cluster topology)
+ *   "OFF"     — attach failed (defensive; orchestratorStore null)
+ */
+function attachUpgradeOrchestrator(deps: {
+  dashboard: DashboardServer;
+  graphDiscovery: { store: GraphStore; scheduler: DiscoveryScheduler; writerCount: number } | null;
+  notifier: Notifier;
+  dataDir: string;
+  config: ReturnType<typeof getConfig>;
+}): void {
+  const { dashboard, graphDiscovery, notifier, dataDir, config } = deps;
+
+  dashboard.attachOrchestratorSystem({
+    dataDir: join(dataDir, "orchestrator"),
+  });
+  const orchestratorStore = dashboard.getOrchestratorStore();
+  if (!orchestratorStore) {
+    console.log("[rhodes] Upgrade orchestrator: OFF (attach failed)");
+    return;
+  }
+  if (!graphDiscovery) {
+    console.log(
+      "[rhodes] Upgrade orchestrator: PARTIAL (HTTP routes only — set RHODES_GRAPH_DISCOVERY=on for /rhodes upgrade slash command)",
+    );
+    return;
+  }
+
+  // v0.7.3.1 — Slack thread coordinates per plan so the runner's
+  // onTransition hook can post progress replies into the same thread.
+  // Populated by the resolveUpgradePlan wrapper when the approval
+  // card returns {channel, ts}.
+  const approvalThreads = new Map<
+    string,
+    { channel: string; thread_ts: string }
+  >();
+
+  const upgradeRunner = new UpgradeRunner(orchestratorStore, {
+    onTransition: async (prev, next, event) => {
+      const plan = orchestratorStore.getPlan(next.planId);
+      if (!plan) return;
+      const thread = approvalThreads.get(next.planId);
+      if (!thread) return;
+      const text = buildUpgradeProgressText(prev, next, event, plan);
+      if (!text) return;
+      await notifier.sendOnSlack({
+        title: `Upgrade progress — ${plan.clusterResourceId}`,
+        body: text,
+        kind: "upgrade_progress",
+        blocks: [
+          { type: "section", text: { type: "mrkdwn", text } },
+        ],
+        context: {
+          plan_id: plan.id,
+          run_id: next.id,
+          slack_channel: thread.channel,
+          slack_thread_ts: thread.thread_ts,
+        },
+      });
+    },
+  });
+  const defaultResolver = createPlanResolver({
+    graph: graphDiscovery.store,
+    orchestrator: orchestratorStore,
+  });
+
+  const resolveUpgradePlan: NonNullable<
+    Parameters<typeof dashboard.attachSlackUpgradeHandlers>[0]["resolveUpgradePlan"]
+  > = async (clusterId, targetVersion, operator) => {
+    const result = await defaultResolver(clusterId, targetVersion, operator);
+    if ("error" in result) return result;
+    const plan = orchestratorStore.getPlan(result.planId);
+    if (plan) {
+      const blocks = buildUpgradeApprovalBlocks(plan, {
+        dashboardBaseUrl: `http://${config.dashboard.host}:${config.dashboard.port}`,
+      });
+      try {
+        const delivery = await notifier.sendOnSlack({
+          title: `Upgrade plan ready — ${plan.clusterResourceId}`,
+          body:
+            `Cluster ${plan.clusterResourceId} ready to upgrade ` +
+            `${plan.sourceVersion} → ${plan.targetVersion} ` +
+            `(${plan.hostResourceIds.length} hosts).`,
+          kind: "upgrade_approval",
+          blocks,
+          context: { plan_id: plan.id, operator },
+        });
+        const response = delivery?.response as
+          | { channel?: string; ts?: string }
+          | undefined;
+        if (delivery?.delivered && response?.channel && response?.ts) {
+          approvalThreads.set(plan.id, {
+            channel: response.channel,
+            thread_ts: response.ts,
+          });
+        }
+      } catch (err) {
+        console.error(
+          `[upgrade] approval Block-Kit dispatch failed for plan ${plan.id}:`,
+          err,
+        );
+      }
+    }
+    return result;
+  };
+
+  const approveUpgradePlan: NonNullable<
+    Parameters<typeof dashboard.attachSlackUpgradeHandlers>[0]["approveUpgradePlan"]
+  > = async (planId, operator) => {
+    try {
+      orchestratorStore.recordApproval(planId, operator);
+      const run = orchestratorStore.createRun(planId);
+      void upgradeRunner.drive(run.id).catch((err) => {
+        console.error(`[upgrade] runner.drive(${run.id}) failed:`, err);
+      });
+      return { ok: true, runId: run.id };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  };
+
+  const rejectUpgradePlan: NonNullable<
+    Parameters<typeof dashboard.attachSlackUpgradeHandlers>[0]["rejectUpgradePlan"]
+  > = async (planId, operator) => {
+    console.log(
+      `[upgrade] plan ${planId} rejected by ${operator} (no-op for v0.7.2.3c)`,
+    );
+    return { ok: true };
+  };
+
+  dashboard.attachSlackUpgradeHandlers({
+    resolveUpgradePlan,
+    approveUpgradePlan,
+    rejectUpgradePlan,
+  });
+  console.log(
+    "[rhodes] Upgrade orchestrator: ON (Slack /rhodes upgrade + dashboard routes)",
+  );
 }
 
 /**

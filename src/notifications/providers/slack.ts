@@ -125,6 +125,11 @@ export class SlackProvider implements AlertProvider {
     "ticket_opened",
     "ticket_resolved",
     "ticket_closed",
+    // v0.7.2.3c — cluster upgrade approval card belongs in the
+    // team channel (operator approval flow). Progress thread
+    // replies are bound to thread_ts so the allowlist doesn't
+    // gate them.
+    "upgrade_approval",
   ]);
   // plan_generated is INTENTIONALLY OMITTED from team-channel kinds —
   // it's noise on a public channel. The agent posts plan/result back
@@ -150,7 +155,15 @@ export class SlackProvider implements AlertProvider {
     }
 
     const channel = this.resolveChannel(alert);
-    const blocks = this.buildBlocks(alert);
+    // v0.7.2.3c — caller-supplied blocks override the kind→blocks
+    // synthesis. Used for the cluster-upgrade approval card (where
+    // the caller needs precise control over Approve/Reject buttons +
+    // confirm dialogs) and for upgrade-progress thread replies.
+    // Non-Slack providers still fall back to `body`.
+    const blocks =
+      Array.isArray(alert.blocks) && alert.blocks.length > 0
+        ? (alert.blocks as unknown[])
+        : this.buildBlocks(alert);
     const fallbackText = alert.title;
 
     const payload: Record<string, unknown> = {

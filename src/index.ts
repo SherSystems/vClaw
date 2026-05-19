@@ -65,7 +65,7 @@ import {
   ProxmoxTaskLogSource,
 } from "./attribution/index.js";
 import { proxmoxTaskClientFromCluster } from "./providers/proxmox/task-cluster-adapter.js";
-import { UpgradeRunner } from "./orchestrator/index.js";
+import { UpgradeRunner, transition } from "./orchestrator/index.js";
 import { createPlanResolver } from "./orchestrator/plan-resolver.js";
 import {
   buildUpgradeApprovalBlocks,
@@ -1054,11 +1054,23 @@ function attachUpgradeOrchestrator(deps: {
   > = async (planId, operator) => {
     try {
       orchestratorStore.recordApproval(planId, operator);
-      const run = orchestratorStore.createRun(planId);
-      void upgradeRunner.drive(run.id).catch((err) => {
-        console.error(`[upgrade] runner.drive(${run.id}) failed:`, err);
+      const initialRun = orchestratorStore.createRun(planId);
+      // createRun creates the run at phase=pending. drive() would
+      // immediately return "none" for pending — the FSM expects an
+      // explicit `approve` event to move pending → approved. Apply
+      // it here, persist, then drive. Caught 2026-05-19 during the
+      // first end-to-end NUC demo: runs sat at phase=pending forever
+      // and no Slack progress thread ever populated.
+      const approveResult = transition(initialRun, {
+        kind: "approve",
+        actor: operator,
+        at: new Date().toISOString(),
       });
-      return { ok: true, runId: run.id };
+      orchestratorStore.persistRun(approveResult.nextRun);
+      void upgradeRunner.drive(approveResult.nextRun.id).catch((err) => {
+        console.error(`[upgrade] runner.drive(${approveResult.nextRun.id}) failed:`, err);
+      });
+      return { ok: true, runId: approveResult.nextRun.id };
     } catch (err) {
       return {
         ok: false,

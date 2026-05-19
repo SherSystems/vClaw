@@ -141,11 +141,16 @@ export function buildUpgradeApprovalBlocks(
           text: { type: "plain_text", text: "Approve", emoji: false },
           action_id: UPGRADE_ACTION_IDS.APPROVE,
           value: plan.id,
+          // Slack requires confirm.text to be plain_text — passing
+          // mrkdwn here causes the confirm modal to render literal
+          // asterisks AND silently drops the interactivity callback
+          // when the user clicks the modal's Approve button. Caught
+          // 2026-05-19 during the first end-to-end NUC demo.
           confirm: {
             title: { type: "plain_text", text: "Confirm approval" },
             text: {
-              type: "mrkdwn",
-              text: `Approve upgrade of *${escapeMrkdwn(clusterShort)}* to \`${escapeMrkdwn(plan.targetVersion)}\` across ${plan.hostResourceIds.length} host(s)?`,
+              type: "plain_text",
+              text: `Approve upgrade of ${clusterShort} to ${plan.targetVersion} across ${plan.hostResourceIds.length} host(s)?`,
             },
             confirm: { type: "plain_text", text: "Approve" },
             deny: { type: "plain_text", text: "Cancel" },

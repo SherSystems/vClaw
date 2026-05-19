@@ -143,6 +143,26 @@ describe("buildUpgradeApprovalBlocks", () => {
     expect(reject.text.text).toBe("Reject");
   });
 
+  it("approve button confirm.text is plain_text, NOT mrkdwn (Slack drops clicks silently otherwise)", () => {
+    // Caught 2026-05-19 during the first end-to-end NUC demo: when
+    // confirm.text was sent as `type: "mrkdwn"`, Slack rendered the
+    // confirm modal with literal `*` and `\`` chars AND the modal's
+    // Approve click never fired the interactivity callback. Slack's
+    // docs are explicit: confirm dialog text MUST be plain_text.
+    const blocks = buildUpgradeApprovalBlocks(makePlan());
+    const actions = findBlock(blocks, "actions") as any;
+    const approve = actions.elements[0];
+    expect(approve.confirm).toBeDefined();
+    expect(approve.confirm.title.type).toBe("plain_text");
+    expect(approve.confirm.text.type).toBe("plain_text");
+    expect(approve.confirm.confirm.type).toBe("plain_text");
+    expect(approve.confirm.deny.type).toBe("plain_text");
+    // And the rendered text must not contain mrkdwn markers — plain_text
+    // would show the literal chars to the user.
+    expect(approve.confirm.text.text).not.toContain("*");
+    expect(approve.confirm.text.text).not.toContain("`");
+  });
+
   it("caps long host list at 10 with +N more (total M) suffix", () => {
     const hostIds = Array.from({ length: 15 }, (_, i) => `proxmox:host:esxi-${i + 1}`);
     const blocks = buildUpgradeApprovalBlocks(makePlan({ hostResourceIds: hostIds }));

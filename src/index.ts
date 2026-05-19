@@ -67,7 +67,10 @@ import {
 import { proxmoxTaskClientFromCluster } from "./providers/proxmox/task-cluster-adapter.js";
 import { UpgradeRunner } from "./orchestrator/index.js";
 import { createPlanResolver } from "./orchestrator/plan-resolver.js";
-import { buildUpgradeApprovalBlocks } from "./frontends/dashboard/upgrade-approval-blocks.js";
+import {
+  buildUpgradeApprovalBlocks,
+  buildUpgradeProgressText,
+} from "./frontends/dashboard/upgrade-approval-blocks.js";
 import { ProxmoxClient } from "./providers/proxmox/client.js";
 import { ProxmoxGraphWriter } from "./providers/proxmox/graph-writer.js";
 import { VSphereClient } from "./providers/vmware/client.js";
@@ -463,7 +466,52 @@ async function main() {
       });
       const orchestratorStore = dashboard.getOrchestratorStore();
       if (orchestratorStore && graphDiscovery) {
-        const upgradeRunner = new UpgradeRunner(orchestratorStore);
+        // v0.7.3.1 — track the Slack approval message coordinates per
+        // plan so the runner's onTransition hook can post progress
+        // replies into the same thread. Populated by the resolveUpgradePlan
+        // wrapper below when sendOnSlack returns a {channel, ts} pair.
+        const approvalThreads = new Map<
+          string,
+          { channel: string; thread_ts: string }
+        >();
+
+        const upgradeRunner = new UpgradeRunner(orchestratorStore, {
+          // v0.7.3.1 — Slack progress hooks. Posts a thread reply for
+          // every meaningful FSM transition: preflight outcome, host
+          // sub-state advancement, host completion / failure, rollback,
+          // terminal phase. Errors are swallowed by the runner so a
+          // Slack outage can't stall an upgrade.
+          onTransition: async (prev, next, event) => {
+            const plan = orchestratorStore.getPlan(next.planId);
+            if (!plan) return;
+            const thread = approvalThreads.get(next.planId);
+            if (!thread) return; // resolveUpgradePlan didn't capture a thread
+            const text = buildUpgradeProgressText(prev, next, event, plan);
+            if (!text) return; // not operator-interesting
+            // Pre-build a minimal block carrying the progress text as
+            // mrkdwn. The text is already escapeMrkdwn'd by the helper —
+            // wrapping it in a caller-supplied block bypasses the slack
+            // provider's eventBlocks path, which would otherwise re-escape
+            // and double-encode `<>&` in error reasons.
+            await notifier.sendOnSlack({
+              title: `Upgrade progress — ${plan.clusterResourceId}`,
+              body: text,
+              kind: "upgrade_progress",
+              blocks: [
+                {
+                  type: "section",
+                  text: { type: "mrkdwn", text },
+                },
+              ],
+              context: {
+                plan_id: plan.id,
+                run_id: next.id,
+                slack_channel: thread.channel,
+                slack_thread_ts: thread.thread_ts,
+              },
+            });
+          },
+        });
         const defaultResolver = createPlanResolver({
           graph: graphDiscovery.store,
           orchestrator: orchestratorStore,
@@ -475,30 +523,46 @@ async function main() {
           const result = await defaultResolver(clusterId, targetVersion, operator);
           if ("error" in result) return result;
           // Plan created → post the Block-Kit approval card with
-          // Approve/Reject buttons. Fire-and-forget — the slash
-          // command's caller already got its ephemeral "resolving"
-          // reply; this is the public-channel artifact operators
-          // act on.
+          // Approve/Reject buttons. Awaited so we can capture the
+          // returned {channel, ts} and use it as the thread anchor
+          // for subsequent progress replies (v0.7.3.1). The ephemeral
+          // slash-command response was already sent to the caller —
+          // this is the public-channel artifact operators act on.
           const plan = orchestratorStore.getPlan(result.planId);
           if (plan) {
             const blocks = buildUpgradeApprovalBlocks(plan, {
               dashboardBaseUrl: `http://${config.dashboard.host}:${config.dashboard.port}`,
             });
-            void notifier.sendOnSlack({
-              title: `Upgrade plan ready — ${plan.clusterResourceId}`,
-              body:
-                `Cluster ${plan.clusterResourceId} ready to upgrade ` +
-                `${plan.sourceVersion} → ${plan.targetVersion} ` +
-                `(${plan.hostResourceIds.length} hosts).`,
-              kind: "upgrade_approval",
-              blocks,
-              context: { plan_id: plan.id, operator },
-            }).catch((err) => {
+            try {
+              const delivery = await notifier.sendOnSlack({
+                title: `Upgrade plan ready — ${plan.clusterResourceId}`,
+                body:
+                  `Cluster ${plan.clusterResourceId} ready to upgrade ` +
+                  `${plan.sourceVersion} → ${plan.targetVersion} ` +
+                  `(${plan.hostResourceIds.length} hosts).`,
+                kind: "upgrade_approval",
+                blocks,
+                context: { plan_id: plan.id, operator },
+              });
+              const response = delivery?.response as
+                | { channel?: string; ts?: string }
+                | undefined;
+              if (
+                delivery?.delivered &&
+                response?.channel &&
+                response?.ts
+              ) {
+                approvalThreads.set(plan.id, {
+                  channel: response.channel,
+                  thread_ts: response.ts,
+                });
+              }
+            } catch (err) {
               console.error(
                 `[upgrade] approval Block-Kit dispatch failed for plan ${plan.id}:`,
                 err,
               );
-            });
+            }
           }
           return result;
         };

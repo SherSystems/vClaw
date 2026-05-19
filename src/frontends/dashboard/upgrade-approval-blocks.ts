@@ -24,7 +24,13 @@
 // logs against it.
 // ============================================================
 
-import type { UpgradePlan, UpgradeRun } from "../../orchestrator/types.js";
+import type {
+  HostUpgradeState,
+  UpgradeEvent,
+  UpgradePhase,
+  UpgradePlan,
+  UpgradeRun,
+} from "../../orchestrator/types.js";
 
 // ── Action contract ─────────────────────────────────────────
 
@@ -217,6 +223,165 @@ export function buildUpgradeRejectedBlocks(
       },
     },
   ];
+}
+
+/**
+ * v0.7.3.1 — Describe an FSM transition in one human-readable line for
+ * posting to the approval card's Slack thread. Returns `null` when the
+ * transition isn't operator-interesting (e.g., the FSM advanced a
+ * sub-state for the same host that already had a thread reply this
+ * step) — callers should skip the post in that case so we don't spam
+ * the thread.
+ *
+ * The signal we care about:
+ *   - preflight outcome (pass/fail)
+ *   - per-host sub-state advancement (enter→evac→remediate→reboot→smoke→done)
+ *   - host failure (with reason)
+ *   - rollback outcome
+ *   - terminal phase reached (completed / failed / aborted)
+ *
+ * Each message starts with an emoji prefix so operators can grep the
+ * thread visually:
+ *   :mag:          preflight
+ *   :wrench:       host primitive step
+ *   :white_check_mark: success / completion
+ *   :x:            failure
+ *   :leftwards_arrow_with_hook: rollback
+ *   :tada:         all hosts done
+ */
+export function buildUpgradeProgressText(
+  prev: UpgradeRun,
+  next: UpgradeRun,
+  event: UpgradeEvent,
+  plan: UpgradePlan,
+): string | null {
+  // Phase transitions take priority — they're the loud moments.
+  if (prev.phase !== next.phase) {
+    return describePhaseTransition(prev.phase, next.phase, next, plan);
+  }
+
+  // Within the executing phase: per-host sub-state advances.
+  if (event.kind === "host_step_succeeded") {
+    return describeHostStepSucceeded(prev, next, plan);
+  }
+
+  if (event.kind === "host_step_failed") {
+    return describeHostStepFailed(next, event.reason, plan);
+  }
+
+  // Other events without a phase change usually mean the FSM ignored
+  // the event (already in terminal etc.) — nothing useful to post.
+  return null;
+}
+
+function describePhaseTransition(
+  prevPhase: UpgradePhase,
+  nextPhase: UpgradePhase,
+  next: UpgradeRun,
+  plan: UpgradePlan,
+): string | null {
+  const cluster = shortClusterName(plan.clusterResourceId);
+  switch (nextPhase) {
+    case "preflight":
+      return `:mag: Preflight starting for *${escapeMrkdwn(cluster)}* (${plan.hostResourceIds.length} hosts).`;
+    case "executing": {
+      // Came from preflight passing.
+      if (prevPhase === "preflight" || prevPhase === "approved") {
+        const first = plan.hostResourceIds[0];
+        return `:white_check_mark: Preflight passed — starting host 1/${plan.hostResourceIds.length}: \`${escapeMrkdwn(first ?? "(none)")}\``;
+      }
+      return null;
+    }
+    case "rolling_back":
+      return `:leftwards_arrow_with_hook: Rolling back — ${escapeMrkdwn(truncate(next.errorMessage ?? "(no reason)", 200))}`;
+    case "completed":
+      return `:tada: Upgrade complete — *${escapeMrkdwn(cluster)}* now on \`${escapeMrkdwn(plan.targetVersion)}\` (${plan.hostResourceIds.length}/${plan.hostResourceIds.length} hosts).`;
+    case "failed": {
+      const reason = next.errorMessage
+        ? truncate(next.errorMessage, 400)
+        : "(no reason recorded)";
+      return `:x: Upgrade failed — ${escapeMrkdwn(reason)}`;
+    }
+    case "aborted":
+      return `:no_entry: Upgrade aborted — ${escapeMrkdwn(truncate(next.errorMessage ?? "(no reason)", 200))}`;
+    case "approved":
+    case "pending":
+      return null;
+  }
+}
+
+function describeHostStepSucceeded(
+  prev: UpgradeRun,
+  next: UpgradeRun,
+  plan: UpgradePlan,
+): string | null {
+  // Two interesting flavors:
+  //  (a) sub-state advanced on the SAME host → progress for that host
+  //  (b) host index advanced → previous host completed, next host begins
+  const prevHost = prev.hosts[prev.currentHostIndex];
+  const nextHost = next.hosts[next.currentHostIndex];
+  if (!nextHost) return null;
+
+  const total = plan.hostResourceIds.length;
+  const oneIdx = next.currentHostIndex + 1;
+  const hostShort = shortHostName(nextHost.hostResourceId);
+
+  // (b) Host advanced (or first host moved into entering_maintenance after preflight)
+  if (
+    prev.currentHostIndex !== next.currentHostIndex &&
+    prev.currentHostIndex >= 0 &&
+    prevHost
+  ) {
+    const prevHostShort = shortHostName(prevHost.hostResourceId);
+    return [
+      `:white_check_mark: Host ${prev.currentHostIndex + 1}/${total} complete: \`${escapeMrkdwn(prevHostShort)}\``,
+      `:wrench: Host ${oneIdx}/${total} starting: \`${escapeMrkdwn(hostShort)}\` — ${describeHostState(nextHost.state)}`,
+    ].join("\n");
+  }
+
+  // (a) Same host, sub-state advanced
+  return `:wrench: Host ${oneIdx}/${total} \`${escapeMrkdwn(hostShort)}\` — ${describeHostState(nextHost.state)}`;
+}
+
+function describeHostStepFailed(
+  next: UpgradeRun,
+  reason: string,
+  plan: UpgradePlan,
+): string {
+  const host = next.hosts[next.currentHostIndex];
+  const total = plan.hostResourceIds.length;
+  const oneIdx = next.currentHostIndex + 1;
+  const hostShort = host ? shortHostName(host.hostResourceId) : "(unknown)";
+  return `:x: Host ${oneIdx}/${total} failed: \`${escapeMrkdwn(hostShort)}\` — ${escapeMrkdwn(truncate(reason, 400))}`;
+}
+
+function describeHostState(state: HostUpgradeState): string {
+  switch (state) {
+    case "pending":
+      return "queued";
+    case "entering_maintenance":
+      return "entering maintenance";
+    case "evacuating":
+      return "evacuating workloads";
+    case "remediating":
+      return "remediating (applying upgrade)";
+    case "awaiting_reboot":
+      return "awaiting reboot";
+    case "smoke_testing":
+      return "smoke-testing";
+    case "exiting_maintenance":
+      return "exiting maintenance";
+    case "completed":
+      return "done";
+    case "failed":
+      return "failed";
+  }
+}
+
+function shortHostName(hostResourceId: string): string {
+  const segments = hostResourceId.split(":");
+  const last = segments[segments.length - 1] || hostResourceId;
+  return truncate(last, 40);
 }
 
 /**

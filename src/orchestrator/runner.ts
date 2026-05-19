@@ -100,6 +100,19 @@ export interface RunnerHooks {
   ) => Promise<{ ok: true } | { ok: false; reason: string }>;
   /** ISO-8601 clock override for deterministic tests. */
   clock?: () => string;
+  /**
+   * v0.7.3.1 — fired AFTER each FSM transition + persist, so
+   * subscribers (Slack progress poster, dashboard SSE, etc.) can
+   * react to phase / host-state changes in near real time. Errors
+   * thrown by the hook are swallowed + logged so a bad subscriber
+   * doesn't stall the runner. Called with the run state BEFORE
+   * the transition, the state AFTER, and the event that caused it.
+   */
+  onTransition?: (
+    prev: UpgradeRun,
+    next: UpgradeRun,
+    event: UpgradeEvent,
+  ) => void | Promise<void>;
 }
 
 // ── Runner ─────────────────────────────────────────────────
@@ -111,6 +124,7 @@ export class UpgradeRunner {
   private readonly awaitReboot: NonNullable<RunnerHooks["awaitReboot"]>;
   private readonly smokeTest: NonNullable<RunnerHooks["smokeTest"]>;
   private readonly clock: () => string;
+  private readonly onTransition: RunnerHooks["onTransition"];
 
   constructor(
     private readonly store: OrchestratorStore,
@@ -126,6 +140,7 @@ export class UpgradeRunner {
     this.smokeTest =
       hooks.smokeTest ?? (async () => ({ ok: true }) as const);
     this.clock = hooks.clock ?? (() => new Date().toISOString());
+    this.onTransition = hooks.onTransition;
   }
 
   /**
@@ -151,6 +166,22 @@ export class UpgradeRunner {
       const event = await this.executeAction(plan, run, action);
       const result = transition(run, event);
       this.store.persistRun(result.nextRun);
+      // v0.7.3.1 — fire the subscriber hook AFTER persist so observers
+      // see the same state the next iteration will. Swallow errors
+      // so a bad subscriber can't stall the runner.
+      if (this.onTransition) {
+        try {
+          const r = this.onTransition(run, result.nextRun, event);
+          if (r && typeof (r as Promise<void>).then === "function") {
+            await (r as Promise<void>);
+          }
+        } catch (err) {
+          console.error(
+            `[upgrade-runner] onTransition hook threw for run ${run.id}:`,
+            err,
+          );
+        }
+      }
       run = result.nextRun;
       if (result.nextAction === "none") return run;
     }

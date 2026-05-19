@@ -2,11 +2,17 @@ import { describe, it, expect } from "vitest";
 import {
   buildUpgradeApprovalBlocks,
   buildUpgradeApprovedBlocks,
+  buildUpgradeProgressText,
   buildUpgradeRejectedBlocks,
   parseUpgradeActionValue,
   UPGRADE_ACTION_IDS,
 } from "../../src/frontends/dashboard/upgrade-approval-blocks.js";
-import type { UpgradePlan, UpgradeRun } from "../../src/orchestrator/types.js";
+import type {
+  HostUpgradeProgress,
+  UpgradeEvent,
+  UpgradePlan,
+  UpgradeRun,
+} from "../../src/orchestrator/types.js";
 
 // ── Fixtures ─────────────────────────────────────────────────
 
@@ -284,5 +290,222 @@ describe("parseUpgradeActionValue", () => {
   it("throws clearly on non-string input", () => {
     // @ts-expect-error — intentional: simulate runtime garbage
     expect(() => parseUpgradeActionValue(null)).toThrow(/string/);
+  });
+});
+
+describe("buildUpgradeProgressText (v0.7.3.1)", () => {
+  function host(
+    id: string,
+    state: HostUpgradeProgress["state"],
+    extra: Partial<HostUpgradeProgress> = {},
+  ): HostUpgradeProgress {
+    return { hostResourceId: id, state, ...extra };
+  }
+
+  const AT = "2026-05-19T10:05:00Z";
+
+  it("preflight → executing emits 'preflight passed' + first host start", () => {
+    const plan = makePlan();
+    const prev = makeRun({ phase: "preflight", currentHostIndex: -1, hosts: [] });
+    const next = makeRun({
+      phase: "executing",
+      currentHostIndex: 0,
+      hosts: [
+        host("proxmox:host:esxi-01", "entering_maintenance"),
+        host("proxmox:host:esxi-02", "pending"),
+        host("proxmox:host:esxi-03", "pending"),
+      ],
+    });
+    const event: UpgradeEvent = { kind: "preflight_succeeded", at: AT };
+    const msg = buildUpgradeProgressText(prev, next, event, plan);
+    expect(msg).not.toBeNull();
+    expect(msg).toContain("Preflight passed");
+    expect(msg).toContain("esxi-01");
+    expect(msg).toContain("1/3");
+  });
+
+  it("same host advances sub-state — emits one wrench line with new sub-state", () => {
+    const plan = makePlan();
+    const prev = makeRun({
+      phase: "executing",
+      currentHostIndex: 0,
+      hosts: [
+        host("proxmox:host:esxi-01", "entering_maintenance"),
+        host("proxmox:host:esxi-02", "pending"),
+        host("proxmox:host:esxi-03", "pending"),
+      ],
+    });
+    const next = makeRun({
+      ...prev,
+      hosts: [
+        host("proxmox:host:esxi-01", "evacuating"),
+        host("proxmox:host:esxi-02", "pending"),
+        host("proxmox:host:esxi-03", "pending"),
+      ],
+    });
+    const event: UpgradeEvent = { kind: "host_step_succeeded", at: AT };
+    const msg = buildUpgradeProgressText(prev, next, event, plan);
+    expect(msg).toContain(":wrench:");
+    expect(msg).toContain("esxi-01");
+    expect(msg).toContain("evacuating");
+    expect(msg).toContain("1/3");
+  });
+
+  it("host advances to next host — emits both 'done' for prior + 'starting' for next", () => {
+    const plan = makePlan();
+    const prev = makeRun({
+      phase: "executing",
+      currentHostIndex: 0,
+      hosts: [
+        host("proxmox:host:esxi-01", "exiting_maintenance"),
+        host("proxmox:host:esxi-02", "pending"),
+        host("proxmox:host:esxi-03", "pending"),
+      ],
+    });
+    const next = makeRun({
+      ...prev,
+      currentHostIndex: 1,
+      hosts: [
+        host("proxmox:host:esxi-01", "completed"),
+        host("proxmox:host:esxi-02", "entering_maintenance"),
+        host("proxmox:host:esxi-03", "pending"),
+      ],
+    });
+    const event: UpgradeEvent = { kind: "host_step_succeeded", at: AT };
+    const msg = buildUpgradeProgressText(prev, next, event, plan);
+    expect(msg).not.toBeNull();
+    expect(msg).toContain("esxi-01"); // prior done
+    expect(msg).toContain("esxi-02"); // next starting
+    expect(msg).toContain("1/3 complete");
+    expect(msg).toContain("2/3 starting");
+    expect(msg).toContain("entering maintenance");
+  });
+
+  it("host_step_failed emits red-X with host + reason", () => {
+    const plan = makePlan();
+    const prev = makeRun({
+      phase: "executing",
+      currentHostIndex: 1,
+      hosts: [
+        host("proxmox:host:esxi-01", "completed"),
+        host("proxmox:host:esxi-02", "remediating"),
+        host("proxmox:host:esxi-03", "pending"),
+      ],
+    });
+    const next = makeRun({
+      ...prev,
+      hosts: [
+        host("proxmox:host:esxi-01", "completed"),
+        host("proxmox:host:esxi-02", "failed", { errorMessage: "image not found" }),
+        host("proxmox:host:esxi-03", "pending"),
+      ],
+    });
+    const event: UpgradeEvent = {
+      kind: "host_step_failed",
+      reason: "image not found",
+      at: AT,
+    };
+    const msg = buildUpgradeProgressText(prev, next, event, plan);
+    expect(msg).toContain(":x:");
+    expect(msg).toContain("esxi-02");
+    expect(msg).toContain("image not found");
+    expect(msg).toContain("2/3");
+  });
+
+  it("executing → rolling_back emits hook emoji + reason", () => {
+    const plan = makePlan();
+    const prev = makeRun({ phase: "executing", currentHostIndex: 1, hosts: [] });
+    const next = makeRun({
+      phase: "rolling_back",
+      currentHostIndex: 1,
+      hosts: [],
+      errorMessage: "host[1]: image not found",
+    });
+    const event: UpgradeEvent = {
+      kind: "host_step_failed",
+      reason: "image not found",
+      at: AT,
+    };
+    const msg = buildUpgradeProgressText(prev, next, event, plan);
+    expect(msg).toContain(":leftwards_arrow_with_hook:");
+    expect(msg).toContain("Rolling back");
+    expect(msg).toContain("image not found");
+  });
+
+  it("→ completed emits :tada: with target version + host count", () => {
+    const plan = makePlan();
+    const prev = makeRun({ phase: "executing", currentHostIndex: 2 });
+    const next = makeRun({
+      phase: "completed",
+      currentHostIndex: 3,
+      hosts: [],
+      completedAt: AT,
+    });
+    const event: UpgradeEvent = { kind: "host_step_succeeded", at: AT };
+    const msg = buildUpgradeProgressText(prev, next, event, plan);
+    expect(msg).toContain(":tada:");
+    expect(msg).toContain("8.0u3");
+    expect(msg).toContain("3/3");
+    expect(msg).toContain("prod");
+  });
+
+  it("→ failed (from rolling_back) emits :x: with errorMessage", () => {
+    const plan = makePlan();
+    const prev = makeRun({ phase: "rolling_back", currentHostIndex: 1 });
+    const next = makeRun({
+      phase: "failed",
+      currentHostIndex: 1,
+      hosts: [],
+      errorMessage: "host[1]: image not found; rollback also failed: snapshot revert failed",
+    });
+    const event: UpgradeEvent = { kind: "rollback_failed", reason: "snapshot revert failed", at: AT };
+    const msg = buildUpgradeProgressText(prev, next, event, plan);
+    expect(msg).toContain(":x:");
+    expect(msg).toContain("Upgrade failed");
+    expect(msg).toContain("snapshot revert failed");
+  });
+
+  it("preflight_failed → failed (no host loop entered) emits :x:", () => {
+    const plan = makePlan();
+    const prev = makeRun({ phase: "preflight", currentHostIndex: -1 });
+    const next = makeRun({
+      phase: "failed",
+      currentHostIndex: -1,
+      hosts: [],
+      errorMessage: "preflight: cluster lacks N-1 capacity",
+    });
+    const event: UpgradeEvent = {
+      kind: "preflight_failed",
+      reason: "cluster lacks N-1 capacity",
+      at: AT,
+    };
+    const msg = buildUpgradeProgressText(prev, next, event, plan);
+    expect(msg).toContain(":x:");
+    expect(msg).toContain("cluster lacks N-1 capacity");
+  });
+
+  it("returns null when phase unchanged and event isn't a host step", () => {
+    const plan = makePlan();
+    const prev = makeRun({ phase: "executing", currentHostIndex: 0 });
+    const next = makeRun({ ...prev });
+    // Synthetic event that won't trigger any branch
+    const event: UpgradeEvent = { kind: "approve", actor: "x", at: AT };
+    const msg = buildUpgradeProgressText(prev, next, event, plan);
+    expect(msg).toBeNull();
+  });
+
+  it("escapes mrkdwn-special chars in error messages", () => {
+    const plan = makePlan();
+    const prev = makeRun({ phase: "executing", currentHostIndex: 0 });
+    const next = makeRun({
+      phase: "failed",
+      currentHostIndex: 0,
+      errorMessage: "exit code <127> from /usr/bin/foo & bar",
+    });
+    const event: UpgradeEvent = { kind: "host_step_failed", reason: "x", at: AT };
+    const msg = buildUpgradeProgressText(prev, next, event, plan)!;
+    expect(msg).not.toContain("<127>");
+    expect(msg).toContain("&lt;127&gt;");
+    expect(msg).toContain("&amp;");
   });
 });

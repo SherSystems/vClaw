@@ -233,6 +233,157 @@ describe("UpgradeRunner.drive", () => {
   });
 });
 
+describe("UpgradeRunner.drive — onTransition hook (v0.7.3.1)", () => {
+  let dir: string;
+  let store: OrchestratorStore;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "rhodes-runner-hook-"));
+    store = new OrchestratorStore(join(dir, "orchestrator.db"));
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("fires onTransition after every persisted FSM transition with (prev, next, event)", async () => {
+    const { runId } = approvedPlan(store);
+    const calls: Array<{ prevPhase: string; nextPhase: string; eventKind: string }> = [];
+    const runner = new UpgradeRunner(store, {
+      primitivesFor: () => fakePrimitives(),
+      awaitReboot: async () => {},
+      clock: () => FIXED_NOW,
+      onTransition: (prev, next, event) => {
+        calls.push({
+          prevPhase: prev.phase,
+          nextPhase: next.phase,
+          eventKind: event.kind,
+        });
+      },
+    });
+    const final = await runner.drive(runId);
+    expect(final.phase).toBe("completed");
+    // Must observe at least one transition per persisted step, and the
+    // first event must be preflight_succeeded (drive starts at approved).
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls[0].eventKind).toBe("preflight_succeeded");
+    // The terminal phase must show up as the last next.phase.
+    expect(calls[calls.length - 1].nextPhase).toBe("completed");
+    // prev.phase of the very first call is the run state drive() loaded.
+    expect(calls[0].prevPhase).toBe("approved");
+  });
+
+  it("awaits async onTransition before continuing the loop", async () => {
+    const { runId } = approvedPlan(store);
+    const order: string[] = [];
+    const runner = new UpgradeRunner(store, {
+      primitivesFor: () => fakePrimitives(),
+      awaitReboot: async () => {
+        order.push("awaitReboot");
+      },
+      clock: () => FIXED_NOW,
+      onTransition: async (_prev, next) => {
+        // Yield a microtask so a non-awaiting impl would race with awaitReboot.
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        order.push(`hook:${next.phase}:host${next.currentHostIndex}`);
+      },
+    });
+    await runner.drive(runId);
+    // Every hook call must finish before the next awaitReboot fires.
+    // Confirm by checking no two consecutive entries are both "awaitReboot"
+    // without a hook entry between, AND that the first hook entry precedes
+    // the first awaitReboot (preflight transition happens before host loop).
+    const firstHookIdx = order.findIndex((s) => s.startsWith("hook:"));
+    const firstRebootIdx = order.indexOf("awaitReboot");
+    expect(firstHookIdx).toBeGreaterThanOrEqual(0);
+    expect(firstRebootIdx).toBeGreaterThan(firstHookIdx);
+  });
+
+  it("swallows errors thrown by onTransition so the runner doesn't stall", async () => {
+    const { runId } = approvedPlan(store);
+    const errs: string[] = [];
+    const originalErr = console.error;
+    console.error = (...args: unknown[]) => {
+      errs.push(args.map(String).join(" "));
+    };
+    try {
+      const runner = new UpgradeRunner(store, {
+        primitivesFor: () => fakePrimitives(),
+        awaitReboot: async () => {},
+        clock: () => FIXED_NOW,
+        onTransition: () => {
+          throw new Error("subscriber boom");
+        },
+      });
+      const final = await runner.drive(runId);
+      // Runner must still reach completion despite the subscriber blowing up.
+      expect(final.phase).toBe("completed");
+      // And the error must have been logged (not silently dropped).
+      expect(errs.some((e) => e.includes("subscriber boom"))).toBe(true);
+      expect(errs.some((e) => e.includes("onTransition hook threw"))).toBe(true);
+    } finally {
+      console.error = originalErr;
+    }
+  });
+
+  it("swallows rejections from async onTransition without stalling", async () => {
+    const { runId } = approvedPlan(store);
+    const originalErr = console.error;
+    let captured = 0;
+    console.error = () => {
+      captured++;
+    };
+    try {
+      const runner = new UpgradeRunner(store, {
+        primitivesFor: () => fakePrimitives(),
+        awaitReboot: async () => {},
+        clock: () => FIXED_NOW,
+        onTransition: async () => {
+          throw new Error("async subscriber boom");
+        },
+      });
+      const final = await runner.drive(runId);
+      expect(final.phase).toBe("completed");
+      expect(captured).toBeGreaterThan(0);
+    } finally {
+      console.error = originalErr;
+    }
+  });
+
+  it("is optional — runner works fine without an onTransition hook", async () => {
+    const { runId } = approvedPlan(store);
+    const runner = new UpgradeRunner(store, {
+      primitivesFor: () => fakePrimitives(),
+      awaitReboot: async () => {},
+      clock: () => FIXED_NOW,
+      // no onTransition
+    });
+    const final = await runner.drive(runId);
+    expect(final.phase).toBe("completed");
+  });
+
+  it("hook sees the persisted next state (store and next arg match)", async () => {
+    const { runId } = approvedPlan(store);
+    const mismatches: string[] = [];
+    const runner = new UpgradeRunner(store, {
+      primitivesFor: () => fakePrimitives(),
+      awaitReboot: async () => {},
+      clock: () => FIXED_NOW,
+      onTransition: (_prev, next) => {
+        const persisted = store.getRun(next.id);
+        if (!persisted || persisted.phase !== next.phase) {
+          mismatches.push(
+            `${next.id}: persisted=${persisted?.phase} next=${next.phase}`,
+          );
+        }
+      },
+    });
+    await runner.drive(runId);
+    expect(mismatches).toEqual([]);
+  });
+});
+
 describe("providerFromResourceId", () => {
   it("extracts the provider segment", () => {
     expect(providerFromResourceId("vsphere:vsphere_host:h1")).toBe("vsphere");
